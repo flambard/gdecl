@@ -14,16 +14,15 @@ Import("target", "application_lib")
 
 env = Environment()
 
-## ECL
-# output from: ecl-config --cflags
-ecl_cflags = ["-Dlinux", "-I/usr/include"]
-# output from: ecl-config --ldflags
-ecl_ldflags = ["-L/usr/lib/x86_64-linux-gnu", "-lecl", "-Wl,-z,relro", "-lgc", "-lgc", "-lgc", "-lpthread", "-ldl", "-lm"]
+# ECL's compiler and linker flags (defines, include and library paths, -lecl
+# and its dependencies)
+env.ParseConfig("ecl-config --cflags --ldflags")
 
 # Set the compiler and flags.
 env.Append(CPPPATH = ["src"])
-env.Append(CFLAGS = ["-O0", "-g"] + ecl_cflags)  # Make it a debug build.
-env.Append(LINKFLAGS = ecl_ldflags)
+env.Append(CFLAGS = ["-O0", "-g"])  # Make it a debug build.
+# The Lisp code, before -lecl so the linker resolves its references to ECL
+env.Prepend(LIBS = [File(application_lib)])
 
 # Use Clang on macOS.
 # if sys.platform == "darwin":
@@ -32,8 +31,7 @@ env["CC"] = "clang"
 
 library = env.SharedLibrary(
     target = target,
-    source = Glob("src/*.c"),
-    LIBS = [File(application_lib)]
+    source = Glob("src/*.c")
 )
 
 Return("library")
