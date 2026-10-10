@@ -14,7 +14,7 @@
 #endif // ! GDE_EXPORT
 
 // Given to gdecl_library_init, kept until ECL is booted and they can be
-// passed to godot:initialize.
+// passed to gd-extension:initialize.
 static GDExtensionInterfaceGetProcAddress get_proc_address = NULL;
 static GDExtensionClassLibraryPtr class_library = NULL;
 
@@ -56,8 +56,8 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
     printf("MODULE INITIATED\n");
 
     // Set up the Lisp side, which then runs the application's initialize hooks:
-    // (godot:initialize get-proc-address class-library)
-    cl_object initialize = cl_list(3, ecl_read_from_cstring("godot:initialize"),
+    // (gd-extension:initialize get-proc-address class-library)
+    cl_object initialize = cl_list(3, ecl_read_from_cstring("gd-extension:initialize"),
                                    ecl_make_pointer((void *)get_proc_address),
                                    ecl_make_pointer(class_library));
     si_safe_eval(2, initialize, ECL_NIL);

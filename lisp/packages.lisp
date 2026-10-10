@@ -1,5 +1,6 @@
-(defpackage #:gdextension-ffi
+(defpackage #:gd-extension-ffi
   (:documentation "The Godot GDExtension C interface, mapped 1-to-1")
+  (:nicknames #:gdext-ffi)
   (:use #:cl)
   (:export #:load-interface
            #:*class-library*
@@ -205,9 +206,10 @@
            #:argument
            #:expected))
 
-(defpackage #:godot
+(defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
-  (:use #:cl #:gdextension-ffi)
+  (:nicknames #:gdext)
+  (:use #:cl #:gd-extension-ffi)
   (:export #:initialize
            #:add-initialize-hook
            ;; Helpers

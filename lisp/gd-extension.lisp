@@ -1,9 +1,9 @@
-(in-package :godot)
+(in-package :gd-extension)
 
 ;;;
 ;;; The Lisp-style layer of the framework: initialization, helpers and macros,
 ;;; and binding Lisp functions as methods, properties and signals. Built on
-;;; the package GDEXTENSION-FFI (gdextension-ffi.lisp), which maps the C interface.
+;;; the package GD-EXTENSION-FFI (gd-extension-ffi.lisp), which maps the C interface.
 ;;;
 
 (ffi:clines "#include <string.h>")

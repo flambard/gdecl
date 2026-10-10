@@ -39,7 +39,7 @@ my-app/
 (defun start ()
   ...)
 
-(godot:add-initialize-hook 'start)
+(gdext:add-initialize-hook 'start)
 ```
 
 **The Makefile** names your ASDF system and includes gdecl's make rules:
@@ -87,10 +87,10 @@ Run `make` before `scons`, and again after changing any Lisp code. SCons doesn't
 
 ## Packages
 
-- **`godot`**: the Lisp-style API.
+- **`gd-extension`** (nickname `gdext`): the Lisp-style API.
   - `add-initialize-hook` registers your entry point.
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
   - `bind-method`, `bind-property` and `bind-signal-1` register your class's methods, properties and signals. Bound methods can take and return `bool`, `int` and `float`.
   - `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory.
-- **`gdextension-ffi`**: the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `godot` package doesn't cover yet.
+- **`gd-extension-ffi`** (nickname `gdext-ffi`): the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `gd-extension` package doesn't cover yet.

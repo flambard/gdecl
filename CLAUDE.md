@@ -5,8 +5,8 @@ Guidance for working on the gdecl framework: Godot 4 GDExtension programming in 
 ## Layout
 
 - `gdecl.asd`: the ASDF system `gdecl`, with its Lisp code in `lisp/`.
-- `lisp/packages.lisp`: the packages `gdextension-ffi` and `godot`.
-- `lisp/gdextension-ffi.lisp` and `lisp/godot.lisp`: the two layers, see below.
+- `lisp/packages.lisp`: the packages `gd-extension-ffi` (nickname `gdext-ffi`) and `gd-extension` (nickname `gdext`).
+- `lisp/gd-extension-ffi.lisp` and `lisp/gd-extension.lisp`: the two layers, see below.
 - `src/gdecl.c`: the C bootstrap, the extension's entry point.
 - `gdecl.mk`: the make rules, included by an application's Makefile.
 - `SConscript`: the C build, called from an application's SConstruct.
@@ -26,17 +26,17 @@ Guidance for working on the gdecl framework: Godot 4 GDExtension programming in 
 1. Godot calls `gdecl_library_init` (`src/gdecl.c`). It keeps `get_proc_address` and the class library in static variables until ECL is booted.
 2. At `GDEXTENSION_INITIALIZATION_SCENE`, `initialize_gdecl_module`:
    - disables ECL's signal trapping (SIGSEGV etc.) so it doesn't conflict with Godot's handlers,
-   - calls `cl_boot`, then `ecl_init_module(NULL, init_lib_APPLICATION)`. This loads the Lisp code, and the application's top-level forms register its entry point with `godot:add-initialize-hook`,
-   - evaluates `(godot:initialize get-proc-address class-library)` with `si_safe_eval`, passing the pointers as foreign-pointer objects (`ecl_make_pointer`). This is the only Lisp function the C side calls; it knows nothing about the application.
-3. `godot:initialize` calls `gdextension-ffi:load-interface`, which stores `*get-proc-address*` and `*class-library*` and looks up the interface functions. It then caches the Variant constructors and runs the initialize hooks.
+   - calls `cl_boot`, then `ecl_init_module(NULL, init_lib_APPLICATION)`. This loads the Lisp code, and the application's top-level forms register its entry point with `gd-extension:add-initialize-hook`,
+   - evaluates `(gd-extension:initialize get-proc-address class-library)` with `si_safe_eval`, passing the pointers as foreign-pointer objects (`ecl_make_pointer`). This is the only Lisp function the C side calls; it knows nothing about the application.
+3. `gd-extension:initialize` calls `gd-extension-ffi:load-interface`, which stores `*get-proc-address*` and `*class-library*` and looks up the interface functions. It then caches the Variant constructors and runs the initialize hooks.
 4. Deinit calls `cl_shutdown`.
 
 ## The two layers
 
-- `gdextension-ffi` (`lisp/gdextension-ffi.lisp`) maps the GDExtension C interface one-to-one: interface function wrappers, enums and struct mirrors. Keep it free of Lisp conveniences.
+- `gd-extension-ffi` (`lisp/gd-extension-ffi.lisp`) maps the GDExtension C interface one-to-one: interface function wrappers, enums and struct mirrors. Keep it free of Lisp conveniences.
   - Each interface function is kept in a variable named after the C function (`*string-name-new-with-latin1-chars*`), and called through a Lisp function with the same name without earmuffs. The variable is set in `load-interface`.
   - Function pointers returned by Godot (constructors, operator evaluators) are called with `call-*` functions.
-- `godot` (`lisp/godot.lisp`, uses `gdextension-ffi`) is the public, Lisp-style layer: initialization and hooks, `with-` macros, pointer helpers, the method dispatcher and the binding helpers.
+- `gd-extension` (`lisp/gd-extension.lisp`, uses `gd-extension-ffi`) is the public, Lisp-style layer: initialization and hooks, `with-` macros, pointer helpers, the method dispatcher and the binding helpers.
 - Don't look anything up in Godot at load time, only in `load-interface`/`initialize` or later. ASDF loads the framework into the build image to compile what depends on it, and there's no Godot there.
 
 ## FFI notes

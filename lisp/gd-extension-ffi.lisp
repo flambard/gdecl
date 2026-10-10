@@ -1,15 +1,15 @@
-(in-package :gdextension-ffi)
+(in-package :gd-extension-ffi)
 
 ;;;
 ;;; The GDExtension C interface, mapped as directly as possible: interface
 ;;; functions, enums and structs from gdextension_interface.h. The Lisp-style
-;;; layer on top of this is the package GODOT (godot.lisp).
+;;; layer on top of this is the package GD-EXTENSION (gd-extension.lisp).
 ;;;
 
 ;;;
 ;;; The foreign lookups below must not happen at load time: ASDF loads this
 ;;; file into the build image, where there is no Godot. The C side calls
-;;; LOAD-INTERFACE (through GODOT:INITIALIZE) once ECL is running inside Godot.
+;;; LOAD-INTERFACE (through GD-EXTENSION:INITIALIZE) once ECL is running inside Godot.
 ;;;
 ;;; Each interface function is kept in a variable named after the C function
 ;;; (*string-name-new-with-latin1-chars* for string_name_new_with_latin1_chars)
