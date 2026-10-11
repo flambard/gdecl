@@ -28,11 +28,13 @@
 ;;;
 
 ;; Variant types whose raw values the dispatcher can convert, and their FFI
-;; types. GDExtensionBool is uint8_t; Godot's int and float are 64 bits.
+;; types. GDExtensionBool is uint8_t; Godot's int and float are 64 bits. The raw
+;; value of an Object is the object pointer.
 (defparameter *method-value-types*
   (list (cons +variant-type-bool+ :uint8-t)
         (cons +variant-type-int+ :int64-t)
-        (cons +variant-type-float+ :double)))
+        (cons +variant-type-float+ :double)
+        (cons +variant-type-object+ :pointer-void)))
 
 (defun value-ffi-type (variant-type)
   (or (cdr (assoc variant-type *method-value-types*))
