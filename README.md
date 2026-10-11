@@ -94,8 +94,8 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
                   (exact-match +variant-type-bool+ nil)) ; optional, default NIL
       :return-type +variant-type-bool+)
     ```
-    The function takes the Godot object pointer and then the method's arguments. Supported types so far: bool, int, float, Vector2, StringName (arguments) and Rect2 (results).
-  - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(singleton "Input")` an engine singleton, looked up once.
+    The function takes the Godot object pointer and then the method's arguments. Supported types so far: bool, int, float, Vector2, StringName and NodePath (arguments), and Rect2 and Object (results; an Object is a Godot object pointer).
+  - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, `(npath "AnimatedSprite2D")` a NodePath created once, and `(singleton "Input")` an engine singleton, looked up once.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
   - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Like a GDScript script without `@tool`, its code doesn't run in the editor, unless you pass `:tool t`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, and `instance-object` gives it from an instance pointer.
   - `bind-virtual` implements a virtual method such as `_ready` or `_process` for your class: ``(bind-virtual "Player" "_process" #'player-process :arguments `(("delta" ,+variant-type-float+)))``, with the argument types from `extension_api.json`.

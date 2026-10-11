@@ -279,6 +279,7 @@ tables and dispatchers behind them")
            #:vector2-clamp
            ;; Values looked up once
            #:sname
+           #:npath
            #:singleton
            ;; Calling engine methods
            #:define-engine-method

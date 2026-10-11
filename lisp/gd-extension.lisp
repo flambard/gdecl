@@ -104,6 +104,23 @@ Never destroyed."
 created once, like SNAME() in Godot's C++ code, and never destroyed."
   `(car (load-time-value (make-initialize-cell (lambda () (new-string-name ,string))))))
 
+(defun new-node-path (path)
+  "A NodePath created from the string PATH, in memory from MEM-ALLOC. Never
+destroyed."
+  (let ((node-path (mem-alloc +node-path-size+)))
+    (with-string (string path)
+      (ffi:with-foreign-object (args '(:array :pointer-void 1))
+        (setf (foreign-ref args :pointer-void 0) string)
+        ;; Constructor 2 of NodePath takes a String
+        (call-ptr-constructor (variant-get-ptr-constructor +variant-type-node-path+ 2)
+                              node-path args)))
+    node-path))
+
+(defmacro npath (path)
+  "A pointer to a NodePath with PATH, a literal string, like ^\"path\" in GDScript.
+The NodePath is created once and never destroyed."
+  `(car (load-time-value (make-initialize-cell (lambda () (new-node-path ,path))))))
+
 (defmacro singleton (name)
   "The Godot object pointer of the engine singleton NAME, a literal string such
 as \"Input\". Looked up once."
@@ -182,13 +199,15 @@ and MAX."
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun engine-value-ffi-type (variant-type)
     "The FFI type of the raw value of VARIANT-TYPE in a ptrcall, or NIL for a
-StringName, which is passed as the pointer to it."
+StringName or NodePath argument, which is passed as the pointer to it. An
+Object is a pointer to the Godot object."
     (cond ((eql variant-type +variant-type-bool+) :uint8-t)
           ((eql variant-type +variant-type-int+) :int64-t)
           ((eql variant-type +variant-type-float+) :double)
           ((eql variant-type +variant-type-vector2+) 'godot-vector2)
           ((eql variant-type +variant-type-rect2+) 'godot-rect2)
-          ((eql variant-type +variant-type-string-name+) nil)
+          ((eql variant-type +variant-type-object+) :pointer-void)
+          ((member variant-type (list +variant-type-string-name+ +variant-type-node-path+)) nil)
           (t (error "Unsupported type for an engine method: variant type ~d" variant-type))))
 
   (defun engine-value-write-form (variant-type pointer value)
@@ -216,6 +235,8 @@ StringName, which is passed as the pointer to it."
            `(read-vector2 ,pointer))
           ((eql variant-type +variant-type-rect2+)
            `(read-rect2 ,pointer))
+          ((eql variant-type +variant-type-object+)
+           `(foreign-ref ,pointer :pointer-void))
           (t (error "Unsupported return type for an engine method: variant type ~d"
                     variant-type)))))
 
@@ -234,8 +255,9 @@ arguments as Lisp values, and returns the result as a Lisp value. HASH is the
 hash of the method from extension_api.json. ARGUMENTS is a list of (name
 variant-type) or (name variant-type default); arguments with a default are
 optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+ for
-none). Supported types: bool, int, float, Vector2, and StringName as an
-argument (a pointer to a StringName, see SNAME) and Rect2 as a result."
+none). Supported types: bool, int, float, Vector2; StringName and NodePath as
+arguments (pointers to them, see SNAME and NPATH); Rect2 and Object (a Godot
+object pointer) as results."
   (let* ((return-type (eval return-type))
          (has-return-value (/= return-type +variant-type-nil+))
          (arguments (loop for (arg-name type . default) in arguments
