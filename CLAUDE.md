@@ -8,9 +8,10 @@ GDExtension is a low-level C interface, not meant to be used directly by applica
 
 Principles:
 
-- **Build up gradually.** Each layer is built on the one below it: `gd-extension-ffi` (the C interface, one-to-one), then `gd-extension` (Lisp-style helpers), then probably a third layer on top of `gd-extension` for the highest-level concepts, such as the CLOS integration below (not decided yet). Grow the framework from what the demo applications need, and move code from an application into gdecl once the pattern is clear.
+- **Build up gradually.** Each layer is built on the one below it: `gd-extension-ffi` (the C interface, one-to-one), then `gd-extension` (Lisp-style helpers), then probably a third layer on top of `gd-extension` for the highest-level concepts, such as the CLOS integration below (not decided yet). Grow the framework from what the applications built on it need, and move code from an application into gdecl once the pattern is clear.
 - **Keep the lower layers usable.** An application can always use a lower layer for what the higher ones don't cover yet, or for a hot path.
 - **Do the work up front, not per call.** Look up method binds, StringNames and constructors once (at initialization or registration) and cache them. Prefer `ptrcall` to Variant calls. Avoid allocating in calls that happen every frame (`_process`, `_physics_process`), e.g. by not boxing floats or creating temporary Strings. Prefer compile-time expansion (macros, code generated from `extension_api.json`) to runtime lookup and dispatch.
+- **Improve gdecl as you go.** When working on an application and gdecl is missing something, or something in it could be better, add or improve it in gdecl rather than working around it in the application. Keep such changes general, not specific to the application.
 - **Measure.** Before choosing a convenient but slower design for something called often, check what it costs.
 
 Where to look for inspiration:
@@ -40,7 +41,7 @@ Things to find out:
 - **Builtin types**: `Vector2`, `Color`, etc. as Lisp structs or specialized arrays with arithmetic in Lisp, without calls into Godot. Mind `real_t` (single precision in the `float_64` build configuration).
 - **Cost of CLOS dispatch in ECL** for methods called every frame, and whether caching the effective method is enough.
 
-Lisp can also offer what GDScript and C# can't easily: redefining functions and classes in a running game (see the demo's dynamic loading), and a REPL connected to Godot.
+Lisp can also offer what GDScript and C# can't easily: redefining functions and classes in a running game, and a REPL connected to Godot.
 
 ## Layout
 
