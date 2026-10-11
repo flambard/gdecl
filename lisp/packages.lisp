@@ -220,11 +220,34 @@
            #:element-pointer
            #:foreign-ref))
 
+(defpackage #:gd-extension-types
+  (:documentation "Godot's builtin types in Lisp, and converting them to and from
+raw values")
+  (:nicknames #:gdext-types)
+  (:use #:cl #:gd-extension-ffi)
+  (:export #:vector2
+           #:vector2-p
+           #:vector2-x
+           #:vector2-y
+           #:vector2+
+           #:vector2*
+           #:vector2-length
+           #:vector2-normalized
+           #:vector2-clamp
+           #:read-vector2
+           #:write-vector2
+           #:rect2
+           #:rect2-p
+           #:rect2-position
+           #:rect2-size
+           #:read-rect2
+           #:write-variant))
+
 (defpackage #:gd-extension-callback
   (:documentation "What runs when Godot calls into Lisp: the callbacks, and the
 tables and dispatchers behind them")
   (:nicknames #:gdext-callback)
-  (:use #:cl #:gd-extension-ffi)
+  (:use #:cl #:gd-extension-ffi #:gd-extension-types)
   (:export ;; Callbacks
            #:method-ptrcall
            #:method-call
@@ -241,7 +264,7 @@ tables and dispatchers behind them")
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)
-  (:use #:cl #:gd-extension-ffi)
+  (:use #:cl #:gd-extension-ffi #:gd-extension-types)
   (:import-from #:gd-extension-callback
                 #:method-ptrcall
                 #:method-call
@@ -263,7 +286,7 @@ tables and dispatchers behind them")
            #:clear-foreign-object
            #:cast-pointer
            #:foreign-ref
-           ;; Builtin types
+           ;; From GD-EXTENSION-TYPES
            #:vector2
            #:vector2-p
            #:vector2-x

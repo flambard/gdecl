@@ -34,6 +34,7 @@
   (list (cons +variant-type-bool+ :uint8-t)
         (cons +variant-type-int+ :int64-t)
         (cons +variant-type-float+ :double)
+        (cons +variant-type-vector2+ 'godot-vector2)
         (cons +variant-type-object+ :pointer-void)))
 
 (defun value-ffi-type (variant-type)
@@ -42,17 +43,21 @@
 
 (defun read-value (pointer variant-type)
   "The raw value of VARIANT-TYPE at POINTER as a Lisp value."
-  (let ((value (foreign-ref pointer (value-ffi-type variant-type))))
-    (if (= variant-type +variant-type-bool+)
-        (/= value 0)
-        value)))
+  (cond ((= variant-type +variant-type-vector2+)
+         (read-vector2 (cast-pointer pointer 'godot-vector2)))
+        ((= variant-type +variant-type-bool+)
+         (/= (foreign-ref pointer :uint8-t) 0))
+        (t
+         (foreign-ref pointer (value-ffi-type variant-type)))))
 
 (defun write-value (pointer variant-type value)
   "Store the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
-  (setf (foreign-ref pointer (value-ffi-type variant-type))
-        (cond ((= variant-type +variant-type-bool+) (if value 1 0))
-              ((= variant-type +variant-type-float+) (float value 1d0))
-              (t value))))
+  (if (= variant-type +variant-type-vector2+)
+      (write-vector2 (cast-pointer pointer 'godot-vector2) value)
+      (setf (foreign-ref pointer (value-ffi-type variant-type))
+            (cond ((= variant-type +variant-type-bool+) (if value 1 0))
+                  ((= variant-type +variant-type-float+) (float value 1d0))
+                  (t value)))))
 
 (defstruct bound-method
   function
