@@ -283,6 +283,7 @@ tables and dispatchers behind them")
            #:singleton
            ;; Calling engine methods
            #:define-engine-method
+           #:define-engine-vararg-method
            ;; Classes
            #:register-class
            #:bind-virtual

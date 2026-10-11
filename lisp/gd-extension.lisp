@@ -238,7 +238,102 @@ Object is a pointer to the Godot object."
           ((eql variant-type +variant-type-object+)
            `(foreign-ref ,pointer :pointer-void))
           (t (error "Unsupported return type for an engine method: variant type ~d"
-                    variant-type)))))
+                    variant-type))))
+
+  (defun ptrcall-method-form (method-bind object arguments return-type)
+    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
+ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
+    (let ((has-return-value (/= return-type +variant-type-nil+))
+          (args (gensym "ARGS"))
+          (r-ret (gensym "R-RET")))
+      `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
+                                  ,@(loop for (nil nil nil ffi-type raw) in arguments
+                                          when ffi-type collect `(,raw ',ffi-type))
+                                  ,@(when has-return-value
+                                      `((,r-ret ',(engine-value-ffi-type return-type)))))
+         ,@(loop for (arg-name type nil ffi-type raw) in arguments
+                 for i from 0
+                 if ffi-type
+                   collect (engine-value-write-form type raw arg-name)
+                   and collect `(setf (foreign-ref ,args :pointer-void ,i) ,raw)
+                 else
+                   collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
+         (object-method-bind-ptrcall ,method-bind ,object ,args
+                                     ,(if has-return-value r-ret '(ffi:make-null-pointer :void)))
+         ,(when has-return-value
+            (engine-value-read-form return-type r-ret)))))
+
+  (defun variant-call-method-form (method-bind object arguments return-type name)
+    "The code of a DEFINE-ENGINE-VARARG-METHOD function that calls METHOD-BIND
+with object_method_bind_call, with the arguments and the result as Variants."
+    (let ((has-return-value (/= return-type +variant-type-nil+))
+          (argument-count (length arguments))
+          (args (gensym "ARGS"))
+          (variants (gensym "VARIANTS"))
+          (r-return (gensym "R-RETURN"))
+          (r-error (gensym "R-ERROR"))
+          (r-ret (gensym "R-RET"))
+          (call-error (gensym "CALL-ERROR")))
+      `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 argument-count)))
+                                  (,variants '(:array variant ,(max 1 argument-count)))
+                                  ,@(loop for (nil nil nil ffi-type raw) in arguments
+                                          when ffi-type collect `(,raw ',ffi-type))
+                                  (,r-return 'variant)
+                                  (,r-error 'call-error)
+                                  ,@(when has-return-value
+                                      `((,r-ret ',(engine-value-ffi-type return-type)))))
+         ,@(loop for (arg-name type nil ffi-type raw) in arguments
+                 for i from 0
+                 when ffi-type
+                   collect (engine-value-write-form type raw arg-name)
+                 collect `(call-variant-from-type-constructor
+                           (aref *variant-from-type-constructors* ,type)
+                           (element-pointer ,variants 'variant ,i)
+                           ,(if ffi-type raw arg-name))
+                 collect `(setf (foreign-ref ,args :pointer-void ,i)
+                                (element-pointer ,variants 'variant ,i)))
+         ;; Godot always initializes r_ret, also when the call fails
+         (unwind-protect
+              (progn
+                (object-method-bind-call ,method-bind ,object ,args ,argument-count
+                                         ,r-return ,r-error)
+                (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
+                  (unless (= ,call-error +call-ok+)
+                    (error "Calling ~a failed with call error ~d" ',name ,call-error)))
+                ,(when has-return-value
+                   `(progn
+                      (call-type-from-variant-constructor
+                       (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
+                      ,(engine-value-read-form return-type r-ret))))
+           (dotimes (i ,argument-count)
+             (variant-destroy (element-pointer ,variants 'variant i)))
+           (variant-destroy ,r-return)))))
+
+  (defun engine-method-defun (name class-name method-name hash arguments return-type
+                              body-form-function)
+    "The DEFUN of NAME for DEFINE-ENGINE-METHOD and DEFINE-ENGINE-VARARG-METHOD.
+BODY-FORM-FUNCTION makes the code that calls the method, given the variables
+with the method bind and the object, the parsed arguments and the return type."
+    (let ((return-type (eval return-type))
+          (arguments (loop for (arg-name type . default) in arguments
+                           for variant-type = (eval type)
+                           collect (list arg-name variant-type default
+                                         (engine-value-ffi-type variant-type)
+                                         (gensym (symbol-name arg-name)))))
+          (object (gensym "OBJECT"))
+          (method-bind (gensym "METHOD-BIND")))
+      `(defun ,name (,object
+                     ,@(loop for (arg-name nil default) in arguments
+                             unless default collect arg-name)
+                     ,@(when (some #'third arguments) '(&optional))
+                     ,@(loop for (arg-name nil default) in arguments
+                             when default collect (list arg-name (first default))))
+         (let ((,method-bind (car (load-time-value
+                                   (make-initialize-cell
+                                    (lambda () (lookup-method-bind ,class-name ,method-name ,hash)))))))
+           (unless ,method-bind
+             (error "The method ~a.~a wasn't found" ,class-name ,method-name))
+           ,(funcall body-form-function method-bind object arguments return-type))))))
 
 (defun lookup-method-bind (class-name method-name hash)
   (let ((method-bind (get-method-bind class-name method-name hash)))
@@ -250,52 +345,31 @@ Object is a pointer to the Godot object."
 (defmacro define-engine-method (name (class-name method-name hash)
                                 &key arguments (return-type '+variant-type-nil+))
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
-CLASS-NAME. The function takes the Godot object pointer and then the method's
-arguments as Lisp values, and returns the result as a Lisp value. HASH is the
-hash of the method from extension_api.json. ARGUMENTS is a list of (name
-variant-type) or (name variant-type default); arguments with a default are
-optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+ for
-none). Supported types: bool, int, float, Vector2; StringName and NodePath as
-arguments (pointers to them, see SNAME and NPATH); Rect2 and Object (a Godot
-object pointer) as results."
-  (let* ((return-type (eval return-type))
-         (has-return-value (/= return-type +variant-type-nil+))
-         (arguments (loop for (arg-name type . default) in arguments
-                          for variant-type = (eval type)
-                          collect (list arg-name variant-type default
-                                        (engine-value-ffi-type variant-type)
-                                        (gensym (symbol-name arg-name)))))
-         (object (gensym "OBJECT"))
-         (method-bind (gensym "METHOD-BIND"))
-         (args (gensym "ARGS"))
-         (r-ret (gensym "R-RET")))
-    `(defun ,name (,object
-                   ,@(loop for (arg-name nil default) in arguments
-                           unless default collect arg-name)
-                   ,@(when (some #'third arguments) '(&optional))
-                   ,@(loop for (arg-name nil default) in arguments
-                           when default collect (list arg-name (first default))))
-       (let ((,method-bind (car (load-time-value
-                                 (make-initialize-cell
-                                  (lambda () (lookup-method-bind ,class-name ,method-name ,hash)))))))
-         (unless ,method-bind
-           (error "The method ~a.~a wasn't found" ,class-name ,method-name))
-         (ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
-                                    ,@(loop for (nil nil nil ffi-type raw) in arguments
-                                            when ffi-type collect `(,raw ',ffi-type))
-                                    ,@(when has-return-value
-                                        `((,r-ret ',(engine-value-ffi-type return-type)))))
-           ,@(loop for (arg-name type nil ffi-type raw) in arguments
-                   for i from 0
-                   if ffi-type
-                     collect (engine-value-write-form type raw arg-name)
-                     and collect `(setf (foreign-ref ,args :pointer-void ,i) ,raw)
-                   else
-                     collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
-           (object-method-bind-ptrcall ,method-bind ,object ,args
-                                       ,(if has-return-value r-ret '(ffi:make-null-pointer :void)))
-           ,(when has-return-value
-              (engine-value-read-form return-type r-ret)))))))
+CLASS-NAME with ptrcall. The function takes the Godot object pointer and then
+the method's arguments as Lisp values, and returns the result as a Lisp value.
+HASH is the hash of the method from extension_api.json. ARGUMENTS is a list of
+(name variant-type) or (name variant-type default); arguments with a default
+are optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+
+for none; int for an enum). Supported types: bool, int, float, Vector2;
+StringName and NodePath as arguments (pointers to them, see SNAME and NPATH);
+Rect2 and Object (a Godot object pointer) as results.
+
+For vararg methods, use DEFINE-ENGINE-VARARG-METHOD."
+  (engine-method-defun name class-name method-name hash arguments return-type
+                       (lambda (method-bind object arguments return-type)
+                         (ptrcall-method-form method-bind object arguments return-type))))
+
+(defmacro define-engine-vararg-method (name (class-name method-name hash)
+                                       &key arguments (return-type '+variant-type-nil+))
+  "Like DEFINE-ENGINE-METHOD, for a vararg method (is_vararg in
+extension_api.json), such as emit_signal. Vararg methods can't be called with
+ptrcall; the function converts the arguments and the result to and from
+Variants, and signals an error if the call fails. Only the arguments in
+ARGUMENTS can be passed so far, no extra ones."
+  (engine-method-defun name class-name method-name hash arguments return-type
+                       (lambda (method-bind object arguments return-type)
+                         (variant-call-method-form method-bind object arguments return-type
+                                                   name))))
 
 ;;;
 ;;; Binding helpers
