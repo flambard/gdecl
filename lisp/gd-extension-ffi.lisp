@@ -173,6 +173,9 @@
 (defvar *get-variant-to-type-constructor* nil)
 (defvar *variant-get-type* nil)
 (defvar *string-new-with-utf8-chars* nil)
+(defvar *string-to-utf8-chars* nil)
+(defvar *variant-get-ptr-builtin-method* nil)
+(defvar *packed-string-array-operator-index* nil)
 
 ;; Not interface functions: the results of get_variant_from_type_constructor and
 ;; get_variant_to_type_constructor for every variant type, indexed by type
@@ -184,6 +187,11 @@
 (defvar *string-destructor* nil)
 (defvar *node-path-destructor* nil)
 (defvar *callable-destructor* nil)
+(defvar *packed-string-array-destructor* nil)
+
+;; Not an interface function: the builtin method PackedStringArray.size(),
+;; fetched with variant_get_ptr_builtin_method
+(defvar *packed-string-array-size* nil)
 
 ;; Not an interface function: the operator evaluator for StringName ==
 ;; StringName, fetched with variant_get_ptr_operator_evaluator
@@ -400,6 +408,39 @@
                   '(:pointer-void :pointer-void)
                   (list dest (si:make-foreign-data-from-array octets)))))
 
+;; GDExtensionInt string_to_utf8_chars(GDExtensionConstStringPtr p_self,
+;;                                     char *r_text,
+;;                                     GDExtensionInt p_max_write_length)
+;;
+;; Returns the length in bytes. With R-TEXT NULL, only computes the length.
+(defun string-to-utf8-chars (string text max-write-length)
+  (si:call-cfun *string-to-utf8-chars*
+                :int64-t '(:pointer-void :pointer-void :int64-t)
+                (list string text max-write-length)))
+
+;; GDExtensionPtrBuiltInMethod
+;; variant_get_ptr_builtin_method(GDExtensionVariantType p_type,
+;;                                GDExtensionConstStringNamePtr p_method,
+;;                                GDExtensionInt p_hash)
+(defun variant-get-ptr-builtin-method (variant-type method hash)
+  (si:call-cfun *variant-get-ptr-builtin-method*
+                :pointer-void '(:int :pointer-void :int64-t) (list variant-type method hash)))
+
+;; Call a method returned by VARIANT-GET-PTR-BUILTIN-METHOD:
+;; void (*GDExtensionPtrBuiltInMethod)(GDExtensionTypePtr p_base,
+;;                                     const GDExtensionConstTypePtr *p_args,
+;;                                     GDExtensionTypePtr r_return,
+;;                                     int p_argument_count)
+(defun call-ptr-builtin-method (method base args r-return argument-count)
+  (si:call-cfun method :void '(:pointer-void :pointer-void :pointer-void :int)
+                (list base args r-return argument-count)))
+
+;; GDExtensionStringPtr packed_string_array_operator_index(GDExtensionTypePtr p_self,
+;;                                                         GDExtensionInt p_index)
+(defun packed-string-array-operator-index (packed-string-array index)
+  (si:call-cfun *packed-string-array-operator-index*
+                :pointer-void '(:pointer-void :int64-t) (list packed-string-array index)))
+
 ;; void string_destructor(GDExtensionTypePtr p_base)
 (defun string-destructor (string)
   (si:call-cfun *string-destructor* :void '(:pointer-void) (list string)))
@@ -411,6 +452,11 @@
 ;; void callable_destructor(GDExtensionTypePtr p_base)
 (defun callable-destructor (callable)
   (si:call-cfun *callable-destructor* :void '(:pointer-void) (list callable)))
+
+;; void packed_string_array_destructor(GDExtensionTypePtr p_base)
+(defun packed-string-array-destructor (packed-string-array)
+  (si:call-cfun *packed-string-array-destructor* :void '(:pointer-void)
+                (list packed-string-array)))
 
 ;;;
 ;;; Loading the interface
@@ -445,11 +491,21 @@ that Godot gave the extension, and look up the interface functions."
         *get-variant-from-type-constructor* (get-proc-address "get_variant_from_type_constructor")
         *get-variant-to-type-constructor* (get-proc-address "get_variant_to_type_constructor")
         *variant-get-type* (get-proc-address "variant_get_type")
-        *string-new-with-utf8-chars* (get-proc-address "string_new_with_utf8_chars"))
+        *string-new-with-utf8-chars* (get-proc-address "string_new_with_utf8_chars")
+        *string-to-utf8-chars* (get-proc-address "string_to_utf8_chars")
+        *variant-get-ptr-builtin-method* (get-proc-address "variant_get_ptr_builtin_method")
+        *packed-string-array-operator-index* (get-proc-address "packed_string_array_operator_index"))
   (setf *string-name-destructor* (variant-get-ptr-destructor +variant-type-string-name+)
         *string-destructor* (variant-get-ptr-destructor +variant-type-string+)
         *node-path-destructor* (variant-get-ptr-destructor +variant-type-node-path+)
-        *callable-destructor* (variant-get-ptr-destructor +variant-type-callable+))
+        *callable-destructor* (variant-get-ptr-destructor +variant-type-callable+)
+        *packed-string-array-destructor*
+        (variant-get-ptr-destructor +variant-type-packed-string-array+))
+  (ffi:with-foreign-object (method 'string-name)
+    (string-name-new-with-latin1-chars method "size")
+    (setf *packed-string-array-size*
+          (variant-get-ptr-builtin-method +variant-type-packed-string-array+ method 3173160232))
+    (string-name-destructor method))
   (setf *string-name-equal-evaluator*
         (variant-get-ptr-operator-evaluator +variant-op-equal+ +variant-type-string-name+
                                             +variant-type-string-name+))
@@ -475,6 +531,7 @@ that Godot gave the extension, and look up the interface functions."
 (defconstant +rect2-size+ 16)
 (defconstant +node-path-size+ 8)
 (defconstant +callable-size+ 16)
+(defconstant +packed-string-array-size+ 16)
 
 ;;  typedef struct
 ;;  {
@@ -509,6 +566,9 @@ that Godot gave the extension, and look up the interface functions."
 
 (ffi:def-struct callable
   (data '(:array :uint8-t #.+callable-size+)))
+
+(ffi:def-struct packed-string-array
+  (data '(:array :uint8-t #.+packed-string-array-size+)))
 
 
 ;;  typedef struct

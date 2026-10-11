@@ -69,6 +69,22 @@ and MAX."
     (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position) (rect2-position rect))
     (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size) (rect2-size rect))))
 
+(defun read-string (pointer)
+  "The Godot String at POINTER as a Lisp string."
+  (let* ((length (string-to-utf8-chars pointer (ffi:make-null-pointer :void) 0))
+         (octets (make-array length :element-type '(unsigned-byte 8))))
+    (string-to-utf8-chars pointer (si:make-foreign-data-from-array octets) length)
+    (ext:octets-to-string octets :external-format :utf-8)))
+
+(defun read-packed-string-array (pointer)
+  "The PackedStringArray at POINTER as a list of Lisp strings."
+  (let ((size (ffi:with-foreign-object (r-return :int64-t)
+                (call-ptr-builtin-method *packed-string-array-size* pointer
+                                         (ffi:make-null-pointer :void) r-return 0)
+                (foreign-ref r-return :int64-t))))
+    (loop for i below size
+          collect (read-string (packed-string-array-operator-index pointer i)))))
+
 ;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
 ;; when a method's metadata says they're smaller). The raw value of an Object
 ;; is the object pointer.
@@ -137,6 +153,10 @@ VECTOR2 a Vector2. Destroy it with VARIANT-DESTROY."
                          :reader 'read-rect2 :writer 'write-rect2)
         (make-value-type :variant-type +variant-type-object+ :ffi-type :pointer-void
                          :reader 'read-object :writer 'write-object)
+        (make-value-type :variant-type +variant-type-packed-string-array+
+                         :ffi-type 'packed-string-array
+                         :reader 'read-packed-string-array
+                         :destructor 'packed-string-array-destructor)
         (make-value-type :variant-type +variant-type-string-name+)
         (make-value-type :variant-type +variant-type-node-path+)
         (make-value-type :variant-type :variant :ffi-type 'variant

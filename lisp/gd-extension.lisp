@@ -185,6 +185,10 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                  else
                    collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
          ,(let ((call `(progn
+                         ;; Godot assigns the result, e.g. to a Ref or a
+                         ;; PackedStringArray, so the old value must be empty
+                         ,@(when has-return-value
+                             `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
                          (object-method-bind-ptrcall ,method-bind ,object ,args
                                                      ,(if has-return-value
                                                           r-ret
@@ -193,9 +197,13 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                             (engine-value-read-form return-type r-ret))))
                 ;; Raw values that need it, such as Variants, are destroyed
                 ;; after the call
-                (destroy-forms (loop for (nil type nil ffi-type raw) in arguments
-                                     for form = (and ffi-type (engine-value-destroy-form type raw))
-                                     when form collect form)))
+                (destroy-forms (append
+                                (loop for (nil type nil ffi-type raw) in arguments
+                                      for form = (and ffi-type (engine-value-destroy-form type raw))
+                                      when form collect form)
+                                (when has-return-value
+                                  (let ((form (engine-value-destroy-form return-type r-ret)))
+                                    (when form (list form)))))))
             (if destroy-forms
                 `(unwind-protect ,call ,@destroy-forms)
                 call)))))
@@ -247,7 +255,11 @@ with object_method_bind_call, with the arguments and the result as Variants."
                    `(progn
                       (call-type-from-variant-constructor
                        (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
-                      ,(engine-value-read-form return-type r-ret))))
+                      ,(let ((destroy-form (engine-value-destroy-form return-type r-ret)))
+                         (if destroy-form
+                             `(unwind-protect ,(engine-value-read-form return-type r-ret)
+                                ,destroy-form)
+                             (engine-value-read-form return-type r-ret))))))
            (dotimes (i ,argument-count)
              (variant-destroy (element-pointer ,variants 'variant i)))
            (variant-destroy ,r-return)))))
@@ -314,6 +326,33 @@ ARGUMENTS can be passed so far, no extra ones."
                        (lambda (method-bind object arguments return-type)
                          (variant-call-method-form method-bind object arguments return-type
                                                    name))))
+
+;;;
+;;; References
+;;;
+;;; An engine method that returns a RefCounted object, such as a Resource,
+;;; returns it with a reference that the caller owns, like a Ref<T> in C++.
+;;; Give it back with RELEASE-REFERENCE, or use WITH-REFERENCE.
+;;;
+
+(define-engine-method ref-counted-unreference ("RefCounted" "unreference" 2240911060)
+  :return-type +variant-type-bool+)
+
+(defun release-reference (object)
+  "Give back a reference to the RefCounted OBJECT (a Godot object pointer, or
+NULL), and destroy the object if it was the last one, like the destructor of
+Ref<T>."
+  (unless (ffi:null-pointer-p object)
+    (when (ref-counted-unreference object)
+      (object-destroy object))))
+
+(defmacro with-reference ((var form) &body body)
+  "Evaluate BODY with VAR bound to the RefCounted object (a Godot object pointer)
+returned by FORM, a call of an engine method, and give the reference back when
+BODY exits, also on a non-local exit."
+  `(let ((,var ,form))
+     (unwind-protect (progn ,@body)
+       (release-reference ,var))))
 
 ;;;
 ;;; Binding helpers

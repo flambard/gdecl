@@ -39,6 +39,12 @@
            #:string-destructor
            #:node-path-destructor
            #:callable-destructor
+           #:packed-string-array-destructor
+           #:string-to-utf8-chars
+           #:variant-get-ptr-builtin-method
+           #:call-ptr-builtin-method
+           #:packed-string-array-operator-index
+           #:*packed-string-array-size*
            #:*variant-from-type-constructors*
            #:*string-name-equal-evaluator*
            #:*type-from-variant-constructors*
@@ -146,6 +152,7 @@
            #:+rect2-size+
            #:+node-path-size+
            #:+callable-size+
+           #:+packed-string-array-size+
            #:string-name
            #:godot-string
            #:variant
@@ -157,6 +164,7 @@
            #:size
            #:node-path
            #:callable
+           #:packed-string-array
            #:data
            #:godot-version
            #:major
@@ -242,6 +250,8 @@ raw values")
            #:rect2-size
            #:read-rect2
            #:write-rect2
+           #:read-string
+           #:read-packed-string-array
            #:write-variant
            ;; Value types
            #:value-type
@@ -316,6 +326,9 @@ tables and dispatchers behind them")
            ;; Calling engine methods
            #:define-engine-method
            #:define-engine-vararg-method
+           ;; References
+           #:release-reference
+           #:with-reference
            ;; Classes
            #:register-class
            #:bind-virtual
