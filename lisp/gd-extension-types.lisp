@@ -48,6 +48,15 @@
         (vector2 (/ (vector2-x vector) length)
                  (/ (vector2-y vector) length)))))
 
+(defun vector2-rotated (vector angle)
+  "VECTOR.rotated(ANGLE): VECTOR rotated by ANGLE radians."
+  (let ((cos (cos angle))
+        (sin (sin angle))
+        (x (vector2-x vector))
+        (y (vector2-y vector)))
+    (vector2 (float (- (* x cos) (* y sin)) 1.0)
+             (float (+ (* x sin) (* y cos)) 1.0))))
+
 (defun vector2-clamp (vector min max)
   "VECTOR.clamp(MIN, MAX): each component of VECTOR clamped between those of MIN
 and MAX."

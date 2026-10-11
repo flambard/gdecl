@@ -244,6 +244,7 @@ raw values")
            #:vector2*
            #:vector2-length
            #:vector2-normalized
+           #:vector2-rotated
            #:vector2-clamp
            #:read-vector2
            #:write-vector2
@@ -326,6 +327,7 @@ tables and dispatchers behind them")
            #:vector2*
            #:vector2-length
            #:vector2-normalized
+           #:vector2-rotated
            #:vector2-clamp
            ;; Values looked up once
            #:sname
