@@ -40,6 +40,7 @@
            #:node-path-destructor
            #:callable-destructor
            #:*variant-from-type-constructors*
+           #:*string-name-equal-evaluator*
            #:*type-from-variant-constructors*
            ;; Enums
            #:+variant-op-equal+

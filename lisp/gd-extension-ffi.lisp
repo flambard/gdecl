@@ -185,6 +185,10 @@
 (defvar *node-path-destructor* nil)
 (defvar *callable-destructor* nil)
 
+;; Not an interface function: the operator evaluator for StringName ==
+;; StringName, fetched with variant_get_ptr_operator_evaluator
+(defvar *string-name-equal-evaluator* nil)
+
 ;; void get_godot_version(GDExtensionGodotVersion *r_godot_version)
 (defun get-godot-version (version)
   (si:call-cfun *get-godot-version* :void '(:pointer-void) (list version)))
@@ -446,6 +450,9 @@ that Godot gave the extension, and look up the interface functions."
         *string-destructor* (variant-get-ptr-destructor +variant-type-string+)
         *node-path-destructor* (variant-get-ptr-destructor +variant-type-node-path+)
         *callable-destructor* (variant-get-ptr-destructor +variant-type-callable+))
+  (setf *string-name-equal-evaluator*
+        (variant-get-ptr-operator-evaluator +variant-op-equal+ +variant-type-string-name+
+                                            +variant-type-string-name+))
   (setf *variant-from-type-constructors* (make-array +variant-type-variant-max+ :initial-element nil)
         *type-from-variant-constructors* (make-array +variant-type-variant-max+ :initial-element nil))
   ;; There are no constructors for NIL
