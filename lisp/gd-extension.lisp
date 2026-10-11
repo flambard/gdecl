@@ -23,16 +23,20 @@ registers its entry point: by calling ADD-INITIALIZE-HOOK when it's loaded."
   (setf *initialize-hooks*
         (append (remove function *initialize-hooks*) (list function))))
 
-;; Method binds to look up in INITIALIZE, see REQUEST-METHOD-BIND
-(defvar *method-bind-requests* '())
+;; Values to compute in INITIALIZE, see MAKE-INITIALIZE-CELL
+(defvar *initialize-cells* '())
 
 (defun initialize (get-proc-address class-library)
   "Set up the framework with the GDExtensionInterfaceGetProcAddress and
-GDExtensionClassLibraryPtr that Godot gave the extension, look up the method
-binds requested so far, then run the initialize hooks. Called from src/gdecl.c."
+GDExtensionClassLibraryPtr that Godot gave the extension, fill in the
+initialize cells made so far, then run the initialize hooks. Called from
+src/gdecl.c."
   (load-interface get-proc-address class-library)
-  (mapc #'resolve-method-bind (reverse *method-bind-requests*))
-  (setf *method-bind-requests* '())
+  (loop for (cell . function) in (reverse *initialize-cells*)
+        do (handler-case (setf (car cell) (funcall function))
+             (error (e)
+               (format t "~&Error in initialize cell ~a: ~a~%" function e))))
+  (setf *initialize-cells* '())
   (dolist (hook *initialize-hooks*)
     (handler-case (funcall hook)
       (error (e)
@@ -70,10 +74,49 @@ non-local exit."
        (string-destructor ,var))))
 
 ;;;
+;;; Values looked up once
+;;;
+;;; Things looked up in Godot, such as method binds, StringNames and
+;;; singletons, should be looked up once and not at every call. But not at load
+;;; time, since there's no Godot then. An initialize cell is a cons whose car is
+;;; computed in INITIALIZE; code gets the cons with LOAD-TIME-VALUE, so it's made
+;;; when the code is loaded, and the car is ready when the code runs.
+;;;
+
+(defun make-initialize-cell (function)
+  "A cons whose car will be the value of FUNCTION, called with no arguments in
+INITIALIZE, or now if INITIALIZE has been called (e.g. at a REPL)."
+  (let ((cell (cons nil nil)))
+    (if *class-library*
+        (setf (car cell) (funcall function))
+        (push (cons cell function) *initialize-cells*))
+    cell))
+
+(defun new-string-name (contents)
+  "A StringName created from the string CONTENTS, in memory from MEM-ALLOC.
+Never destroyed."
+  (let ((string-name (mem-alloc +string-name-size+)))
+    (string-name-new-with-latin1-chars string-name contents)
+    string-name))
+
+(defmacro sname (string)
+  "A pointer to a StringName with STRING, a literal string. The StringName is
+created once, like SNAME() in Godot's C++ code, and never destroyed."
+  `(car (load-time-value (make-initialize-cell (lambda () (new-string-name ,string))))))
+
+(defmacro singleton (name)
+  "The Godot object pointer of the engine singleton NAME, a literal string such
+as \"Input\". Looked up once."
+  `(car (load-time-value
+         (make-initialize-cell (lambda ()
+                                 (with-string-name (string-name ,name)
+                                   (global-get-singleton string-name)))))))
+
+;;;
 ;;; Builtin types
 ;;;
 ;;; Lisp versions of Godot's builtin types, with READ- functions that make one
-;;; from the raw value at a pointer.
+;;; from the raw value at a pointer, and WRITE- functions that store one there.
 ;;;
 
 (defstruct (vector2 (:constructor vector2 (&optional (x 0.0) (y 0.0))))
@@ -84,6 +127,39 @@ non-local exit."
 (defun read-vector2 (pointer)
   (vector2 (ffi:get-slot-value pointer 'godot-vector2 'x)
            (ffi:get-slot-value pointer 'godot-vector2 'y)))
+
+(defun write-vector2 (pointer vector)
+  (setf (ffi:get-slot-value pointer 'godot-vector2 'x) (vector2-x vector)
+        (ffi:get-slot-value pointer 'godot-vector2 'y) (vector2-y vector)))
+
+(defun vector2+ (a b)
+  "A + B"
+  (vector2 (+ (vector2-x a) (vector2-x b))
+           (+ (vector2-y a) (vector2-y b))))
+
+(defun vector2* (vector number)
+  "VECTOR * NUMBER"
+  (vector2 (float (* (vector2-x vector) number) 1.0)
+           (float (* (vector2-y vector) number) 1.0)))
+
+(defun vector2-length (vector)
+  "VECTOR.length()"
+  (sqrt (+ (* (vector2-x vector) (vector2-x vector))
+           (* (vector2-y vector) (vector2-y vector)))))
+
+(defun vector2-normalized (vector)
+  "VECTOR.normalized(): VECTOR scaled to length 1, or (0, 0) if it has length 0."
+  (let ((length (vector2-length vector)))
+    (if (zerop length)
+        (vector2)
+        (vector2 (/ (vector2-x vector) length)
+                 (/ (vector2-y vector) length)))))
+
+(defun vector2-clamp (vector min max)
+  "VECTOR.clamp(MIN, MAX): each component of VECTOR clamped between those of MIN
+and MAX."
+  (vector2 (min (max (vector2-x vector) (vector2-x min)) (vector2-x max))
+           (min (max (vector2-y vector) (vector2-y min)) (vector2-y max))))
 
 (defstruct (rect2 (:constructor rect2 (&optional (position (vector2)) (size (vector2)))))
   "Godot's Rect2. Make one with (RECT2 POSITION SIZE), like Rect2(position, size)."
@@ -98,45 +174,106 @@ non-local exit."
 ;;; Calling engine methods
 ;;;
 ;;; DEFINE-ENGINE-METHOD defines a Lisp function that calls a method of a Godot
-;;; class with ptrcall. The method bind is looked up once, in INITIALIZE (or
-;;; right away, if the function is defined after it), and kept in a cons that
-;;; the function gets with LOAD-TIME-VALUE.
+;;; class with ptrcall. The method bind is looked up once, in an initialize
+;;; cell, and the code that converts the arguments and the result is generated
+;;; for each type when the macro is expanded.
 ;;;
 
-(defun resolve-method-bind (request)
-  (destructuring-bind (cell class-name method-name hash) request
-    (let ((method-bind (get-method-bind class-name method-name hash)))
-      (if (ffi:null-pointer-p method-bind)
-          (format t "~&Error: no method ~a.~a with hash ~d~%" class-name method-name hash)
-          (setf (car cell) method-bind)))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun engine-value-ffi-type (variant-type)
+    "The FFI type of the raw value of VARIANT-TYPE in a ptrcall, or NIL for a
+StringName, which is passed as the pointer to it."
+    (cond ((eql variant-type +variant-type-bool+) :uint8-t)
+          ((eql variant-type +variant-type-int+) :int64-t)
+          ((eql variant-type +variant-type-float+) :double)
+          ((eql variant-type +variant-type-vector2+) 'godot-vector2)
+          ((eql variant-type +variant-type-rect2+) 'godot-rect2)
+          ((eql variant-type +variant-type-string-name+) nil)
+          (t (error "Unsupported type for an engine method: variant type ~d" variant-type))))
 
-(defun request-method-bind (class-name method-name hash)
-  "A cons whose car will be the method bind of the method METHOD-NAME of the
-class CLASS-NAME, with HASH. It's looked up in INITIALIZE, or now if INITIALIZE
-has been called."
-  (let ((request (list (cons nil nil) class-name method-name hash)))
-    (if *class-library*
-        (resolve-method-bind request)
-        (push request *method-bind-requests*))
-    (first request)))
+  (defun engine-value-write-form (variant-type pointer value)
+    "A form that stores the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
+    (cond ((eql variant-type +variant-type-bool+)
+           `(setf (foreign-ref ,pointer :uint8-t) (if ,value 1 0)))
+          ((eql variant-type +variant-type-int+)
+           `(setf (foreign-ref ,pointer :int64-t) ,value))
+          ((eql variant-type +variant-type-float+)
+           `(setf (foreign-ref ,pointer :double) (float ,value 1d0)))
+          ((eql variant-type +variant-type-vector2+)
+           `(write-vector2 ,pointer ,value))
+          (t (error "Unsupported argument type for an engine method: variant type ~d"
+                    variant-type))))
 
-(defmacro define-engine-method (name (class-name method-name hash) &key return-type)
+  (defun engine-value-read-form (variant-type pointer)
+    "A form that reads the raw value of VARIANT-TYPE at POINTER as a Lisp value."
+    (cond ((eql variant-type +variant-type-bool+)
+           `(/= (foreign-ref ,pointer :uint8-t) 0))
+          ((eql variant-type +variant-type-int+)
+           `(foreign-ref ,pointer :int64-t))
+          ((eql variant-type +variant-type-float+)
+           `(foreign-ref ,pointer :double))
+          ((eql variant-type +variant-type-vector2+)
+           `(read-vector2 ,pointer))
+          ((eql variant-type +variant-type-rect2+)
+           `(read-rect2 ,pointer))
+          (t (error "Unsupported return type for an engine method: variant type ~d"
+                    variant-type)))))
+
+(defun lookup-method-bind (class-name method-name hash)
+  (let ((method-bind (get-method-bind class-name method-name hash)))
+    (if (ffi:null-pointer-p method-bind)
+        (progn (format t "~&Error: no method ~a.~a with hash ~d~%" class-name method-name hash)
+               nil)
+        method-bind)))
+
+(defmacro define-engine-method (name (class-name method-name hash)
+                                &key arguments (return-type '+variant-type-nil+))
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
-CLASS-NAME on a Godot object pointer, the function's argument, and returns the
-result as a Lisp value. HASH is the hash of the method from extension_api.json.
-RETURN-TYPE is the variant type of the result; only methods without arguments
-returning a Rect2 (+VARIANT-TYPE-RECT2+) are supported so far."
-  (let ((return-type (eval return-type)))
-    (unless (eql return-type +variant-type-rect2+)
-      (error "Unsupported return type for an engine method: variant type ~d" return-type))
-    `(defun ,name (object)
-       (let ((method-bind (car (load-time-value
-                                (request-method-bind ,class-name ,method-name ,hash)))))
-         (unless method-bind
+CLASS-NAME. The function takes the Godot object pointer and then the method's
+arguments as Lisp values, and returns the result as a Lisp value. HASH is the
+hash of the method from extension_api.json. ARGUMENTS is a list of (name
+variant-type) or (name variant-type default); arguments with a default are
+optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+ for
+none). Supported types: bool, int, float, Vector2, and StringName as an
+argument (a pointer to a StringName, see SNAME) and Rect2 as a result."
+  (let* ((return-type (eval return-type))
+         (has-return-value (/= return-type +variant-type-nil+))
+         (arguments (loop for (arg-name type . default) in arguments
+                          for variant-type = (eval type)
+                          collect (list arg-name variant-type default
+                                        (engine-value-ffi-type variant-type)
+                                        (gensym (symbol-name arg-name)))))
+         (object (gensym "OBJECT"))
+         (method-bind (gensym "METHOD-BIND"))
+         (args (gensym "ARGS"))
+         (r-ret (gensym "R-RET")))
+    `(defun ,name (,object
+                   ,@(loop for (arg-name nil default) in arguments
+                           unless default collect arg-name)
+                   ,@(when (some #'third arguments) '(&optional))
+                   ,@(loop for (arg-name nil default) in arguments
+                           when default collect (list arg-name (first default))))
+       (let ((,method-bind (car (load-time-value
+                                 (make-initialize-cell
+                                  (lambda () (lookup-method-bind ,class-name ,method-name ,hash)))))))
+         (unless ,method-bind
            (error "The method ~a.~a wasn't found" ,class-name ,method-name))
-         (ffi:with-foreign-object (r-ret 'godot-rect2)
-           (object-method-bind-ptrcall method-bind object (ffi:make-null-pointer :void) r-ret)
-           (read-rect2 r-ret))))))
+         (ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
+                                    ,@(loop for (nil nil nil ffi-type raw) in arguments
+                                            when ffi-type collect `(,raw ',ffi-type))
+                                    ,@(when has-return-value
+                                        `((,r-ret ',(engine-value-ffi-type return-type)))))
+           ,@(loop for (arg-name type nil ffi-type raw) in arguments
+                   for i from 0
+                   if ffi-type
+                     collect (engine-value-write-form type raw arg-name)
+                     and collect `(setf (foreign-ref ,args :pointer-void ,i) ,raw)
+                   else
+                     collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
+           (object-method-bind-ptrcall ,method-bind ,object ,args
+                                       ,(if has-return-value r-ret '(ffi:make-null-pointer :void)))
+           ,(when has-return-value
+              (engine-value-read-form return-type r-ret)))))))
 
 ;;;
 ;;; Binding helpers
@@ -243,20 +380,17 @@ instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
                                                  signal-string-name args-info 1)
         (destruct-property args-info)))))
 
-(defun new-string-name (contents)
-  "A StringName created from the string CONTENTS, in memory from MEM-ALLOC.
-Never destroyed."
-  (let ((string-name (mem-alloc +string-name-size+)))
-    (string-name-new-with-latin1-chars string-name contents)
-    string-name))
-
 (defun register-class (class-name parent-class-name
-                       &key (constructor #'identity) destructor)
+                       &key (constructor #'identity) destructor tool)
   "Register the class CLASS-NAME, which inherits from the class
 PARENT-CLASS-NAME (both strings). When Godot creates an instance, CONSTRUCTOR
 is called with the Godot object pointer, and returns the instance's Lisp object
 (see INSTANCE-OBJECT); the default is the object pointer itself. When Godot
-frees the instance, DESTRUCTOR, if given, is called with the Lisp object."
+frees the instance, DESTRUCTOR, if given, is called with the Lisp object.
+
+Unless TOOL is true, the class is a runtime class: in the editor, its instances
+are placeholders that keep their properties but run no code, like a GDScript
+script without @tool."
   (let* ((string-name (new-string-name class-name))
          (parent-string-name (new-string-name parent-class-name))
          (class-userdata (add-extension-class class-name string-name parent-string-name
@@ -265,6 +399,7 @@ frees the instance, DESTRUCTOR, if given, is called with the Lisp object."
       ;; All slots not set below are NULL/0
       (clear-foreign-object info 'class-creation-info4)
       (setf (ffi:get-slot-value info 'class-creation-info4 'is-exposed) 1
+            (ffi:get-slot-value info 'class-creation-info4 'is-runtime) (if tool 0 1)
             (ffi:get-slot-value info 'class-creation-info4 'create-instance-func)
             (ffi:callback 'create-instance)
             (ffi:get-slot-value info 'class-creation-info4 'free-instance-func)

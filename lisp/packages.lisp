@@ -272,6 +272,14 @@ tables and dispatchers behind them")
            #:rect2-p
            #:rect2-position
            #:rect2-size
+           #:vector2+
+           #:vector2*
+           #:vector2-length
+           #:vector2-normalized
+           #:vector2-clamp
+           ;; Values looked up once
+           #:sname
+           #:singleton
            ;; Calling engine methods
            #:define-engine-method
            ;; Classes

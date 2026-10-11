@@ -86,10 +86,18 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 - **`gd-extension`** (nickname `gdext`): the Lisp-style API.
   - `add-initialize-hook` registers your entry point.
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
-  - `vector2` and `rect2` are Lisp versions of Godot's Vector2 and Rect2: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`.
-  - `define-engine-method` defines a Lisp function that calls a Godot method, e.g. ``(define-engine-method get-viewport-rect ("CanvasItem" "get_viewport_rect" 1639390495) :return-type +variant-type-rect2+)``, with the hash from `extension_api.json`. The function takes the Godot object pointer. Only methods without arguments that return a Rect2 are supported so far.
+  - `vector2` and `rect2` are Lisp versions of Godot's Vector2 and Rect2: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`, with `vector2+`, `vector2*`, `vector2-length`, `vector2-normalized` and `vector2-clamp`.
+  - `define-engine-method` defines a Lisp function that calls a Godot method, with the hash from `extension_api.json`:
+    ```lisp
+    (define-engine-method is-action-pressed ("Input" "is_action_pressed" 1558498928)
+      :arguments ((action +variant-type-string-name+)
+                  (exact-match +variant-type-bool+ nil)) ; optional, default NIL
+      :return-type +variant-type-bool+)
+    ```
+    The function takes the Godot object pointer and then the method's arguments. Supported types so far: bool, int, float, Vector2, StringName (arguments) and Rect2 (results).
+  - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(singleton "Input")` an engine singleton, looked up once.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
-  - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, and `instance-object` gives it from an instance pointer.
+  - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Like a GDScript script without `@tool`, its code doesn't run in the editor, unless you pass `:tool t`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, and `instance-object` gives it from an instance pointer.
   - `bind-virtual` implements a virtual method such as `_ready` or `_process` for your class: ``(bind-virtual "Player" "_process" #'player-process :arguments `(("delta" ,+variant-type-float+)))``, with the argument types from `extension_api.json`.
   - `bind-method`, `bind-property` and `bind-signal-1` register your class's methods, properties and signals. Bound methods can take and return `bool`, `int` and `float`.
   - `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory (re-exported from `gd-extension-ffi`).
