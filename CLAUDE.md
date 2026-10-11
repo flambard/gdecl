@@ -45,6 +45,7 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
 ## Layout
 
 - `gdecl.asd`: the ASDF system `gdecl`, with its Lisp code in `lisp/`.
+- `LICENSE`: MIT.
 - `lisp/packages.lisp`: the packages `gd-extension-ffi` (nickname `gdext-ffi`) and `gd-extension` (nickname `gdext`).
 - `lisp/gd-extension-ffi.lisp` and `lisp/gd-extension.lisp`: the two layers, see below.
 - `src/gdecl.c`: the C bootstrap, the extension's entry point.

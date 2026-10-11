@@ -90,3 +90,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
   - `bind-method`, `bind-property` and `bind-signal-1` register your class's methods, properties and signals. Bound methods can take and return `bool`, `int` and `float`.
   - `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory.
 - **`gd-extension-ffi`** (nickname `gdext-ffi`): the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `gd-extension` package doesn't cover yet.
+
+## License
+
+MIT, see `LICENSE`.
