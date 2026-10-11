@@ -57,7 +57,7 @@ LIBRARY = project/bin/libgdecl.so
 include gdecl/gdecl.mk
 ```
 
-`gdecl.mk` also takes `LISP_DIRS`, the directories with your `.asd` and `.lisp` files (default `lisp`), `BUILD_DIR`, where the object files go (default `build/gdecl`), `GODOT`, the Godot executable (default `godot`), and the usual `CC` and `CFLAGS` (default clang if installed, and `-O0 -g`).
+`gdecl.mk` also takes `LISP_DIRS`, the directories with your `.asd` and `.lisp` files (default `lisp`), `BUILD_DIR`, where `application.a` and the object files go (default `build`), `GODOT`, the Godot executable (default `godot`), and the usual `CC` and `CFLAGS` (default clang if installed, and `-O0 -g`).
 
 **The `.gdextension` file** in your Godot project points Godot to the library. The entry symbol is always `gdecl_library_init`:
 
@@ -74,7 +74,7 @@ linux.debug = "res://bin/libgdecl.so"
 ## Building
 
 ```sh
-make             # Compile the Lisp code into application.a and build the GDExtension library
+make             # Compile the Lisp code into build/application.a and build the GDExtension library
 make godot-api   # Regenerate the Godot API files, e.g. after upgrading Godot
 make clean
 ```

@@ -56,10 +56,10 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
 
 ## Build
 
-- `gdecl.mk` builds the application's ASDF system (`SYSTEM`) with `:monolithic t`, so its dependencies, including `gdecl`, are compiled into the same library. The output is always `application.a` with the init function `init_lib_APPLICATION` (`:init-name`), whatever the application is called. `src/gdecl.c` calls `init_lib_APPLICATION` by name; keep the two in sync.
+- `gdecl.mk` builds the application's ASDF system (`SYSTEM`) with `:monolithic t`, so its dependencies, including `gdecl`, are compiled into the same library. The output is always `$(BUILD_DIR)/application.a` with the init function `init_lib_APPLICATION` (`:init-name`), whatever the application is called. `src/gdecl.c` calls `init_lib_APPLICATION` by name; keep the two in sync.
 - `gdecl.mk` finds its own directory through `MAKEFILE_LIST`, so gdecl can live at any path. It puts its own directory and the application's `LISP_DIRS` on `asdf:*central-registry*`.
 - Changing `SYSTEM` doesn't make `application.a` out of date; use `make -B`.
-- `gdecl.mk` then compiles `src/*.c` into `BUILD_DIR` (default `build/gdecl`) and links the objects and `application.a` into `LIBRARY`. ECL's flags come from `ecl-config --cflags` and `--ldflags`; `application.a` goes before them, so before `-lecl`. The library depends on `application.a`, so Lisp changes relink it. The compiler is `CC` if set on the command line or in the environment, otherwise clang if installed, otherwise `cc`. `CFLAGS` defaults to a debug build (`-O0 -g`).
+- `gdecl.mk` then compiles `src/*.c` into `BUILD_DIR` (default `build`) and links the objects and `application.a` into `LIBRARY`. ECL's flags come from `ecl-config --cflags` and `--ldflags`; `application.a` goes before them, so before `-lecl`. The library depends on `application.a`, so Lisp changes relink it. The compiler is `CC` if set on the command line or in the environment, otherwise clang if installed, otherwise `cc`. `CFLAGS` defaults to a debug build (`-O0 -g`).
 - `src/gdextension_interface.h` and `extension_api.json` are generated with `godot --dump-gdextension-interface` and `--dump-extension-api-with-docs` (`make godot-api`). They're ignored by `.gitignore`; don't edit them by hand. The `EditorSettings not instantiated yet` error Godot prints while dumping is harmless.
 
 ## Startup flow
