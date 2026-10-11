@@ -187,6 +187,31 @@ and MAX."
   (rect2 (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position))
          (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size))))
 
+(defun write-variant (variant value)
+  "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
+by its Lisp type: T or NIL is a bool, an integer an int, a real a float and a
+VECTOR2 a Vector2. Destroy it with VARIANT-DESTROY."
+  (flet ((construct (variant-type raw)
+           (call-variant-from-type-constructor
+            (aref *variant-from-type-constructors* variant-type) variant raw)))
+    (etypecase value
+      (boolean
+       (ffi:with-foreign-object (raw :uint8-t)
+         (setf (foreign-ref raw :uint8-t) (if value 1 0))
+         (construct +variant-type-bool+ raw)))
+      (integer
+       (ffi:with-foreign-object (raw :int64-t)
+         (setf (foreign-ref raw :int64-t) value)
+         (construct +variant-type-int+ raw)))
+      (real
+       (ffi:with-foreign-object (raw :double)
+         (setf (foreign-ref raw :double) (float value 1d0))
+         (construct +variant-type-float+ raw)))
+      (vector2
+       (ffi:with-foreign-object (raw 'godot-vector2)
+         (write-vector2 raw value)
+         (construct +variant-type-vector2+ raw))))))
+
 ;;;
 ;;; Calling engine methods
 ;;;
@@ -200,8 +225,10 @@ and MAX."
   (defun engine-value-ffi-type (variant-type)
     "The FFI type of the raw value of VARIANT-TYPE in a ptrcall, or NIL for a
 StringName or NodePath argument, which is passed as the pointer to it. An
-Object is a pointer to the Godot object."
-    (cond ((eql variant-type +variant-type-bool+) :uint8-t)
+Object is a pointer to the Godot object. VARIANT-TYPE :VARIANT means any
+Variant."
+    (cond ((eql variant-type :variant) 'variant)
+          ((eql variant-type +variant-type-bool+) :uint8-t)
           ((eql variant-type +variant-type-int+) :int64-t)
           ((eql variant-type +variant-type-float+) :double)
           ((eql variant-type +variant-type-vector2+) 'godot-vector2)
@@ -212,7 +239,9 @@ Object is a pointer to the Godot object."
 
   (defun engine-value-write-form (variant-type pointer value)
     "A form that stores the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
-    (cond ((eql variant-type +variant-type-bool+)
+    (cond ((eql variant-type :variant)
+           `(write-variant ,pointer ,value))
+          ((eql variant-type +variant-type-bool+)
            `(setf (foreign-ref ,pointer :uint8-t) (if ,value 1 0)))
           ((eql variant-type +variant-type-int+)
            `(setf (foreign-ref ,pointer :int64-t) ,value))
@@ -258,10 +287,20 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                    and collect `(setf (foreign-ref ,args :pointer-void ,i) ,raw)
                  else
                    collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
-         (object-method-bind-ptrcall ,method-bind ,object ,args
-                                     ,(if has-return-value r-ret '(ffi:make-null-pointer :void)))
-         ,(when has-return-value
-            (engine-value-read-form return-type r-ret)))))
+         ,(let ((call `(progn
+                         (object-method-bind-ptrcall ,method-bind ,object ,args
+                                                     ,(if has-return-value
+                                                          r-ret
+                                                          '(ffi:make-null-pointer :void)))
+                         ,(when has-return-value
+                            (engine-value-read-form return-type r-ret))))
+                ;; Variant arguments are destroyed after the call
+                (variants (loop for (nil type nil nil raw) in arguments
+                                when (eql type :variant) collect raw)))
+            (if variants
+                `(unwind-protect ,call
+                   ,@(loop for raw in variants collect `(variant-destroy ,raw)))
+                call)))))
 
   (defun variant-call-method-form (method-bind object arguments return-type name)
     "The code of a DEFINE-ENGINE-VARARG-METHOD function that calls METHOD-BIND
@@ -284,14 +323,20 @@ with object_method_bind_call, with the arguments and the result as Variants."
                                       `((,r-ret ',(engine-value-ffi-type return-type)))))
          ,@(loop for (arg-name type nil ffi-type raw) in arguments
                  for i from 0
-                 when ffi-type
-                   collect (engine-value-write-form type raw arg-name)
-                 collect `(call-variant-from-type-constructor
-                           (aref *variant-from-type-constructors* ,type)
-                           (element-pointer ,variants 'variant ,i)
-                           ,(if ffi-type raw arg-name))
-                 collect `(setf (foreign-ref ,args :pointer-void ,i)
-                                (element-pointer ,variants 'variant ,i)))
+                 for variant = `(element-pointer ,variants 'variant ,i)
+                 if (eql type :variant)
+                   ;; Already any Variant: constructed right in the array
+                   collect `(write-variant ,variant ,arg-name)
+                 else
+                   when ffi-type
+                     collect (engine-value-write-form type raw arg-name)
+                   end
+                   and collect `(call-variant-from-type-constructor
+                                 (aref *variant-from-type-constructors* ,type)
+                                 ,variant
+                                 ,(if ffi-type raw arg-name))
+                 end
+                 collect `(setf (foreign-ref ,args :pointer-void ,i) ,variant))
          ;; Godot always initializes r_ret, also when the call fails
          (unwind-protect
               (progn
@@ -352,7 +397,8 @@ HASH is the hash of the method from extension_api.json. ARGUMENTS is a list of
 are optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+
 for none; int for an enum). Supported types: bool, int, float, Vector2;
 StringName and NodePath as arguments (pointers to them, see SNAME and NPATH);
-Rect2 and Object (a Godot object pointer) as results.
+:VARIANT as an argument for a Variant, converted from the Lisp value by its
+type (see WRITE-VARIANT); Rect2 and Object (a Godot object pointer) as results.
 
 For vararg methods, use DEFINE-ENGINE-VARARG-METHOD."
   (engine-method-defun name class-name method-name hash arguments return-type
