@@ -294,4 +294,4 @@ tables and dispatchers behind them")
            #:destruct-property
            #:bind-method
            #:bind-property
-           #:bind-signal-1))
+           #:bind-signal))

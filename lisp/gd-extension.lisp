@@ -393,14 +393,22 @@ instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
                                                      info setter-name getter-name)))
       (destruct-property info))))
 
-(defun bind-signal-1 (class-name signal-name arg1-name arg1-type)
-  (with-string-name (class-string-name class-name)
-    (with-string-name (signal-string-name signal-name)
-      (ffi:with-foreign-object (args-info 'property-info)
-        (make-property args-info arg1-type arg1-name)
-        (classdb-register-extension-class-signal *class-library* class-string-name
-                                                 signal-string-name args-info 1)
-        (destruct-property args-info)))))
+(defun bind-signal (class-name signal-name &optional arguments)
+  "Register the signal SIGNAL-NAME of the class CLASS-NAME, like signal in
+GDScript. ARGUMENTS is a list of (name variant-type), as in BIND-METHOD; a
+signal without arguments has none."
+  (let ((argument-count (length arguments)))
+    (with-string-name (class-string-name class-name)
+      (with-string-name (signal-string-name signal-name)
+        ;; At least one element, so the array is never empty
+        (ffi:with-foreign-object (args-info `(:array property-info ,(max argument-count 1)))
+          (loop for (name type) in arguments
+                for i from 0
+                do (make-property (element-pointer args-info 'property-info i) type name))
+          (classdb-register-extension-class-signal *class-library* class-string-name
+                                                   signal-string-name args-info argument-count)
+          (dotimes (i argument-count)
+            (destruct-property (element-pointer args-info 'property-info i))))))))
 
 (defun register-class (class-name parent-class-name
                        &key (constructor #'identity) destructor tool)
