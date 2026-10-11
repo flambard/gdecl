@@ -3,9 +3,11 @@
 ;;;
 ;;; Lisp versions of Godot's builtin types, with READ- functions that make one
 ;;; from the raw value at a pointer, and WRITE- functions that store one there.
-;;; Used by GD-EXTENSION-CALLBACK to convert the arguments of bound methods, and
-;;; by GD-EXTENSION to call engine methods; GD-EXTENSION re-exports what
-;;; applications use.
+;;; GD-EXTENSION re-exports what applications use.
+;;;
+;;; *VALUE-TYPES* says how to convert each type between raw values and Lisp
+;;; values. It's used by GD-EXTENSION-CALLBACK for the arguments and results of
+;;; bound methods, and by GD-EXTENSION for those of engine methods.
 ;;;
 
 (defstruct (vector2 (:constructor vector2 (&optional (x 0.0) (y 0.0))))
@@ -14,12 +16,14 @@
   (y 0.0 :type single-float))
 
 (defun read-vector2 (pointer)
-  (vector2 (ffi:get-slot-value pointer 'godot-vector2 'x)
-           (ffi:get-slot-value pointer 'godot-vector2 'y)))
+  (let ((pointer (cast-pointer pointer 'godot-vector2)))
+    (vector2 (ffi:get-slot-value pointer 'godot-vector2 'x)
+             (ffi:get-slot-value pointer 'godot-vector2 'y))))
 
 (defun write-vector2 (pointer vector)
-  (setf (ffi:get-slot-value pointer 'godot-vector2 'x) (vector2-x vector)
-        (ffi:get-slot-value pointer 'godot-vector2 'y) (vector2-y vector)))
+  (let ((pointer (cast-pointer pointer 'godot-vector2)))
+    (setf (ffi:get-slot-value pointer 'godot-vector2 'x) (vector2-x vector)
+          (ffi:get-slot-value pointer 'godot-vector2 'y) (vector2-y vector))))
 
 (defun vector2+ (a b)
   "A + B"
@@ -56,8 +60,27 @@ and MAX."
   (size (vector2) :type vector2))
 
 (defun read-rect2 (pointer)
-  (rect2 (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position))
-         (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size))))
+  (let ((pointer (cast-pointer pointer 'godot-rect2)))
+    (rect2 (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position))
+           (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size)))))
+
+(defun write-rect2 (pointer rect)
+  (let ((pointer (cast-pointer pointer 'godot-rect2)))
+    (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position) (rect2-position rect))
+    (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size) (rect2-size rect))))
+
+;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
+;; when a method's metadata says they're smaller). The raw value of an Object
+;; is the object pointer.
+
+(defun read-bool (pointer) (/= (foreign-ref pointer :uint8-t) 0))
+(defun write-bool (pointer value) (setf (foreign-ref pointer :uint8-t) (if value 1 0)))
+(defun read-int (pointer) (foreign-ref pointer :int64-t))
+(defun write-int (pointer value) (setf (foreign-ref pointer :int64-t) value))
+(defun read-float (pointer) (foreign-ref pointer :double))
+(defun write-float (pointer value) (setf (foreign-ref pointer :double) (float value 1d0)))
+(defun read-object (pointer) (foreign-ref pointer :pointer-void))
+(defun write-object (pointer value) (setf (foreign-ref pointer :pointer-void) value))
 
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
@@ -83,3 +106,45 @@ VECTOR2 a Vector2. Destroy it with VARIANT-DESTROY."
        (ffi:with-foreign-object (raw 'godot-vector2)
          (write-vector2 raw value)
          (construct +variant-type-vector2+ raw))))))
+
+;;;
+;;; Value types
+;;;
+
+(defstruct value-type
+  ;; The variant type, or :VARIANT for any Variant
+  variant-type
+  ;; The FFI type of the raw value, or NIL if the value is passed as a pointer to
+  ;; it, which is then also its Lisp value (StringName, NodePath)
+  ffi-type
+  ;; Names of functions that read the raw value at a pointer as a Lisp value,
+  ;; and that store a Lisp value as a raw value at a pointer
+  reader
+  writer
+  ;; The name of a function that destroys a raw value written by WRITER, or NIL
+  destructor)
+
+(defparameter *value-types*
+  (list (make-value-type :variant-type +variant-type-bool+ :ffi-type :uint8-t
+                         :reader 'read-bool :writer 'write-bool)
+        (make-value-type :variant-type +variant-type-int+ :ffi-type :int64-t
+                         :reader 'read-int :writer 'write-int)
+        (make-value-type :variant-type +variant-type-float+ :ffi-type :double
+                         :reader 'read-float :writer 'write-float)
+        (make-value-type :variant-type +variant-type-vector2+ :ffi-type 'godot-vector2
+                         :reader 'read-vector2 :writer 'write-vector2)
+        (make-value-type :variant-type +variant-type-rect2+ :ffi-type 'godot-rect2
+                         :reader 'read-rect2 :writer 'write-rect2)
+        (make-value-type :variant-type +variant-type-object+ :ffi-type :pointer-void
+                         :reader 'read-object :writer 'write-object)
+        (make-value-type :variant-type +variant-type-string-name+)
+        (make-value-type :variant-type +variant-type-node-path+)
+        (make-value-type :variant-type :variant :ffi-type 'variant
+                         :writer 'write-variant :destructor 'variant-destroy))
+  "How values of each supported type are converted between raw values and Lisp
+values, see VALUE-TYPE.")
+
+(defun find-value-type (variant-type)
+  "The VALUE-TYPE of VARIANT-TYPE (or :VARIANT)."
+  (or (find variant-type *value-types* :key #'value-type-variant-type)
+      (error "Unsupported type: variant type ~s" variant-type)))

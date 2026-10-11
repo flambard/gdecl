@@ -241,7 +241,16 @@ raw values")
            #:rect2-position
            #:rect2-size
            #:read-rect2
-           #:write-variant))
+           #:write-rect2
+           #:write-variant
+           ;; Value types
+           #:value-type
+           #:value-type-variant-type
+           #:value-type-ffi-type
+           #:value-type-reader
+           #:value-type-writer
+           #:value-type-destructor
+           #:find-value-type))
 
 (defpackage #:gd-extension-callback
   (:documentation "What runs when Godot calls into Lisp: the callbacks, and the

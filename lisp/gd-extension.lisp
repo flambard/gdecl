@@ -141,51 +141,30 @@ as \"Input\". Looked up once."
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun engine-value-ffi-type (variant-type)
-    "The FFI type of the raw value of VARIANT-TYPE in a ptrcall, or NIL for a
-StringName or NodePath argument, which is passed as the pointer to it. An
-Object is a pointer to the Godot object. VARIANT-TYPE :VARIANT means any
-Variant."
-    (cond ((eql variant-type :variant) 'variant)
-          ((eql variant-type +variant-type-bool+) :uint8-t)
-          ((eql variant-type +variant-type-int+) :int64-t)
-          ((eql variant-type +variant-type-float+) :double)
-          ((eql variant-type +variant-type-vector2+) 'godot-vector2)
-          ((eql variant-type +variant-type-rect2+) 'godot-rect2)
-          ((eql variant-type +variant-type-object+) :pointer-void)
-          ((member variant-type (list +variant-type-string-name+ +variant-type-node-path+)) nil)
-          (t (error "Unsupported type for an engine method: variant type ~d" variant-type))))
+    "The FFI type of the raw value of VARIANT-TYPE (or :VARIANT for any Variant),
+or NIL for a StringName or NodePath, which is passed as the pointer to it."
+    (value-type-ffi-type (find-value-type variant-type)))
 
   (defun engine-value-write-form (variant-type pointer value)
     "A form that stores the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
-    (cond ((eql variant-type :variant)
-           `(write-variant ,pointer ,value))
-          ((eql variant-type +variant-type-bool+)
-           `(setf (foreign-ref ,pointer :uint8-t) (if ,value 1 0)))
-          ((eql variant-type +variant-type-int+)
-           `(setf (foreign-ref ,pointer :int64-t) ,value))
-          ((eql variant-type +variant-type-float+)
-           `(setf (foreign-ref ,pointer :double) (float ,value 1d0)))
-          ((eql variant-type +variant-type-vector2+)
-           `(write-vector2 ,pointer ,value))
-          (t (error "Unsupported argument type for an engine method: variant type ~d"
-                    variant-type))))
+    (let ((writer (value-type-writer (find-value-type variant-type))))
+      (unless writer
+        (error "Unsupported argument type for an engine method: variant type ~s" variant-type))
+      `(,writer ,pointer ,value)))
 
   (defun engine-value-read-form (variant-type pointer)
     "A form that reads the raw value of VARIANT-TYPE at POINTER as a Lisp value."
-    (cond ((eql variant-type +variant-type-bool+)
-           `(/= (foreign-ref ,pointer :uint8-t) 0))
-          ((eql variant-type +variant-type-int+)
-           `(foreign-ref ,pointer :int64-t))
-          ((eql variant-type +variant-type-float+)
-           `(foreign-ref ,pointer :double))
-          ((eql variant-type +variant-type-vector2+)
-           `(read-vector2 ,pointer))
-          ((eql variant-type +variant-type-rect2+)
-           `(read-rect2 ,pointer))
-          ((eql variant-type +variant-type-object+)
-           `(foreign-ref ,pointer :pointer-void))
-          (t (error "Unsupported return type for an engine method: variant type ~d"
-                    variant-type))))
+    (let ((reader (value-type-reader (find-value-type variant-type))))
+      (unless reader
+        (error "Unsupported return type for an engine method: variant type ~s" variant-type))
+      `(,reader ,pointer)))
+
+  (defun engine-value-destroy-form (variant-type pointer)
+    "A form that destroys the raw value of VARIANT-TYPE at POINTER, or NIL if it
+needs no destroying."
+    (let ((destructor (value-type-destructor (find-value-type variant-type))))
+      (when destructor
+        `(,destructor ,pointer))))
 
   (defun ptrcall-method-form (method-bind object arguments return-type)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
@@ -212,12 +191,13 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                                                           '(ffi:make-null-pointer :void)))
                          ,(when has-return-value
                             (engine-value-read-form return-type r-ret))))
-                ;; Variant arguments are destroyed after the call
-                (variants (loop for (nil type nil nil raw) in arguments
-                                when (eql type :variant) collect raw)))
-            (if variants
-                `(unwind-protect ,call
-                   ,@(loop for raw in variants collect `(variant-destroy ,raw)))
+                ;; Raw values that need it, such as Variants, are destroyed
+                ;; after the call
+                (destroy-forms (loop for (nil type nil ffi-type raw) in arguments
+                                     for form = (and ffi-type (engine-value-destroy-form type raw))
+                                     when form collect form)))
+            (if destroy-forms
+                `(unwind-protect ,call ,@destroy-forms)
                 call)))))
 
   (defun variant-call-method-form (method-bind object arguments return-type name)

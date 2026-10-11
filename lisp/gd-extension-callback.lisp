@@ -27,41 +27,27 @@
 ;;; self in GDScript.
 ;;;
 
-;; Variant types whose raw values the dispatcher can convert, and their FFI
-;; types. GDExtensionBool is uint8_t; Godot's int and float are 64 bits. The raw
-;; value of an Object is the object pointer.
-(defparameter *method-value-types*
-  (list (cons +variant-type-bool+ :uint8-t)
-        (cons +variant-type-int+ :int64-t)
-        (cons +variant-type-float+ :double)
-        (cons +variant-type-vector2+ 'godot-vector2)
-        (cons +variant-type-object+ :pointer-void)))
+(defun method-value-type (variant-type)
+  "The VALUE-TYPE of VARIANT-TYPE, if the dispatcher can convert it: a type with
+a raw value that can also be a Variant."
+  (let ((value-type (find-value-type variant-type)))
+    (unless (and (integerp (value-type-variant-type value-type))
+                 (value-type-ffi-type value-type)
+                 (value-type-reader value-type))
+      (error "Unsupported type for a bound method: variant type ~s" variant-type))
+    value-type))
 
-(defun value-ffi-type (variant-type)
-  (or (cdr (assoc variant-type *method-value-types*))
-      (error "Unsupported type for a bound method: variant type ~d" variant-type)))
+(defun read-value (pointer value-type)
+  "The raw value of VALUE-TYPE at POINTER as a Lisp value."
+  (funcall (value-type-reader value-type) pointer))
 
-(defun read-value (pointer variant-type)
-  "The raw value of VARIANT-TYPE at POINTER as a Lisp value."
-  (cond ((= variant-type +variant-type-vector2+)
-         (read-vector2 (cast-pointer pointer 'godot-vector2)))
-        ((= variant-type +variant-type-bool+)
-         (/= (foreign-ref pointer :uint8-t) 0))
-        (t
-         (foreign-ref pointer (value-ffi-type variant-type)))))
-
-(defun write-value (pointer variant-type value)
-  "Store the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
-  (if (= variant-type +variant-type-vector2+)
-      (write-vector2 (cast-pointer pointer 'godot-vector2) value)
-      (setf (foreign-ref pointer (value-ffi-type variant-type))
-            (cond ((= variant-type +variant-type-bool+) (if value 1 0))
-                  ((= variant-type +variant-type-float+) (float value 1d0))
-                  (t value)))))
+(defun write-value (pointer value-type value)
+  "Store the Lisp VALUE as a raw value of VALUE-TYPE at POINTER."
+  (funcall (value-type-writer value-type) pointer value))
 
 (defstruct bound-method
   function
-  ;; Variant types; +VARIANT-TYPE-NIL+ as the return type means no return value
+  ;; VALUE-TYPEs; NIL as the return type means no return value
   return-type
   argument-types)
 
@@ -69,14 +55,15 @@
 
 (defun register-method (function &key (return-type +variant-type-nil+) argument-types)
   "Register FUNCTION as a method and return its method_userdata. FUNCTION is
-called with the instance's Lisp object and one Lisp value per argument."
-  (unless (= return-type +variant-type-nil+)
-    (value-ffi-type return-type))
-  (mapc #'value-ffi-type argument-types)
-  (ffi:make-pointer (1+ (vector-push-extend (make-bound-method :function function
-                                                               :return-type return-type
-                                                               :argument-types argument-types)
-                                            *bound-methods*))
+called with the instance's Lisp object and one Lisp value per argument.
+RETURN-TYPE and ARGUMENT-TYPES are variant types."
+  (ffi:make-pointer (1+ (vector-push-extend
+                         (make-bound-method :function function
+                                            :return-type (unless (= return-type +variant-type-nil+)
+                                                           (method-value-type return-type))
+                                            :argument-types (mapcar #'method-value-type
+                                                                    argument-types))
+                         *bound-methods*))
                     :void))
 
 (defun userdata-method (userdata)
@@ -99,7 +86,7 @@ where the raw return value goes."
                           collect (read-value (foreign-ref args :pointer-void i) type)))
          (result (apply (bound-method-function method) (instance-object instance)
                         arguments)))
-    (unless (= return-type +variant-type-nil+)
+    (when return-type
       (write-value r-ret return-type result))))
 
 (defun call-bound-method (method-userdata instance args argument-count r-return r-error)
@@ -115,24 +102,26 @@ value as Variants, as in call_func."
            (set-call-error r-error +call-error-too-many-arguments+ :expected expected-count))
           (t
            (let ((arguments '()))
-             (loop for type in argument-types
+             (loop for value-type in argument-types
+                   for type = (value-type-variant-type value-type)
                    for i from 0
                    for variant = (foreign-ref args :pointer-void i)
                    do (unless (= (variant-get-type variant) type)
                         (set-call-error r-error +call-error-invalid-argument+
                                         :argument i :expected type)
                         (return-from call-bound-method))
-                      (ffi:with-foreign-object (value (value-ffi-type type))
+                      (ffi:with-foreign-object (value (value-type-ffi-type value-type))
                         (call-type-from-variant-constructor
                          (aref *type-from-variant-constructors* type) value variant)
-                        (push (read-value value type) arguments)))
+                        (push (read-value value value-type) arguments)))
              (let ((result (apply (bound-method-function method) (instance-object instance)
                                   (nreverse arguments))))
-               (unless (= return-type +variant-type-nil+)
-                 (ffi:with-foreign-object (value (value-ffi-type return-type))
+               (when return-type
+                 (ffi:with-foreign-object (value (value-type-ffi-type return-type))
                    (write-value value return-type result)
                    (call-variant-from-type-constructor
-                    (aref *variant-from-type-constructors* return-type) r-return value)))))))))
+                    (aref *variant-from-type-constructors* (value-type-variant-type return-type))
+                    r-return value)))))))))
 
 ;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
 ;;                                       GDExtensionClassInstancePtr p_instance,
