@@ -254,7 +254,8 @@ raw values")
            #:rect2-size
            #:read-rect2
            #:write-rect2
-           #:read-string
+           #:read-godot-string
+           #:write-godot-string
            #:read-packed-string-array
            #:write-variant
            ;; Value types

@@ -61,6 +61,13 @@ a raw value that can also be a Variant."
   "Store the Lisp VALUE as a raw value of VALUE-TYPE at POINTER."
   (funcall (value-type-writer value-type) pointer value))
 
+(defun destroy-value (pointer value-type)
+  "Destroy the raw value of VALUE-TYPE at POINTER, if it needs it (e.g. a
+String)."
+  (let ((destructor (value-type-destructor value-type)))
+    (when destructor
+      (funcall destructor pointer))))
+
 (defstruct bound-method
   ;; For error messages, e.g. "Player.start"
   name
@@ -131,7 +138,8 @@ value as Variants, as in call_func."
                              (ffi:with-foreign-object (value (value-type-ffi-type value-type))
                                (call-type-from-variant-constructor
                                 (aref *type-from-variant-constructors* type) value variant)
-                               (push (read-value value value-type) arguments)))
+                               (unwind-protect (push (read-value value value-type) arguments)
+                                 (destroy-value value value-type))))
                             ;; null for an Object
                             ((and (= type +variant-type-object+)
                                   (= variant-type +variant-type-nil+))
@@ -145,9 +153,12 @@ value as Variants, as in call_func."
                (when return-type
                  (ffi:with-foreign-object (value (value-type-ffi-type return-type))
                    (write-value value return-type result)
-                   (call-variant-from-type-constructor
-                    (aref *variant-from-type-constructors* (value-type-variant-type return-type))
-                    r-return value)))))))))
+                   ;; The Variant gets a copy
+                   (unwind-protect
+                        (call-variant-from-type-constructor
+                         (aref *variant-from-type-constructors* (value-type-variant-type return-type))
+                         r-return value)
+                     (destroy-value value return-type))))))))))
 
 ;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
 ;;                                       GDExtensionClassInstancePtr p_instance,
