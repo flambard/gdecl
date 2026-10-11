@@ -185,7 +185,7 @@ is called with the Godot object pointer, and returns the instance's Lisp object
 frees the instance, DESTRUCTOR, if given, is called with the Lisp object."
   (let* ((string-name (new-string-name class-name))
          (parent-string-name (new-string-name parent-class-name))
-         (class-userdata (add-extension-class string-name parent-string-name
+         (class-userdata (add-extension-class class-name string-name parent-string-name
                                               constructor destructor)))
     (ffi:with-foreign-object (info 'class-creation-info4)
       ;; All slots not set below are NULL/0
@@ -195,7 +195,24 @@ frees the instance, DESTRUCTOR, if given, is called with the Lisp object."
             (ffi:callback 'create-instance)
             (ffi:get-slot-value info 'class-creation-info4 'free-instance-func)
             (ffi:callback 'free-instance)
+            (ffi:get-slot-value info 'class-creation-info4 'get-virtual-call-data-func)
+            (ffi:callback 'get-virtual-call-data)
+            (ffi:get-slot-value info 'class-creation-info4 'call-virtual-with-data-func)
+            (ffi:callback 'call-virtual-with-data)
             (ffi:get-slot-value info 'class-creation-info4 'class-userdata) class-userdata)
       (classdb-register-extension-class4 *class-library* string-name parent-string-name
                                          info))
     class-name))
+
+(defun bind-virtual (class-name virtual-name function
+                     &key (return-type +variant-type-nil+) arguments)
+  "Make FUNCTION the class CLASS-NAME's implementation of the virtual method
+VIRTUAL-NAME, such as \"_ready\" or \"_process\". ARGUMENTS and RETURN-TYPE
+must match the virtual method's signature (see extension_api.json), and are
+given as in BIND-METHOD. FUNCTION is called with the instance's Lisp object and
+the arguments as Lisp values. Call it after REGISTER-CLASS, before Godot
+creates any instances of the class."
+  (add-virtual class-name
+               (new-string-name virtual-name)
+               (register-method function :return-type return-type
+                                         :argument-types (mapcar #'second arguments))))

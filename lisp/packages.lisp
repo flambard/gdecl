@@ -224,9 +224,12 @@ tables and dispatchers behind them")
            #:method-call
            #:create-instance
            #:free-instance
+           #:get-virtual-call-data
+           #:call-virtual-with-data
            ;; Tables
            #:register-method
            #:add-extension-class
+           #:add-virtual
            #:instance-object))
 
 (defpackage #:gd-extension
@@ -238,8 +241,11 @@ tables and dispatchers behind them")
                 #:method-call
                 #:create-instance
                 #:free-instance
+                #:get-virtual-call-data
+                #:call-virtual-with-data
                 #:register-method
                 #:add-extension-class
+                #:add-virtual
                 #:instance-object)
   (:export #:initialize
            #:add-initialize-hook
@@ -253,6 +259,7 @@ tables and dispatchers behind them")
            #:foreign-ref
            ;; Classes
            #:register-class
+           #:bind-virtual
            #:instance-object
            ;; Binding
            #:register-method

@@ -88,6 +88,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
   - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, and `instance-object` gives it from an instance pointer.
+  - `bind-virtual` implements a virtual method such as `_ready` or `_process` for your class: ``(bind-virtual "Player" "_process" #'player-process :arguments `(("delta" ,+variant-type-float+)))``, with the argument types from `extension_api.json`.
   - `bind-method`, `bind-property` and `bind-signal-1` register your class's methods, properties and signals. Bound methods can take and return `bool`, `int` and `float`.
   - `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory (re-exported from `gd-extension-ffi`).
 - **`gd-extension-ffi`** (nickname `gdext-ffi`): the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `gd-extension` package doesn't cover yet.

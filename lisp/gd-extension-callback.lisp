@@ -168,8 +168,18 @@ value as Variants, as in call_func."
 ;;; GDExtensionClassInstancePtr is (1+ index) into it. INSTANCE-OBJECT gives
 ;;; the Lisp object of an instance pointer.
 ;;;
+;;; Virtual methods, such as _ready and _process, go through two more shared
+;;; callbacks. Godot asks GET-VIRTUAL-CALL-DATA once whether a class implements
+;;; a virtual method, and calls it through CALL-VIRTUAL-WITH-DATA with what that
+;;; returned. A virtual method is a bound method (see REGISTER-METHOD) that Godot
+;;; calls with raw values, as with ptrcall_func, so its call data is its
+;;; method_userdata. For virtual methods the class doesn't implement, the call
+;;; data is NULL, and Godot doesn't call into Lisp for them.
+;;;
 
 (defstruct extension-class
+  ;; The class name, a string
+  name
   ;; A StringName with the class name, kept for OBJECT-SET-INSTANCE
   string-name
   ;; A StringName with the name of the parent class, kept for
@@ -178,16 +188,20 @@ value as Variants, as in call_func."
   ;; Called with the Godot object pointer; returns the instance's Lisp object
   constructor
   ;; Called with the instance's Lisp object when Godot frees it, or NIL
-  destructor)
+  destructor
+  ;; The virtual methods the class implements: a list of (StringName with the
+  ;; name . method_userdata)
+  (virtuals '()))
 
 (defvar *extension-classes* (make-array 0 :adjustable t :fill-pointer t))
 
-(defun add-extension-class (string-name parent-string-name constructor destructor)
-  "Add a class to *EXTENSION-CLASSES* and return its class_userdata. STRING-NAME
-and PARENT-STRING-NAME are StringNames with the names of the class and its
-parent class, and must stay valid. For CONSTRUCTOR and DESTRUCTOR, see
-GD-EXTENSION:REGISTER-CLASS."
+(defun add-extension-class (name string-name parent-string-name constructor destructor)
+  "Add the class NAME (a string) to *EXTENSION-CLASSES* and return its
+class_userdata. STRING-NAME and PARENT-STRING-NAME are StringNames with the
+names of the class and its parent class, and must stay valid. For CONSTRUCTOR
+and DESTRUCTOR, see GD-EXTENSION:REGISTER-CLASS."
   (ffi:make-pointer (1+ (vector-push-extend (make-extension-class
+                                             :name name
                                              :string-name string-name
                                              :parent-string-name parent-string-name
                                              :constructor constructor
@@ -197,6 +211,27 @@ GD-EXTENSION:REGISTER-CLASS."
 
 (defun userdata-class (userdata)
   (aref *extension-classes* (1- (ffi:pointer-address userdata))))
+
+(defun add-virtual (class-name string-name method-userdata)
+  "Make the method identified by METHOD-USERDATA (see REGISTER-METHOD) the
+virtual method of the class CLASS-NAME (a string) named by STRING-NAME, a
+StringName that must stay valid."
+  (let ((class (or (find class-name *extension-classes*
+                         :key #'extension-class-name :test #'string=)
+                   (error "No extension class named ~s" class-name))))
+    (push (cons string-name method-userdata) (extension-class-virtuals class))))
+
+(defun string-name-equal (a b)
+  (ffi:with-foreign-object (result :uint8-t)
+    (call-ptr-operator-evaluator *string-name-equal-evaluator* a b result)
+    (/= (foreign-ref result :uint8-t) 0)))
+
+(defun virtual-call-data (class-userdata name)
+  "The method_userdata of the virtual method of the class identified by
+CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it."
+  (or (cdr (assoc name (extension-class-virtuals (userdata-class class-userdata))
+                  :test #'string-name-equal))
+      (ffi:make-null-pointer :void)))
 
 ;; The Lisp objects of the instances, and the indices of the free elements
 (defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
@@ -261,3 +296,30 @@ object, and return the object pointer."
   (handler-case (free-class-instance class-userdata instance)
     (error (e)
       (format t "~&Error in free instance: ~a~%" e))))
+
+;; void *(*GDExtensionClassGetVirtualCallData2)(void *p_class_userdata,
+;;                                              GDExtensionConstStringNamePtr p_name,
+;;                                              uint32_t p_hash)
+;;
+;; P_HASH is the hash of the virtual method's signature, not used.
+(ffi:defcallback get-virtual-call-data :pointer-void
+    ((class-userdata :pointer-void) (name :pointer-void) (hash :unsigned-int))
+  (declare (ignore hash))
+  (handler-case (virtual-call-data class-userdata name)
+    (error (e)
+      (format t "~&Error in get virtual call data: ~a~%" e)
+      (ffi:make-null-pointer :void))))
+
+;; void (*GDExtensionClassCallVirtualWithData)(GDExtensionClassInstancePtr p_instance,
+;;                                             GDExtensionConstStringNamePtr p_name,
+;;                                             void *p_virtual_call_userdata,
+;;                                             const GDExtensionConstTypePtr *p_args,
+;;                                             GDExtensionTypePtr r_ret)
+(ffi:defcallback call-virtual-with-data :void
+    ((instance :pointer-void) (name :pointer-void) (virtual-call-userdata :pointer-void)
+     (args :pointer-void) (r-ret :pointer-void))
+  (declare (ignore name))
+  (handler-case
+      (ptrcall-bound-method virtual-call-userdata instance args r-ret)
+    (error (e)
+      (format t "~&Error in virtual method call: ~a~%" e))))
