@@ -143,12 +143,18 @@
            #:+string-size+
            #:+variant-size+
            #:+vector2-size+
+           #:+rect2-size+
            #:+node-path-size+
            #:+callable-size+
            #:string-name
            #:godot-string
            #:variant
-           #:vector2
+           #:godot-vector2
+           #:x
+           #:y
+           #:godot-rect2
+           #:position
+           #:size
            #:node-path
            #:callable
            #:data

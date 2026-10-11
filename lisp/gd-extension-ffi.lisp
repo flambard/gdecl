@@ -472,6 +472,7 @@ that Godot gave the extension, and look up the interface functions."
 (defconstant +string-size+ 8)
 (defconstant +variant-size+ 24)
 (defconstant +vector2-size+ 8)
+(defconstant +rect2-size+ 16)
 (defconstant +node-path-size+ 8)
 (defconstant +callable-size+ 16)
 
@@ -491,8 +492,17 @@ that Godot gave the extension, and look up the interface functions."
 (ffi:def-struct variant
   (data '(:array :uint8-t #.+variant-size+)))
 
-(ffi:def-struct vector2
-  (data '(:array :uint8-t #.+vector2-size+)))
+;; Godot's Vector2 and Rect2, with real_t as float (build configuration
+;; float_64), from builtin_class_member_offsets in extension_api.json. Named
+;; GODOT-VECTOR2 and GODOT-RECT2, since GD-EXTENSION has Lisp types VECTOR2 and
+;; RECT2.
+(ffi:def-struct godot-vector2
+  (x :float)
+  (y :float))
+
+(ffi:def-struct godot-rect2
+  (position godot-vector2)
+  (size godot-vector2))
 
 (ffi:def-struct node-path
   (data '(:array :uint8-t #.+node-path-size+)))
