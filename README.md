@@ -8,7 +8,7 @@ gdecl is a proof of concept. Its API is incomplete and will change.
 
 - Godot ≥ 4.4
 - ECL, with `ecl-config` on `PATH`
-- GNU Make, SCons and a C compiler (clang is used if it's installed)
+- GNU Make and a C compiler (clang is used if it's installed)
 
 ## Setting up an application
 
@@ -21,7 +21,6 @@ my-app/
   lisp/*.lisp
   project/            your Godot project
   Makefile
-  SConstruct
 ```
 
 **The ASDF system** depends on `gdecl`:
@@ -42,25 +41,15 @@ my-app/
 (gdext:add-initialize-hook 'start)
 ```
 
-**The Makefile** names your ASDF system and includes gdecl's make rules:
+**The Makefile** names your ASDF system and the GDExtension library to build into your Godot project, and includes gdecl's make rules:
 
 ```make
 SYSTEM = my-app
+LIBRARY = project/bin/libgdecl.so
 include gdecl/gdecl.mk
 ```
 
-`gdecl.mk` also takes `LISP_DIRS`, the directories with your `.asd` and `.lisp` files (default `lisp`), and `GODOT`, the Godot executable (default `godot`).
-
-**The SConstruct** builds the GDExtension library into your Godot project:
-
-```python
-from SCons.Script import SConscript, Default
-
-library = SConscript("gdecl/SConscript", variant_dir="build/gdecl", duplicate=0,
-                     exports={"target": "#project/bin/libgdecl",
-                              "application_lib": "#application.a"})
-Default(library)
-```
+`gdecl.mk` also takes `LISP_DIRS`, the directories with your `.asd` and `.lisp` files (default `lisp`), `BUILD_DIR`, where the object files go (default `build/gdecl`), `GODOT`, the Godot executable (default `godot`), and the usual `CC` and `CFLAGS` (default clang if installed, and `-O0 -g`).
 
 **The `.gdextension` file** in your Godot project points Godot to the library. The entry symbol is always `gdecl_library_init`:
 
@@ -77,13 +66,12 @@ linux.debug = "res://bin/libgdecl.so"
 ## Building
 
 ```sh
-make             # Compile the Lisp code into application.a
-scons            # Build the GDExtension library and link application.a
+make             # Compile the Lisp code into application.a and build the GDExtension library
 make godot-api   # Regenerate the Godot API files, e.g. after upgrading Godot
 make clean
 ```
 
-Run `make` before `scons`, and again after changing any Lisp code. SCons doesn't track the Lisp sources. The first `make` runs Godot once to dump `gdextension_interface.h` and `extension_api.json` into `gdecl/`.
+The first `make` runs Godot once to dump `gdextension_interface.h` and `extension_api.json` into `gdecl/`.
 
 ## Packages
 

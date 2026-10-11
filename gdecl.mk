@@ -2,25 +2,60 @@
 # application's Makefile, after setting:
 #
 #   SYSTEM     The application's ASDF system (required)
+#   LIBRARY    The GDExtension library to build, usually in the Godot
+#              project, e.g. project/bin/libgdecl.so (required)
 #   LISP_DIRS  Directories with the application's .asd and .lisp files
 #              (default: lisp)
+#   BUILD_DIR  Where the object files go (default: build/gdecl)
 #   GODOT      The Godot executable (default: godot)
+#   CC         The C compiler (default: clang if it's installed, otherwise cc)
+#   CFLAGS     Extra C compiler flags (default: -O0 -g, a debug build)
 #
-# Targets: all (the default), application.a, godot-api and clean.
+# Targets: all (the default), the library, application.a, godot-api and clean.
 
 # The directory of this file, so gdecl can be anywhere
 GDECL := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
 
 LISP_DIRS ?= lisp
+BUILD_DIR ?= build/gdecl
 GODOT ?= godot
+CFLAGS ?= -O0 -g
+
+# Make's built-in default for CC is cc; prefer clang unless CC was set on the
+# command line or in the environment.
+ifeq ($(origin CC),default)
+CC := $(if $(shell command -v clang),clang,cc)
+endif
 
 ifndef SYSTEM
 $(error Set SYSTEM to the application's ASDF system before including gdecl.mk)
 endif
+ifndef LIBRARY
+$(error Set LIBRARY to the GDExtension library to build before including gdecl.mk)
+endif
 
 GDECL_API_FILES = $(GDECL)/src/gdextension_interface.h $(GDECL)/extension_api.json
 
-all: application.a $(GDECL_API_FILES)
+# ECL's compiler and linker flags (defines, include and library paths, -lecl
+# and its dependencies)
+ECL_CFLAGS := $(shell ecl-config --cflags)
+ECL_LDFLAGS := $(shell ecl-config --ldflags)
+
+GDECL_SOURCES = $(wildcard $(GDECL)/src/*.c)
+GDECL_OBJECTS = $(patsubst $(GDECL)/src/%.c,$(BUILD_DIR)/%.o,$(GDECL_SOURCES))
+
+all: $(LIBRARY) $(GDECL_API_FILES)
+
+# The Lisp code (application.a) goes before -lecl so the linker resolves its
+# references to ECL. Depending on application.a means the library is relinked
+# whenever the Lisp code changes.
+$(LIBRARY): $(GDECL_OBJECTS) application.a
+	@mkdir -p $(dir $@)
+	$(CC) -shared -o $@ $(GDECL_OBJECTS) application.a $(ECL_LDFLAGS)
+
+$(BUILD_DIR)/%.o: $(GDECL)/src/%.c $(GDECL)/src/gdextension_interface.h
+	@mkdir -p $(dir $@)
+	$(CC) $(ECL_CFLAGS) -I$(GDECL)/src $(CFLAGS) -fPIC -c -o $@ $<
 
 # Always application.a with the init function init_lib_APPLICATION, whatever
 # SYSTEM is, so gdecl/src/gdecl.c doesn't depend on the application.
@@ -48,6 +83,7 @@ godot-api:
 	$(MAKE) $(GDECL_API_FILES)
 
 clean:
-	-rm -f application.a
+	-rm -f application.a $(LIBRARY)
+	-rm -rf $(BUILD_DIR)
 
 .PHONY: all godot-api clean
