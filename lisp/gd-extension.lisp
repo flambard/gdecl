@@ -23,11 +23,16 @@ registers its entry point: by calling ADD-INITIALIZE-HOOK when it's loaded."
   (setf *initialize-hooks*
         (append (remove function *initialize-hooks*) (list function))))
 
+;; Method binds to look up in INITIALIZE, see REQUEST-METHOD-BIND
+(defvar *method-bind-requests* '())
+
 (defun initialize (get-proc-address class-library)
   "Set up the framework with the GDExtensionInterfaceGetProcAddress and
-GDExtensionClassLibraryPtr that Godot gave the extension, then run the
-initialize hooks. Called from src/gdecl.c."
+GDExtensionClassLibraryPtr that Godot gave the extension, look up the method
+binds requested so far, then run the initialize hooks. Called from src/gdecl.c."
   (load-interface get-proc-address class-library)
+  (mapc #'resolve-method-bind (reverse *method-bind-requests*))
+  (setf *method-bind-requests* '())
   (dolist (hook *initialize-hooks*)
     (handler-case (funcall hook)
       (error (e)
@@ -63,6 +68,75 @@ non-local exit."
      (string-new-with-utf8-chars ,var ,contents)
      (unwind-protect (progn ,@body)
        (string-destructor ,var))))
+
+;;;
+;;; Builtin types
+;;;
+;;; Lisp versions of Godot's builtin types, with READ- functions that make one
+;;; from the raw value at a pointer.
+;;;
+
+(defstruct (vector2 (:constructor vector2 (&optional (x 0.0) (y 0.0))))
+  "Godot's Vector2. Make one with (VECTOR2 X Y), like Vector2(x, y)."
+  (x 0.0 :type single-float)
+  (y 0.0 :type single-float))
+
+(defun read-vector2 (pointer)
+  (vector2 (ffi:get-slot-value pointer 'godot-vector2 'x)
+           (ffi:get-slot-value pointer 'godot-vector2 'y)))
+
+(defstruct (rect2 (:constructor rect2 (&optional (position (vector2)) (size (vector2)))))
+  "Godot's Rect2. Make one with (RECT2 POSITION SIZE), like Rect2(position, size)."
+  (position (vector2) :type vector2)
+  (size (vector2) :type vector2))
+
+(defun read-rect2 (pointer)
+  (rect2 (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position))
+         (read-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size))))
+
+;;;
+;;; Calling engine methods
+;;;
+;;; DEFINE-ENGINE-METHOD defines a Lisp function that calls a method of a Godot
+;;; class with ptrcall. The method bind is looked up once, in INITIALIZE (or
+;;; right away, if the function is defined after it), and kept in a cons that
+;;; the function gets with LOAD-TIME-VALUE.
+;;;
+
+(defun resolve-method-bind (request)
+  (destructuring-bind (cell class-name method-name hash) request
+    (let ((method-bind (get-method-bind class-name method-name hash)))
+      (if (ffi:null-pointer-p method-bind)
+          (format t "~&Error: no method ~a.~a with hash ~d~%" class-name method-name hash)
+          (setf (car cell) method-bind)))))
+
+(defun request-method-bind (class-name method-name hash)
+  "A cons whose car will be the method bind of the method METHOD-NAME of the
+class CLASS-NAME, with HASH. It's looked up in INITIALIZE, or now if INITIALIZE
+has been called."
+  (let ((request (list (cons nil nil) class-name method-name hash)))
+    (if *class-library*
+        (resolve-method-bind request)
+        (push request *method-bind-requests*))
+    (first request)))
+
+(defmacro define-engine-method (name (class-name method-name hash) &key return-type)
+  "Define NAME as a function that calls the method METHOD-NAME of the Godot class
+CLASS-NAME on a Godot object pointer, the function's argument, and returns the
+result as a Lisp value. HASH is the hash of the method from extension_api.json.
+RETURN-TYPE is the variant type of the result; only methods without arguments
+returning a Rect2 (+VARIANT-TYPE-RECT2+) are supported so far."
+  (let ((return-type (eval return-type)))
+    (unless (eql return-type +variant-type-rect2+)
+      (error "Unsupported return type for an engine method: variant type ~d" return-type))
+    `(defun ,name (object)
+       (let ((method-bind (car (load-time-value
+                                (request-method-bind ,class-name ,method-name ,hash)))))
+         (unless method-bind
+           (error "The method ~a.~a wasn't found" ,class-name ,method-name))
+         (ffi:with-foreign-object (r-ret 'godot-rect2)
+           (object-method-bind-ptrcall method-bind object (ffi:make-null-pointer :void) r-ret)
+           (read-rect2 r-ret))))))
 
 ;;;
 ;;; Binding helpers

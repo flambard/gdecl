@@ -263,6 +263,17 @@ tables and dispatchers behind them")
            #:clear-foreign-object
            #:cast-pointer
            #:foreign-ref
+           ;; Builtin types
+           #:vector2
+           #:vector2-p
+           #:vector2-x
+           #:vector2-y
+           #:rect2
+           #:rect2-p
+           #:rect2-position
+           #:rect2-size
+           ;; Calling engine methods
+           #:define-engine-method
            ;; Classes
            #:register-class
            #:bind-virtual

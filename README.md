@@ -86,6 +86,8 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 - **`gd-extension`** (nickname `gdext`): the Lisp-style API.
   - `add-initialize-hook` registers your entry point.
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
+  - `vector2` and `rect2` are Lisp versions of Godot's Vector2 and Rect2: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`.
+  - `define-engine-method` defines a Lisp function that calls a Godot method, e.g. ``(define-engine-method get-viewport-rect ("CanvasItem" "get_viewport_rect" 1639390495) :return-type +variant-type-rect2+)``, with the hash from `extension_api.json`. The function takes the Godot object pointer. Only methods without arguments that return a Rect2 are supported so far.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
   - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, and `instance-object` gives it from an instance pointer.
   - `bind-virtual` implements a virtual method such as `_ready` or `_process` for your class: ``(bind-virtual "Player" "_process" #'player-process :arguments `(("delta" ,+variant-type-float+)))``, with the argument types from `extension_api.json`.
