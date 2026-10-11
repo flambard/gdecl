@@ -332,11 +332,24 @@ ARGUMENTS can be passed so far, no extra ones."
 ;;;
 ;;; An engine method that returns a RefCounted object, such as a Resource,
 ;;; returns it with a reference that the caller owns, like a Ref<T> in C++.
-;;; Give it back with RELEASE-REFERENCE, or use WITH-REFERENCE.
+;;; Give it back with RELEASE-REFERENCE, or use WITH-REFERENCE. To keep a
+;;; RefCounted object that Lisp didn't get from an engine method, e.g. one passed
+;;; to a bound method, take a reference with ADD-REFERENCE.
 ;;;
+
+(define-engine-method ref-counted-reference ("RefCounted" "reference" 2240911060)
+  :return-type +variant-type-bool+)
 
 (define-engine-method ref-counted-unreference ("RefCounted" "unreference" 2240911060)
   :return-type +variant-type-bool+)
+
+(defun add-reference (object)
+  "Take a reference to the RefCounted OBJECT (a Godot object pointer, or NULL), to
+keep it alive while Lisp holds on to it. Give it back with RELEASE-REFERENCE.
+Returns OBJECT."
+  (unless (ffi:null-pointer-p object)
+    (ref-counted-reference object))
+  object)
 
 (defun release-reference (object)
   "Give back a reference to the RefCounted OBJECT (a Godot object pointer, or
@@ -440,10 +453,17 @@ instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
         (dotimes (i argument-count)
           (destruct-property (element-pointer args-info 'property-info i)))))))
 
-(defun bind-property (class-name name type getter setter)
+(defun bind-property (class-name name type getter setter
+                      &key (hint +property-hint-none+) (hint-string "") (property-class-name ""))
+  "Register the property NAME of the class CLASS-NAME, of the variant type TYPE,
+with the bound methods GETTER and SETTER (method names). HINT and HINT-STRING
+tell the editor how to edit it, e.g. +PROPERTY-HINT-RESOURCE-TYPE+ and
+\"PackedScene\" for a resource of that class, like @export var x: PackedScene
+in GDScript; PROPERTY-CLASS-NAME is then the class name too."
   (with-string-name (class-string-name class-name)
     (ffi:with-foreign-object (info 'property-info)
-      (make-property info type name)
+      (make-property-full info type name hint hint-string property-class-name
+                          +property-usage-default+)
       (with-string-name (getter-name getter)
         (with-string-name (setter-name setter)
           (classdb-register-extension-class-property *class-library* class-string-name

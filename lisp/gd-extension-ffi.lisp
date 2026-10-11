@@ -139,6 +139,7 @@
 ;; PropertyHint and PropertyUsageFlags (global_enums in extension_api.json).
 ;; Only the values used so far.
 (defconstant +property-hint-none+ 0)
+(defconstant +property-hint-resource-type+ 17)
 (defconstant +property-usage-default+ 6)
 
 ;;;

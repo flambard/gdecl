@@ -143,6 +143,7 @@
            #:+call-error-instance-is-null+
            #:+call-error-method-not-const+
            #:+property-hint-none+
+           #:+property-hint-resource-type+
            #:+property-usage-default+
            ;; Structs
            #:+string-name-size+
@@ -327,6 +328,7 @@ tables and dispatchers behind them")
            #:define-engine-method
            #:define-engine-vararg-method
            ;; References
+           #:add-reference
            #:release-reference
            #:with-reference
            ;; Classes

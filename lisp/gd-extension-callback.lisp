@@ -106,14 +106,20 @@ value as Variants, as in call_func."
                    for type = (value-type-variant-type value-type)
                    for i from 0
                    for variant = (foreign-ref args :pointer-void i)
-                   do (unless (= (variant-get-type variant) type)
-                        (set-call-error r-error +call-error-invalid-argument+
-                                        :argument i :expected type)
-                        (return-from call-bound-method))
-                      (ffi:with-foreign-object (value (value-type-ffi-type value-type))
-                        (call-type-from-variant-constructor
-                         (aref *type-from-variant-constructors* type) value variant)
-                        (push (read-value value value-type) arguments)))
+                   for variant-type = (variant-get-type variant)
+                   do (cond ((= variant-type type)
+                             (ffi:with-foreign-object (value (value-type-ffi-type value-type))
+                               (call-type-from-variant-constructor
+                                (aref *type-from-variant-constructors* type) value variant)
+                               (push (read-value value value-type) arguments)))
+                            ;; null for an Object
+                            ((and (= type +variant-type-object+)
+                                  (= variant-type +variant-type-nil+))
+                             (push (ffi:make-null-pointer :void) arguments))
+                            (t
+                             (set-call-error r-error +call-error-invalid-argument+
+                                             :argument i :expected type)
+                             (return-from call-bound-method))))
              (let ((result (apply (bound-method-function method) (instance-object instance)
                                   (nreverse arguments))))
                (when return-type
