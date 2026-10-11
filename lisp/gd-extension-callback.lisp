@@ -1,0 +1,262 @@
+(in-package :gd-extension-callback)
+
+;;;
+;;; What runs when Godot calls into Lisp (C -> Lisp): the callbacks, and the
+;;; tables and dispatchers behind them. Each callback is a C function made with
+;;; FFI:DEFCALLBACK, whose address (FFI:CALLBACK 'NAME) the package GD-EXTENSION
+;;; (gd-extension.lisp) gives to Godot when it registers methods and classes.
+;;;
+;;; A Lisp error must never unwind through Godot's C frames, so every callback
+;;; body is wrapped in HANDLER-CASE.
+;;;
+
+;;;
+;;; Methods, see GD-EXTENSION:BIND-METHOD
+;;;
+;;; Godot calls a bound method through one of two callbacks: ptrcall_func with
+;;; pointers to the raw values (the fast path), or call_func with Variants (the
+;;; dynamic path). All methods share the same two callbacks, METHOD-PTRCALL and
+;;; METHOD-CALL. The method_userdata of a method identifies a BOUND-METHOD,
+;;; which says which Lisp function to call and how to convert its arguments and
+;;; return value.
+;;;
+;;; A Lisp function can't be passed to C, so the BOUND-METHODs are kept in
+;;; *BOUND-METHODS* and method_userdata is (1+ index), so that it's never NULL.
+;;;
+;;; The functions get the GDExtensionClassInstancePtr as is, and can get the
+;;; instance's Lisp object with INSTANCE-OBJECT.
+;;;
+
+;; Variant types whose raw values the dispatcher can convert, and their FFI
+;; types. GDExtensionBool is uint8_t; Godot's int and float are 64 bits.
+(defparameter *method-value-types*
+  (list (cons +variant-type-bool+ :uint8-t)
+        (cons +variant-type-int+ :int64-t)
+        (cons +variant-type-float+ :double)))
+
+(defun value-ffi-type (variant-type)
+  (or (cdr (assoc variant-type *method-value-types*))
+      (error "Unsupported type for a bound method: variant type ~d" variant-type)))
+
+(defun read-value (pointer variant-type)
+  "The raw value of VARIANT-TYPE at POINTER as a Lisp value."
+  (let ((value (foreign-ref pointer (value-ffi-type variant-type))))
+    (if (= variant-type +variant-type-bool+)
+        (/= value 0)
+        value)))
+
+(defun write-value (pointer variant-type value)
+  "Store the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
+  (setf (foreign-ref pointer (value-ffi-type variant-type))
+        (cond ((= variant-type +variant-type-bool+) (if value 1 0))
+              ((= variant-type +variant-type-float+) (float value 1d0))
+              (t value))))
+
+(defstruct bound-method
+  function
+  ;; Variant types; +VARIANT-TYPE-NIL+ as the return type means no return value
+  return-type
+  argument-types)
+
+(defvar *bound-methods* (make-array 0 :adjustable t :fill-pointer t))
+
+(defun register-method (function &key (return-type +variant-type-nil+) argument-types)
+  "Register FUNCTION as a method and return its method_userdata. FUNCTION is
+called with the instance pointer and one Lisp value per argument."
+  (unless (= return-type +variant-type-nil+)
+    (value-ffi-type return-type))
+  (mapc #'value-ffi-type argument-types)
+  (ffi:make-pointer (1+ (vector-push-extend (make-bound-method :function function
+                                                               :return-type return-type
+                                                               :argument-types argument-types)
+                                            *bound-methods*))
+                    :void))
+
+(defun userdata-method (userdata)
+  (aref *bound-methods* (1- (ffi:pointer-address userdata))))
+
+(defun set-call-error (r-error error &key (argument 0) (expected 0))
+  (let ((r-error (cast-pointer r-error 'call-error)))
+    (setf (ffi:get-slot-value r-error 'call-error 'error) error
+          (ffi:get-slot-value r-error 'call-error 'argument) argument
+          (ffi:get-slot-value r-error 'call-error 'expected) expected)))
+
+(defun ptrcall-bound-method (method-userdata instance args r-ret)
+  "Call the method identified by METHOD-USERDATA, with ARGS and R-RET as in
+ptrcall_func: an array of pointers to the raw argument values, and a pointer to
+where the raw return value goes."
+  (let* ((method (userdata-method method-userdata))
+         (return-type (bound-method-return-type method))
+         (arguments (loop for type in (bound-method-argument-types method)
+                          for i from 0
+                          collect (read-value (foreign-ref args :pointer-void i) type)))
+         (result (apply (bound-method-function method) instance arguments)))
+    (unless (= return-type +variant-type-nil+)
+      (write-value r-ret return-type result))))
+
+(defun call-bound-method (method-userdata instance args argument-count r-return r-error)
+  "Call the method identified by METHOD-USERDATA, with arguments and return
+value as Variants, as in call_func."
+  (let* ((method (userdata-method method-userdata))
+         (return-type (bound-method-return-type method))
+         (argument-types (bound-method-argument-types method))
+         (expected-count (length argument-types)))
+    (cond ((< argument-count expected-count)
+           (set-call-error r-error +call-error-too-few-arguments+ :expected expected-count))
+          ((> argument-count expected-count)
+           (set-call-error r-error +call-error-too-many-arguments+ :expected expected-count))
+          (t
+           (let ((arguments '()))
+             (loop for type in argument-types
+                   for i from 0
+                   for variant = (foreign-ref args :pointer-void i)
+                   do (unless (= (variant-get-type variant) type)
+                        (set-call-error r-error +call-error-invalid-argument+
+                                        :argument i :expected type)
+                        (return-from call-bound-method))
+                      (ffi:with-foreign-object (value (value-ffi-type type))
+                        (call-type-from-variant-constructor
+                         (aref *type-from-variant-constructors* type) value variant)
+                        (push (read-value value type) arguments)))
+             (let ((result (apply (bound-method-function method) instance
+                                  (nreverse arguments))))
+               (unless (= return-type +variant-type-nil+)
+                 (ffi:with-foreign-object (value (value-ffi-type return-type))
+                   (write-value value return-type result)
+                   (call-variant-from-type-constructor
+                    (aref *variant-from-type-constructors* return-type) r-return value)))))))))
+
+;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
+;;                                       GDExtensionClassInstancePtr p_instance,
+;;                                       const GDExtensionConstTypePtr *p_args,
+;;                                       GDExtensionTypePtr r_ret)
+(ffi:defcallback method-ptrcall :void
+    ((method-userdata :pointer-void) (instance :pointer-void)
+     (args :pointer-void) (r-ret :pointer-void))
+  (handler-case
+      (ptrcall-bound-method method-userdata instance args r-ret)
+    (error (e)
+      (format t "~&Error in method ptrcall: ~a~%" e))))
+
+;; void (*GDExtensionClassMethodCall)(void *method_userdata,
+;;                                    GDExtensionClassInstancePtr p_instance,
+;;                                    const GDExtensionConstVariantPtr *p_args,
+;;                                    GDExtensionInt p_argument_count,
+;;                                    GDExtensionVariantPtr r_return,
+;;                                    GDExtensionCallError *r_error)
+(ffi:defcallback method-call :void
+    ((method-userdata :pointer-void) (instance :pointer-void)
+     (args :pointer-void) (argument-count :int64-t)
+     (r-return :pointer-void) (r-error :pointer-void))
+  (handler-case
+      (call-bound-method method-userdata instance args argument-count r-return r-error)
+    (error (e)
+      (format t "~&Error in method call: ~a~%" e)
+      (set-call-error r-error +call-error-invalid-method+))))
+
+;;;
+;;; Classes, see GD-EXTENSION:REGISTER-CLASS
+;;;
+;;; All classes share the same two callbacks, CREATE-INSTANCE and
+;;; FREE-INSTANCE. The class_userdata of a class is (1+ index) into
+;;; *EXTENSION-CLASSES*.
+;;;
+;;; Each instance of an extension class has a Lisp object, made by the class's
+;;; constructor. Godot only holds a pointer to the instance, so the Lisp objects
+;;; are kept in *INSTANCES*, which keeps them reachable for the GC, and the
+;;; GDExtensionClassInstancePtr is (1+ index) into it. INSTANCE-OBJECT gives
+;;; the Lisp object of an instance pointer.
+;;;
+
+(defstruct extension-class
+  ;; A StringName with the class name, kept for OBJECT-SET-INSTANCE
+  string-name
+  ;; A StringName with the name of the parent class, kept for
+  ;; CLASSDB-CONSTRUCT-OBJECT
+  parent-string-name
+  ;; Called with the Godot object pointer; returns the instance's Lisp object
+  constructor
+  ;; Called with the instance's Lisp object when Godot frees it, or NIL
+  destructor)
+
+(defvar *extension-classes* (make-array 0 :adjustable t :fill-pointer t))
+
+(defun add-extension-class (string-name parent-string-name constructor destructor)
+  "Add a class to *EXTENSION-CLASSES* and return its class_userdata. STRING-NAME
+and PARENT-STRING-NAME are StringNames with the names of the class and its
+parent class, and must stay valid. For CONSTRUCTOR and DESTRUCTOR, see
+GD-EXTENSION:REGISTER-CLASS."
+  (ffi:make-pointer (1+ (vector-push-extend (make-extension-class
+                                             :string-name string-name
+                                             :parent-string-name parent-string-name
+                                             :constructor constructor
+                                             :destructor destructor)
+                                            *extension-classes*))
+                    :void))
+
+(defun userdata-class (userdata)
+  (aref *extension-classes* (1- (ffi:pointer-address userdata))))
+
+;; The Lisp objects of the instances, and the indices of the free elements
+(defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
+(defvar *free-instances* '())
+
+(defun add-instance (object)
+  "Keep OBJECT in *INSTANCES* and return its GDExtensionClassInstancePtr."
+  (let ((index (if *free-instances*
+                   (let ((index (pop *free-instances*)))
+                     (setf (aref *instances* index) object)
+                     index)
+                   (vector-push-extend object *instances*))))
+    (ffi:make-pointer (1+ index) :void)))
+
+(defun remove-instance (instance)
+  "Forget the Lisp object of INSTANCE, and return it."
+  (let* ((index (1- (ffi:pointer-address instance)))
+         (object (aref *instances* index)))
+    (setf (aref *instances* index) nil)
+    (push index *free-instances*)
+    object))
+
+(defun instance-object (instance)
+  "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
+bound methods)."
+  (aref *instances* (1- (ffi:pointer-address instance))))
+
+(defun create-class-instance (class-userdata)
+  "Create a Godot object of the class identified by CLASS-USERDATA, with its Lisp
+object, and return the object pointer."
+  (let* ((class (userdata-class class-userdata))
+         ;; An object of the parent class, which becomes an object of CLASS
+         ;; through OBJECT-SET-INSTANCE
+         (object (classdb-construct-object (extension-class-parent-string-name class))))
+    (object-set-instance object (extension-class-string-name class)
+                         (add-instance (funcall (extension-class-constructor class) object)))
+    object))
+
+(defun free-class-instance (class-userdata instance)
+  (let ((destructor (extension-class-destructor (userdata-class class-userdata)))
+        (object (remove-instance instance)))
+    (when destructor
+      (funcall destructor object))))
+
+;; GDExtensionObjectPtr (*GDExtensionClassCreateInstance2)(void *p_class_userdata,
+;;                                                         GDExtensionBool p_notify_postinitialize)
+;;
+;; CLASSDB-CONSTRUCT-OBJECT always sends NOTIFICATION_POSTINITIALIZE, so
+;; NOTIFY-POSTINITIALIZE isn't used.
+(ffi:defcallback create-instance :pointer-void
+    ((class-userdata :pointer-void) (notify-postinitialize :unsigned-byte))
+  (declare (ignore notify-postinitialize))
+  (handler-case (create-class-instance class-userdata)
+    (error (e)
+      (format t "~&Error in create instance: ~a~%" e)
+      (ffi:make-null-pointer :void))))
+
+;; void (*GDExtensionClassFreeInstance)(void *p_class_userdata,
+;;                                      GDExtensionClassInstancePtr p_instance)
+(ffi:defcallback free-instance :void
+    ((class-userdata :pointer-void) (instance :pointer-void))
+  (handler-case (free-class-instance class-userdata instance)
+    (error (e)
+      (format t "~&Error in free instance: ~a~%" e))))

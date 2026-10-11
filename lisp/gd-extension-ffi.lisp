@@ -174,6 +174,11 @@
 (defvar *variant-get-type* nil)
 (defvar *string-new-with-utf8-chars* nil)
 
+;; Not interface functions: the results of get_variant_from_type_constructor and
+;; get_variant_to_type_constructor for every variant type, indexed by type
+(defvar *variant-from-type-constructors* nil)
+(defvar *type-from-variant-constructors* nil)
+
 ;; Not interface functions: fetched with variant_get_ptr_destructor
 (defvar *string-name-destructor* nil)
 (defvar *string-destructor* nil)
@@ -441,6 +446,14 @@ that Godot gave the extension, and look up the interface functions."
         *string-destructor* (variant-get-ptr-destructor +variant-type-string+)
         *node-path-destructor* (variant-get-ptr-destructor +variant-type-node-path+)
         *callable-destructor* (variant-get-ptr-destructor +variant-type-callable+))
+  (setf *variant-from-type-constructors* (make-array +variant-type-variant-max+ :initial-element nil)
+        *type-from-variant-constructors* (make-array +variant-type-variant-max+ :initial-element nil))
+  ;; There are no constructors for NIL
+  (loop for type from 1 below +variant-type-variant-max+
+        do (setf (aref *variant-from-type-constructors* type)
+                 (get-variant-from-type-constructor type)
+                 (aref *type-from-variant-constructors* type)
+                 (get-variant-to-type-constructor type)))
   t)
 
 ;;;
@@ -619,3 +632,37 @@ that Godot gave the extension, and look up the interface functions."
   (error :int)
   (argument :int32-t)
   (expected :int32-t))
+
+;;;
+;;; Foreign memory
+;;;
+;;; Helpers for ECL's FFI, used with the structs above and with the pointers
+;;; Godot passes.
+;;;
+
+(ffi:clines "#include <string.h>")
+
+(defun clear-foreign-object (pointer type)
+  "Set all bytes of the foreign object of TYPE at POINTER to zero, like a C
+initializer that leaves fields out. Foreign memory from Lisp isn't zeroed."
+  (let ((size (ffi:size-of-foreign-type type)))
+    (ffi:c-inline (pointer size) (:pointer-void :unsigned-long) :void
+                  "memset(#0, 0, #1)" :one-liner t)))
+
+(defun cast-pointer (pointer type)
+  "POINTER as a pointer to TYPE. A :pointer-void returned by a foreign function
+has no size in ECL, so it must be cast before its slots can be accessed."
+  (ffi:make-pointer (ffi:pointer-address pointer) type))
+
+(defun element-pointer (pointer type index)
+  (ffi:make-pointer (+ (ffi:pointer-address pointer)
+                       (* index (ffi:size-of-foreign-type type)))
+                    type))
+
+(defun foreign-ref (pointer type &optional (index 0))
+  "Element INDEX of TYPE in the array at POINTER, like ((TYPE *)POINTER)[INDEX]
+in C. Works on pointers without a size, such as callback arguments."
+  (ffi:deref-pointer (element-pointer pointer type index) type))
+
+(defun (setf foreign-ref) (value pointer type &optional (index 0))
+  (setf (ffi:deref-pointer (element-pointer pointer type index) type) value))

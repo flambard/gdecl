@@ -39,6 +39,8 @@
            #:string-destructor
            #:node-path-destructor
            #:callable-destructor
+           #:*variant-from-type-constructors*
+           #:*type-from-variant-constructors*
            ;; Enums
            #:+variant-op-equal+
            #:+variant-op-not-equal+
@@ -204,18 +206,47 @@
            #:default-arguments
            #:call-error
            #:argument
-           #:expected))
+           #:expected
+           ;; Foreign memory
+           #:clear-foreign-object
+           #:cast-pointer
+           #:element-pointer
+           #:foreign-ref))
+
+(defpackage #:gd-extension-callback
+  (:documentation "What runs when Godot calls into Lisp: the callbacks, and the
+tables and dispatchers behind them")
+  (:nicknames #:gdext-callback)
+  (:use #:cl #:gd-extension-ffi)
+  (:export ;; Callbacks
+           #:method-ptrcall
+           #:method-call
+           #:create-instance
+           #:free-instance
+           ;; Tables
+           #:register-method
+           #:add-extension-class
+           #:instance-object))
 
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)
   (:use #:cl #:gd-extension-ffi)
+  (:import-from #:gd-extension-callback
+                #:method-ptrcall
+                #:method-call
+                #:create-instance
+                #:free-instance
+                #:register-method
+                #:add-extension-class
+                #:instance-object)
   (:export #:initialize
            #:add-initialize-hook
            ;; Helpers
            #:with-string-name
            #:with-string
            #:get-method-bind
+           ;; From GD-EXTENSION-FFI
            #:clear-foreign-object
            #:cast-pointer
            #:foreign-ref
@@ -224,7 +255,6 @@
            #:instance-object
            ;; Binding
            #:register-method
-           #:ptrcall-bound-method
            #:make-property
            #:make-property-full
            #:destruct-property
