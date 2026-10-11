@@ -89,7 +89,7 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
 - Interface functions are looked up with `get-proc-address` and called with `si:call-cfun`. Godot structs are mirrored with `ffi:def-struct`. Sizes such as `+string-name-size+` come from `builtin_class_sizes` in `extension_api.json`, build configuration `float_64`. Check new struct mirrors against C with `sizeof`/`offsetof`.
 - A `:pointer-void` returned by a foreign function has no size in ECL, so its slots can't be accessed until it's cast: use `cast-pointer`, or `foreign-ref` for `((TYPE *)p)[i]`.
 - Godot → Lisp callbacks use `ffi:defcallback`, and `(ffi:callback 'name)` gives the C function pointer. `defcallback` accepts fewer types than `si:call-cfun`: `:uint8-t` is rejected, so declare `GDExtensionBool` as `:unsigned-byte`.
-- Wrap every callback body in `handler-case`. A Lisp error must never unwind through Godot's C frames.
+- Wrap every callback body in `handler-case`. A Lisp error must never unwind through Godot's C frames. Report it with `report-error`, which uses Godot's `print_error` (so it shows in the editor's Output and Debugger) with where it happened, e.g. the method name, and can't fail itself. A bound method that fails returns null with `CALL_OK`, like a failing GDScript method; there's no call error for it, and `CALL_ERROR_INVALID_METHOD` would make Godot say that the method doesn't exist.
 - With `ptrcall`, an `Object` argument is passed as a pointer to the object pointer, and every argument must be given, including those with default values.
 - Method binds need the method's hash from `extension_api.json`. `classdb_get_method_bind` returns NULL if the hash doesn't match.
 

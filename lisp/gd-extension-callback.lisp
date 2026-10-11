@@ -11,6 +11,22 @@
 ;;;
 
 ;;;
+;;; Errors
+;;;
+
+(defun report-error (where condition)
+  "Report the Lisp error CONDITION that happened in WHERE (a string, e.g. the
+name of a method) with Godot's print_error, so that it shows up like Godot's
+own errors, also in the editor. Called from the callbacks' error handlers, so
+it must not fail itself: if print_error can't be used, it prints to standard
+output."
+  (let ((description (or (ignore-errors (princ-to-string condition)) "(unprintable error)"))
+        (where (or where "Lisp code")))
+    (unless (and *print-error*
+                 (ignore-errors (print-error description where "Lisp" 0) t))
+      (format t "~&ERROR: ~a~%   at: ~a~%" description where))))
+
+;;;
 ;;; Methods, see GD-EXTENSION:BIND-METHOD
 ;;;
 ;;; Godot calls a bound method through one of two callbacks: ptrcall_func with
@@ -46,6 +62,8 @@ a raw value that can also be a Variant."
   (funcall (value-type-writer value-type) pointer value))
 
 (defstruct bound-method
+  ;; For error messages, e.g. "Player.start"
+  name
   function
   ;; VALUE-TYPEs; NIL as the return type means no return value
   return-type
@@ -53,12 +71,14 @@ a raw value that can also be a Variant."
 
 (defvar *bound-methods* (make-array 0 :adjustable t :fill-pointer t))
 
-(defun register-method (function &key (return-type +variant-type-nil+) argument-types)
+(defun register-method (function &key name (return-type +variant-type-nil+) argument-types)
   "Register FUNCTION as a method and return its method_userdata. FUNCTION is
 called with the instance's Lisp object and one Lisp value per argument.
-RETURN-TYPE and ARGUMENT-TYPES are variant types."
+RETURN-TYPE and ARGUMENT-TYPES are variant types. NAME, e.g. \"Player.start\",
+is used in error messages."
   (ffi:make-pointer (1+ (vector-push-extend
-                         (make-bound-method :function function
+                         (make-bound-method :name name
+                                            :function function
                                             :return-type (unless (= return-type +variant-type-nil+)
                                                            (method-value-type return-type))
                                             :argument-types (mapcar #'method-value-type
@@ -139,7 +159,7 @@ value as Variants, as in call_func."
   (handler-case
       (ptrcall-bound-method method-userdata instance args r-ret)
     (error (e)
-      (format t "~&Error in method ptrcall: ~a~%" e))))
+      (report-error (bound-method-name (userdata-method method-userdata)) e))))
 
 ;; void (*GDExtensionClassMethodCall)(void *method_userdata,
 ;;                                    GDExtensionClassInstancePtr p_instance,
@@ -151,11 +171,13 @@ value as Variants, as in call_func."
     ((method-userdata :pointer-void) (instance :pointer-void)
      (args :pointer-void) (argument-count :int64-t)
      (r-return :pointer-void) (r-error :pointer-void))
+  ;; There's no call error for a failing method, and Godot already initialized
+  ;; R-ERROR to OK and R-RETURN to Nil, so after an error the method returns
+  ;; null, like a GDScript method that fails
   (handler-case
       (call-bound-method method-userdata instance args argument-count r-return r-error)
     (error (e)
-      (format t "~&Error in method call: ~a~%" e)
-      (set-call-error r-error +call-error-invalid-method+))))
+      (report-error (bound-method-name (userdata-method method-userdata)) e))))
 
 ;;;
 ;;; Classes, see GD-EXTENSION:REGISTER-CLASS
@@ -307,7 +329,7 @@ object, and return the object pointer."
   (declare (ignore notify-postinitialize))
   (handler-case (create-class-instance class-userdata)
     (error (e)
-      (format t "~&Error in create instance: ~a~%" e)
+      (report-error "create instance" e)
       (ffi:make-null-pointer :void))))
 
 ;; void (*GDExtensionClassFreeInstance)(void *p_class_userdata,
@@ -316,7 +338,7 @@ object, and return the object pointer."
     ((class-userdata :pointer-void) (instance :pointer-void))
   (handler-case (free-class-instance class-userdata instance)
     (error (e)
-      (format t "~&Error in free instance: ~a~%" e))))
+      (report-error "free instance" e))))
 
 ;; void *(*GDExtensionClassGetVirtualCallData2)(void *p_class_userdata,
 ;;                                              GDExtensionConstStringNamePtr p_name,
@@ -328,7 +350,7 @@ object, and return the object pointer."
   (declare (ignore hash))
   (handler-case (virtual-call-data class-userdata name)
     (error (e)
-      (format t "~&Error in get virtual call data: ~a~%" e)
+      (report-error "get virtual call data" e)
       (ffi:make-null-pointer :void))))
 
 ;; void (*GDExtensionClassCallVirtualWithData)(GDExtensionClassInstancePtr p_instance,
@@ -343,4 +365,4 @@ object, and return the object pointer."
   (handler-case
       (ptrcall-bound-method virtual-call-userdata instance args r-ret)
     (error (e)
-      (format t "~&Error in virtual method call: ~a~%" e))))
+      (report-error (bound-method-name (userdata-method virtual-call-userdata)) e))))

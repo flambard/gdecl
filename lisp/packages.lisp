@@ -41,6 +41,8 @@
            #:callable-destructor
            #:packed-string-array-destructor
            #:string-to-utf8-chars
+           #:print-error
+           #:*print-error*
            #:variant-get-ptr-builtin-method
            #:call-ptr-builtin-method
            #:packed-string-array-operator-index
@@ -275,6 +277,8 @@ tables and dispatchers behind them")
            #:free-instance
            #:get-virtual-call-data
            #:call-virtual-with-data
+           ;; Errors
+           #:report-error
            ;; Tables
            #:register-method
            #:add-extension-class
@@ -293,6 +297,7 @@ tables and dispatchers behind them")
                 #:free-instance
                 #:get-virtual-call-data
                 #:call-virtual-with-data
+                #:report-error
                 #:register-method
                 #:add-extension-class
                 #:add-virtual

@@ -175,6 +175,7 @@
 (defvar *variant-get-type* nil)
 (defvar *string-new-with-utf8-chars* nil)
 (defvar *string-to-utf8-chars* nil)
+(defvar *print-error* nil)
 (defvar *variant-get-ptr-builtin-method* nil)
 (defvar *packed-string-array-operator-index* nil)
 
@@ -409,6 +410,18 @@
                   '(:pointer-void :pointer-void)
                   (list dest (si:make-foreign-data-from-array octets)))))
 
+;; void print_error(const char *p_description, const char *p_function,
+;;                  const char *p_file, int32_t p_line, GDExtensionBool p_editor_notify)
+(defun print-error (description function file line &optional editor-notify)
+  (flet ((utf8 (string)
+           ;; FFI:WITH-CSTRING only handles base characters, so encode explicitly
+           (si:make-foreign-data-from-array
+            (ext:string-to-octets string :external-format :utf-8 :null-terminate t))))
+    (si:call-cfun *print-error*
+                  :void '(:pointer-void :pointer-void :pointer-void :int32-t :uint8-t)
+                  (list (utf8 description) (utf8 function) (utf8 file) line
+                        (if editor-notify 1 0)))))
+
 ;; GDExtensionInt string_to_utf8_chars(GDExtensionConstStringPtr p_self,
 ;;                                     char *r_text,
 ;;                                     GDExtensionInt p_max_write_length)
@@ -494,6 +507,7 @@ that Godot gave the extension, and look up the interface functions."
         *variant-get-type* (get-proc-address "variant_get_type")
         *string-new-with-utf8-chars* (get-proc-address "string_new_with_utf8_chars")
         *string-to-utf8-chars* (get-proc-address "string_to_utf8_chars")
+        *print-error* (get-proc-address "print_error")
         *variant-get-ptr-builtin-method* (get-proc-address "variant_get_ptr_builtin_method")
         *packed-string-array-operator-index* (get-proc-address "packed_string_array_operator_index"))
   (setf *string-name-destructor* (variant-get-ptr-destructor +variant-type-string-name+)

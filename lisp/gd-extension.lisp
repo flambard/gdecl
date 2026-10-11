@@ -36,12 +36,12 @@ src/gdecl.c."
   (loop for (cell . function) in (reverse *initialize-cells*)
         do (handler-case (setf (car cell) (funcall function))
              (error (e)
-               (format t "~&Error in initialize cell ~a: ~a~%" function e))))
+               (report-error "initialize" e))))
   (setf *initialize-cells* '())
   (dolist (hook *initialize-hooks*)
     (handler-case (funcall hook)
       (error (e)
-        (format t "~&Error in initialize hook ~a: ~a~%" hook e))))
+        (report-error (format nil "initialize hook ~a" hook) e))))
   t)
 
 ;;;
@@ -428,7 +428,8 @@ instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
         (clear-foreign-object method-info 'class-method-info)
         (setf (ffi:get-slot-value method-info 'class-method-info 'name) method-name-string
               (ffi:get-slot-value method-info 'class-method-info 'method-userdata)
-              (register-method function :return-type return-type
+              (register-method function :name (format nil "~a.~a" class-name method-name)
+                                        :return-type return-type
                                         :argument-types (mapcar #'second arguments))
               (ffi:get-slot-value method-info 'class-method-info 'call-func)
               (ffi:callback 'method-call)
@@ -530,5 +531,6 @@ the arguments as Lisp values. Call it after REGISTER-CLASS, before Godot
 creates any instances of the class."
   (add-virtual class-name
                (new-string-name virtual-name)
-               (register-method function :return-type return-type
+               (register-method function :name (format nil "~a.~a" class-name virtual-name)
+                                         :return-type return-type
                                          :argument-types (mapcar #'second arguments))))
