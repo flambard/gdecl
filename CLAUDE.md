@@ -92,3 +92,7 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
 ## Method dispatcher
 
 All methods bound with `bind-method` share one pair of callbacks, `method-call` (Variants) and `method-ptrcall` (raw values). `method_userdata` is an index into `*bound-methods*`, a table of `bound-method` descriptors (function, return type and argument types, see `register-method`). The dispatcher converts arguments and return values for the types in `*method-value-types*`, currently `bool`, `int` and `float`. Bound functions get the instance pointer without a type, and must cast it to their own struct.
+
+## Classes
+
+`register-class` registers an extension class with `classdb_register_extension_class4`. All classes share the callbacks `create-instance` and `free-instance`; `class_userdata` is an index into `*extension-classes*`. `create-instance` constructs an object of the parent class with `classdb_construct_object` and makes it an instance of the extension class with `object_set_instance`. The class's constructor makes the instance's Lisp object, kept in `*instances*` so the GC can reach it; the `GDExtensionClassInstancePtr` is an index into that table (`instance-object`). No virtual methods yet (`get_virtual_func` is NULL).

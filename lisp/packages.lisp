@@ -219,6 +219,9 @@
            #:clear-foreign-object
            #:cast-pointer
            #:foreign-ref
+           ;; Classes
+           #:register-class
+           #:instance-object
            ;; Binding
            #:register-method
            #:ptrcall-bound-method

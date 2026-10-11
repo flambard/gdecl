@@ -351,3 +351,135 @@ instance pointer and the arguments as Lisp values."
         (classdb-register-extension-class-signal *class-library* class-string-name
                                                  signal-string-name args-info 1)
         (destruct-property args-info)))))
+
+;;;
+;;; Classes
+;;;
+;;; REGISTER-CLASS registers an extension class that inherits from a Godot
+;;; class. All classes share the same two callbacks, CREATE-INSTANCE and
+;;; FREE-INSTANCE. The class_userdata of a class is (1+ index) into
+;;; *EXTENSION-CLASSES*.
+;;;
+;;; Each instance of an extension class has a Lisp object, made by the class's
+;;; constructor. Godot only holds a pointer to the instance, so the Lisp objects
+;;; are kept in *INSTANCES*, which keeps them reachable for the GC, and the
+;;; GDExtensionClassInstancePtr is (1+ index) into it. INSTANCE-OBJECT gives
+;;; the Lisp object of an instance pointer.
+;;;
+
+(defstruct extension-class
+  name
+  ;; A StringName with NAME, kept for OBJECT-SET-INSTANCE
+  string-name
+  ;; A StringName with the name of the parent class, kept for
+  ;; CLASSDB-CONSTRUCT-OBJECT
+  parent-string-name
+  ;; Called with the Godot object pointer; returns the instance's Lisp object
+  constructor
+  ;; Called with the instance's Lisp object when Godot frees it, or NIL
+  destructor)
+
+(defvar *extension-classes* (make-array 0 :adjustable t :fill-pointer t))
+
+(defun userdata-class (userdata)
+  (aref *extension-classes* (1- (ffi:pointer-address userdata))))
+
+;; The Lisp objects of the instances, and the indices of the free elements
+(defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
+(defvar *free-instances* '())
+
+(defun add-instance (object)
+  "Keep OBJECT in *INSTANCES* and return its GDExtensionClassInstancePtr."
+  (let ((index (if *free-instances*
+                   (let ((index (pop *free-instances*)))
+                     (setf (aref *instances* index) object)
+                     index)
+                   (vector-push-extend object *instances*))))
+    (ffi:make-pointer (1+ index) :void)))
+
+(defun remove-instance (instance)
+  "Forget the Lisp object of INSTANCE, and return it."
+  (let* ((index (1- (ffi:pointer-address instance)))
+         (object (aref *instances* index)))
+    (setf (aref *instances* index) nil)
+    (push index *free-instances*)
+    object))
+
+(defun instance-object (instance)
+  "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
+bound methods)."
+  (aref *instances* (1- (ffi:pointer-address instance))))
+
+(defun create-class-instance (class-userdata)
+  "Create a Godot object of the class identified by CLASS-USERDATA, with its Lisp
+object, and return the object pointer."
+  (let* ((class (userdata-class class-userdata))
+         ;; An object of the parent class, which becomes an object of CLASS
+         ;; through OBJECT-SET-INSTANCE
+         (object (classdb-construct-object (extension-class-parent-string-name class))))
+    (object-set-instance object (extension-class-string-name class)
+                         (add-instance (funcall (extension-class-constructor class) object)))
+    object))
+
+(defun free-class-instance (class-userdata instance)
+  (let ((destructor (extension-class-destructor (userdata-class class-userdata)))
+        (object (remove-instance instance)))
+    (when destructor
+      (funcall destructor object))))
+
+;; GDExtensionObjectPtr (*GDExtensionClassCreateInstance2)(void *p_class_userdata,
+;;                                                         GDExtensionBool p_notify_postinitialize)
+;;
+;; CLASSDB-CONSTRUCT-OBJECT always sends NOTIFICATION_POSTINITIALIZE, so
+;; NOTIFY-POSTINITIALIZE isn't used.
+(ffi:defcallback create-instance :pointer-void
+    ((class-userdata :pointer-void) (notify-postinitialize :unsigned-byte))
+  (declare (ignore notify-postinitialize))
+  (handler-case (create-class-instance class-userdata)
+    (error (e)
+      (format t "~&Error in create instance: ~a~%" e)
+      (ffi:make-null-pointer :void))))
+
+;; void (*GDExtensionClassFreeInstance)(void *p_class_userdata,
+;;                                      GDExtensionClassInstancePtr p_instance)
+(ffi:defcallback free-instance :void
+    ((class-userdata :pointer-void) (instance :pointer-void))
+  (handler-case (free-class-instance class-userdata instance)
+    (error (e)
+      (format t "~&Error in free instance: ~a~%" e))))
+
+(defun new-string-name (contents)
+  "A StringName created from the string CONTENTS, in memory from MEM-ALLOC.
+Never destroyed."
+  (let ((string-name (mem-alloc +string-name-size+)))
+    (string-name-new-with-latin1-chars string-name contents)
+    string-name))
+
+(defun register-class (class-name parent-class-name
+                       &key (constructor #'identity) destructor)
+  "Register the class CLASS-NAME, which inherits from the class
+PARENT-CLASS-NAME (both strings). When Godot creates an instance, CONSTRUCTOR
+is called with the Godot object pointer, and returns the instance's Lisp object
+(see INSTANCE-OBJECT); the default is the object pointer itself. When Godot
+frees the instance, DESTRUCTOR, if given, is called with the Lisp object."
+  (let* ((class (make-extension-class :name class-name
+                                      :string-name (new-string-name class-name)
+                                      :parent-string-name (new-string-name parent-class-name)
+                                      :constructor constructor
+                                      :destructor destructor))
+         (class-userdata (ffi:make-pointer (1+ (vector-push-extend class *extension-classes*))
+                                           :void)))
+    (ffi:with-foreign-object (info 'class-creation-info4)
+      ;; All slots not set below are NULL/0
+      (clear-foreign-object info 'class-creation-info4)
+      (setf (ffi:get-slot-value info 'class-creation-info4 'is-exposed) 1
+            (ffi:get-slot-value info 'class-creation-info4 'create-instance-func)
+            (ffi:callback 'create-instance)
+            (ffi:get-slot-value info 'class-creation-info4 'free-instance-func)
+            (ffi:callback 'free-instance)
+            (ffi:get-slot-value info 'class-creation-info4 'class-userdata) class-userdata)
+      (classdb-register-extension-class4 *class-library*
+                                         (extension-class-string-name class)
+                                         (extension-class-parent-string-name class)
+                                         info))
+    class-name))
