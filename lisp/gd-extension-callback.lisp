@@ -168,7 +168,8 @@ value as Variants, as in call_func."
 ;;; constructor. Godot only holds a pointer to the instance, so the Lisp objects
 ;;; are kept in *INSTANCES*, which keeps them reachable for the GC, and the
 ;;; GDExtensionClassInstancePtr is (1+ index) into it. INSTANCE-OBJECT gives
-;;; the Lisp object of an instance pointer.
+;;; the Lisp object of an instance pointer, and LISP-OBJECT that of a Godot
+;;; object pointer.
 ;;;
 ;;; Virtual methods, such as _ready and _process, go through two more shared
 ;;; callbacks. Godot asks GET-VIRTUAL-CALL-DATA once whether a class implements
@@ -239,22 +240,40 @@ CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it.
 (defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
 (defvar *free-instances* '())
 
-(defun add-instance (object)
-  "Keep OBJECT in *INSTANCES* and return its GDExtensionClassInstancePtr."
-  (let ((index (if *free-instances*
+;; The addresses of the Godot objects of the instances, by index like
+;; *INSTANCES*, and their Lisp objects by address, for LISP-OBJECT
+(defvar *instance-addresses* (make-array 0 :adjustable t :fill-pointer t))
+(defvar *lisp-objects* (make-hash-table))
+
+(defun add-instance (godot-object lisp-object)
+  "Keep LISP-OBJECT, the Lisp object of GODOT-OBJECT, in *INSTANCES* and return
+its GDExtensionClassInstancePtr."
+  (let ((address (ffi:pointer-address godot-object))
+        (index (if *free-instances*
                    (let ((index (pop *free-instances*)))
-                     (setf (aref *instances* index) object)
+                     (setf (aref *instances* index) lisp-object)
                      index)
-                   (vector-push-extend object *instances*))))
+                   (vector-push-extend lisp-object *instances*))))
+    (if (< index (length *instance-addresses*))
+        (setf (aref *instance-addresses* index) address)
+        (vector-push-extend address *instance-addresses*))
+    (setf (gethash address *lisp-objects*) lisp-object)
     (ffi:make-pointer (1+ index) :void)))
 
 (defun remove-instance (instance)
   "Forget the Lisp object of INSTANCE, and return it."
   (let* ((index (1- (ffi:pointer-address instance)))
-         (object (aref *instances* index)))
-    (setf (aref *instances* index) nil)
+         (lisp-object (aref *instances* index)))
+    (remhash (aref *instance-addresses* index) *lisp-objects*)
+    (setf (aref *instances* index) nil
+          (aref *instance-addresses* index) nil)
     (push index *free-instances*)
-    object))
+    lisp-object))
+
+(defun lisp-object (godot-object)
+  "The Lisp object of GODOT-OBJECT, a Godot object pointer, if it's an instance
+of an extension class registered with GD-EXTENSION:REGISTER-CLASS, else NIL."
+  (values (gethash (ffi:pointer-address godot-object) *lisp-objects*)))
 
 (defun instance-object (instance)
   "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
@@ -269,7 +288,7 @@ object, and return the object pointer."
          ;; through OBJECT-SET-INSTANCE
          (object (classdb-construct-object (extension-class-parent-string-name class))))
     (object-set-instance object (extension-class-string-name class)
-                         (add-instance (funcall (extension-class-constructor class) object)))
+                         (add-instance object (funcall (extension-class-constructor class) object)))
     object))
 
 (defun free-class-instance (class-userdata instance)

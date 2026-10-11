@@ -279,7 +279,8 @@ tables and dispatchers behind them")
            #:register-method
            #:add-extension-class
            #:add-virtual
-           #:instance-object))
+           #:instance-object
+           #:lisp-object))
 
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
@@ -295,7 +296,8 @@ tables and dispatchers behind them")
                 #:register-method
                 #:add-extension-class
                 #:add-virtual
-                #:instance-object)
+                #:instance-object
+                #:lisp-object)
   (:export #:initialize
            #:add-initialize-hook
            ;; Helpers
@@ -335,6 +337,7 @@ tables and dispatchers behind them")
            #:register-class
            #:bind-virtual
            #:instance-object
+           #:lisp-object
            ;; Binding
            #:register-method
            #:make-property
