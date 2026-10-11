@@ -1,6 +1,6 @@
 # gdecl
 
-Guidance for working on the gdecl framework: Godot 4 GDExtension programming in Common Lisp with ECL, without godot-cpp. User-facing documentation is in `README.md`. This directory is meant to become a separate repository, so keep it free of anything specific to an application.
+Guidance for working on the gdecl framework: Godot 4 GDExtension programming in Common Lisp with ECL, without godot-cpp. User-facing documentation is in `README.md`. This is its own repository (github.com/flambard/gdecl), used by applications as a git submodule, so keep it free of anything specific to an application.
 
 ## Goal and direction
 
