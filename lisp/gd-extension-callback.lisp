@@ -377,3 +377,81 @@ object, and return the object pointer."
       (ptrcall-bound-method virtual-call-userdata instance args r-ret)
     (error (e)
       (report-error (bound-method-name (userdata-method virtual-call-userdata)) e))))
+
+;;;
+;;; Callables, see GD-EXTENSION-TYPES:CALLABLE
+;;;
+;;; WRITE-CALLABLE makes a custom Godot Callable that calls a Lisp function. All
+;;; custom Callables share the same two callbacks, CALLABLE-CALL and
+;;; CALLABLE-FREE. Their callable_userdata is (1+ index) into *CALLABLES*, which
+;;; keeps the functions; CALLABLE-FREE forgets the function when Godot frees the
+;;; last copy of the Callable.
+;;;
+
+(defvar *callables* (make-array 0 :adjustable t :fill-pointer t))
+(defvar *free-callables* '())
+
+(defun add-callable-function (function)
+  (let ((index (if *free-callables*
+                   (let ((index (pop *free-callables*)))
+                     (setf (aref *callables* index) function)
+                     index)
+                   (vector-push-extend function *callables*))))
+    (ffi:make-pointer (1+ index) :void)))
+
+(defun userdata-callable-function (userdata)
+  (aref *callables* (1- (ffi:pointer-address userdata))))
+
+(defun write-callable (pointer callable)
+  "Construct a custom Godot Callable at POINTER, uninitialized memory, from the
+Lisp CALLABLE. Destroy it with CALLABLE-DESTRUCTOR; Godot keeps the Lisp function
+until the last copy of the Callable is destroyed."
+  (ffi:with-foreign-object (info 'callable-custom-info2)
+    ;; All slots not set below are NULL/0
+    (clear-foreign-object info 'callable-custom-info2)
+    (setf (ffi:get-slot-value info 'callable-custom-info2 'callable-userdata)
+          (add-callable-function (callable-function callable))
+          (ffi:get-slot-value info 'callable-custom-info2 'token) *class-library*
+          (ffi:get-slot-value info 'callable-custom-info2 'object-id)
+          (object-get-instance-id (callable-target callable))
+          (ffi:get-slot-value info 'callable-custom-info2 'call-func)
+          (ffi:callback 'callable-call)
+          (ffi:get-slot-value info 'callable-custom-info2 'free-func)
+          (ffi:callback 'callable-free))
+    (callable-custom-create2 pointer info)))
+
+(add-value-type (make-value-type :variant-type +variant-type-callable+
+                                 :ffi-type 'godot-callable
+                                 :writer 'write-callable
+                                 :destructor 'callable-destructor))
+
+;; void (*GDExtensionCallableCustomCall)(void *callable_userdata,
+;;                                       const GDExtensionConstVariantPtr *p_args,
+;;                                       GDExtensionInt p_argument_count,
+;;                                       GDExtensionVariantPtr r_return,
+;;                                       GDExtensionCallError *r_error)
+;;
+;; The result of the function isn't returned (R-RETURN stays Nil). Godot doesn't
+;; initialize R-ERROR, so it's always set; to OK also after a Lisp error, as for
+;; a bound method that fails.
+(ffi:defcallback callable-call :void
+    ((callable-userdata :pointer-void) (args :pointer-void) (argument-count :int64-t)
+     (r-return :pointer-void) (r-error :pointer-void))
+  (declare (ignore r-return))
+  (handler-case
+      (progn
+        (set-call-error r-error +call-ok+)
+        (apply (userdata-callable-function callable-userdata)
+               (loop for i below argument-count
+                     collect (read-variant (foreign-ref args :pointer-void i)))))
+    (error (e)
+      (report-error "Lisp callable" e))))
+
+;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
+(ffi:defcallback callable-free :void ((callable-userdata :pointer-void))
+  (handler-case
+      (let ((index (1- (ffi:pointer-address callable-userdata))))
+        (setf (aref *callables* index) nil)
+        (push index *free-callables*))
+    (error (e)
+      (report-error "free Lisp callable" e))))

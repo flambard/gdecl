@@ -96,6 +96,12 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
     ```
     The function takes the Godot object pointer and then the method's arguments. Supported types so far: bool, int, float, Vector2, String (a Lisp string), StringName, NodePath and `:variant` (arguments; a Variant argument is converted from the Lisp value by its type: `t`/`nil`, integer, real or `vector2`), and Rect2, Object and PackedStringArray (results; an Object is a Godot object pointer, a PackedStringArray a list of strings). Vararg methods such as `emit_signal` are defined with `define-engine-vararg-method` instead, which calls them with Variants; only with their declared arguments so far.
   - An engine method that returns a RefCounted object, such as a Resource, returns it with a reference you own, like a `Ref<T>` in C++. Give it back with `release-reference`, or use `(with-reference (frames (get-sprite-frames sprite)) ...)`. To keep a RefCounted object you got another way, e.g. as a bound method's argument, take a reference with `add-reference`.
+  - `connect-signal` connects a signal to a Lisp function, through a Godot Callable that calls it. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
+    ```lisp
+    (after-signal ((get-node hud (npath "MessageTimer")) (sname "timeout") :target hud)
+      (show (get-node hud (npath "StartButton"))))
+    ```
+    The connection is bound to a target object (by default the one emitting the signal), and goes away when that object is freed.
   - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, `(npath "AnimatedSprite2D")` a NodePath created once, and `(singleton "Input")` an engine singleton, looked up once.
   - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
   - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Like a GDScript script without `@tool`, its code doesn't run in the editor, unless you pass `:tool t`. Each instance gets a Lisp object, made by the class's constructor. Bound methods get it as their first argument, `instance-object` gives it from an instance pointer, and `lisp-object` from a Godot object pointer, e.g. a node from `get_node`, so Lisp code can call another class's Lisp functions directly.

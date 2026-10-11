@@ -99,6 +99,13 @@ STRING. Destroy it with STRING-DESTRUCTOR."
     (loop for i below size
           collect (read-godot-string (packed-string-array-operator-index pointer i)))))
 
+(defstruct (callable (:constructor callable (target function)))
+  "A Callable that calls the Lisp FUNCTION with the arguments as Lisp values,
+bound to the Godot object TARGET (a pointer): Godot only calls it while TARGET
+exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK."
+  target
+  function)
+
 ;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
 ;; when a method's metadata says they're smaller). The raw value of an Object
 ;; is the object pointer.
@@ -185,3 +192,27 @@ values, see VALUE-TYPE.")
   "The VALUE-TYPE of VARIANT-TYPE (or :VARIANT)."
   (or (find variant-type *value-types* :key #'value-type-variant-type)
       (error "Unsupported type: variant type ~s" variant-type)))
+
+(defun add-value-type (value-type)
+  "Add VALUE-TYPE to *VALUE-TYPES*, replacing one for the same variant type. For
+types whose conversion needs a higher layer, such as Callable."
+  (setf *value-types*
+        (cons value-type (remove (value-type-variant-type value-type) *value-types*
+                                 :key #'value-type-variant-type))))
+
+(defun read-variant (variant)
+  "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for
+Nil, otherwise as in *VALUE-TYPES*."
+  (let ((variant-type (variant-get-type variant)))
+    (if (= variant-type +variant-type-nil+)
+        nil
+        (let ((value-type (find-value-type variant-type)))
+          (unless (and (value-type-ffi-type value-type) (value-type-reader value-type))
+            (error "Unsupported type for a Variant: variant type ~s" variant-type))
+          (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+            (call-type-from-variant-constructor
+             (aref *type-from-variant-constructors* variant-type) raw variant)
+            (unwind-protect (funcall (value-type-reader value-type) raw)
+              (let ((destructor (value-type-destructor value-type)))
+                (when destructor
+                  (funcall destructor raw)))))))))

@@ -42,6 +42,8 @@
            #:packed-string-array-destructor
            #:string-to-utf8-chars
            #:print-error
+           #:callable-custom-create2
+           #:object-get-instance-id
            #:*print-error*
            #:variant-get-ptr-builtin-method
            #:call-ptr-builtin-method
@@ -166,7 +168,18 @@
            #:position
            #:size
            #:node-path
-           #:callable
+           #:godot-callable
+           #:callable-custom-info2
+           #:callable-userdata
+           #:token
+           #:object-id
+           #:is-valid-func
+           #:free-func
+           #:hash-func
+           #:equal-func
+           #:less-than-func
+           #:to-string-func
+           #:get-argument-count-func
            #:packed-string-array
            #:data
            #:godot-version
@@ -258,6 +271,11 @@ raw values")
            #:write-godot-string
            #:read-packed-string-array
            #:write-variant
+           #:read-variant
+           #:callable
+           #:callable-p
+           #:callable-target
+           #:callable-function
            ;; Value types
            #:value-type
            #:value-type-variant-type
@@ -265,7 +283,9 @@ raw values")
            #:value-type-reader
            #:value-type-writer
            #:value-type-destructor
-           #:find-value-type))
+           #:find-value-type
+           #:add-value-type
+           #:make-value-type))
 
 (defpackage #:gd-extension-callback
   (:documentation "What runs when Godot calls into Lisp: the callbacks, and the
@@ -337,6 +357,11 @@ tables and dispatchers behind them")
            ;; Calling engine methods
            #:define-engine-method
            #:define-engine-vararg-method
+           ;; Signals
+           #:+connect-deferred+
+           #:+connect-one-shot+
+           #:connect-signal
+           #:after-signal
            ;; References
            #:add-reference
            #:release-reference

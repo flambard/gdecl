@@ -176,6 +176,8 @@
 (defvar *string-new-with-utf8-chars* nil)
 (defvar *string-to-utf8-chars* nil)
 (defvar *print-error* nil)
+(defvar *callable-custom-create2* nil)
+(defvar *object-get-instance-id* nil)
 (defvar *variant-get-ptr-builtin-method* nil)
 (defvar *packed-string-array-operator-index* nil)
 
@@ -422,6 +424,16 @@
                   (list (utf8 description) (utf8 function) (utf8 file) line
                         (if editor-notify 1 0)))))
 
+;; void callable_custom_create2(GDExtensionUninitializedTypePtr r_callable,
+;;                              GDExtensionCallableCustomInfo2 *p_callable_custom_info)
+(defun callable-custom-create2 (callable info)
+  (si:call-cfun *callable-custom-create2* :void '(:pointer-void :pointer-void)
+                (list callable info)))
+
+;; GDObjectInstanceID object_get_instance_id(GDExtensionConstObjectPtr p_object)
+(defun object-get-instance-id (object)
+  (si:call-cfun *object-get-instance-id* :uint64-t '(:pointer-void) (list object)))
+
 ;; GDExtensionInt string_to_utf8_chars(GDExtensionConstStringPtr p_self,
 ;;                                     char *r_text,
 ;;                                     GDExtensionInt p_max_write_length)
@@ -508,6 +520,8 @@ that Godot gave the extension, and look up the interface functions."
         *string-new-with-utf8-chars* (get-proc-address "string_new_with_utf8_chars")
         *string-to-utf8-chars* (get-proc-address "string_to_utf8_chars")
         *print-error* (get-proc-address "print_error")
+        *callable-custom-create2* (get-proc-address "callable_custom_create2")
+        *object-get-instance-id* (get-proc-address "object_get_instance_id")
         *variant-get-ptr-builtin-method* (get-proc-address "variant_get_ptr_builtin_method")
         *packed-string-array-operator-index* (get-proc-address "packed_string_array_operator_index"))
   (setf *string-name-destructor* (variant-get-ptr-destructor +variant-type-string-name+)
@@ -579,7 +593,9 @@ that Godot gave the extension, and look up the interface functions."
 (ffi:def-struct node-path
   (data '(:array :uint8-t #.+node-path-size+)))
 
-(ffi:def-struct callable
+;; Godot's Callable. Named GODOT-CALLABLE, since GD-EXTENSION-TYPES has a Lisp
+;; type CALLABLE.
+(ffi:def-struct godot-callable
   (data '(:array :uint8-t #.+callable-size+)))
 
 (ffi:def-struct packed-string-array
@@ -713,6 +729,23 @@ that Godot gave the extension, and look up the interface functions."
   (default-argument-count :uint32-t)
   (default-arguments :pointer-void))
 
+
+;;  GDExtensionCallableCustomInfo2, see gdextension_interface.h for the
+;;  documentation of each slot. All the *_func slots are function pointers;
+;;  object_id is a GDObjectInstanceID (uint64_t).
+;;
+(ffi:def-struct callable-custom-info2
+  (callable-userdata :pointer-void)
+  (token :pointer-void)
+  (object-id :uint64-t)
+  (call-func :pointer-void)
+  (is-valid-func :pointer-void)
+  (free-func :pointer-void)
+  (hash-func :pointer-void)
+  (equal-func :pointer-void)
+  (less-than-func :pointer-void)
+  (to-string-func :pointer-void)
+  (get-argument-count-func :pointer-void))
 
 ;;  typedef struct {
 ;;      GDExtensionCallErrorType error;

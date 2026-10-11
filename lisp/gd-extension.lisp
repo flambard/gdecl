@@ -368,6 +368,47 @@ BODY exits, also on a non-local exit."
        (release-reference ,var))))
 
 ;;;
+;;; Signals
+;;;
+;;; CONNECT-SIGNAL connects a signal to a Lisp function, through a custom
+;;; Callable (see GD-EXTENSION-TYPES:CALLABLE). AFTER-SIGNAL does it once, for
+;;; what GDScript does with await.
+;;;
+
+;; Object.ConnectFlags
+(defconstant +connect-deferred+ 1)
+(defconstant +connect-one-shot+ 4)
+
+(define-engine-method object-connect ("Object" "connect" 1518946055)
+  :arguments ((signal-name +variant-type-string-name+)
+              (callable +variant-type-callable+)
+              (flags +variant-type-int+ 0))
+  :return-type +variant-type-int+)      ; Error
+
+(defun connect-signal (object signal-name function &key (target object) (flags 0))
+  "Connect the signal SIGNAL-NAME (a StringName, see SNAME) of OBJECT to the Lisp
+FUNCTION, which is called with the signal's arguments as Lisp values, like
+signal.connect(callable, flags) in GDScript. The connection is bound to TARGET
+(a Godot object pointer, by default OBJECT): it's removed when TARGET is freed.
+FLAGS are Object.ConnectFlags, such as +CONNECT-ONE-SHOT+. Returns Godot's
+error code."
+  (object-connect object signal-name (callable target function) flags))
+
+(defmacro after-signal ((object signal-name &key target) &body body)
+  "Evaluate BODY once, the next time OBJECT emits the signal SIGNAL-NAME (a
+StringName, see SNAME), like the code after await object.signal_name in GDScript.
+Returns right away. TARGET is as in CONNECT-SIGNAL; with TARGET the object that
+the code belongs to, BODY isn't run if that object has been freed by then."
+  (let ((object-var (gensym "OBJECT")))
+    `(let ((,object-var ,object))
+       (connect-signal ,object-var ,signal-name
+                       (lambda (&rest arguments)
+                         (declare (ignore arguments))
+                         ,@body)
+                       :target ,(or target object-var)
+                       :flags +connect-one-shot+))))
+
+;;;
 ;;; Binding helpers
 ;;;
 ;;; MAKE-PROPERTY fills in the GDExtensionPropertyInfo at INFO (the C version
