@@ -94,7 +94,7 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
 
 ## Method dispatcher
 
-All methods bound with `bind-method` share one pair of callbacks, `method-call` (Variants) and `method-ptrcall` (raw values). `method_userdata` is an index into `*bound-methods*`, a table of `bound-method` descriptors (function, return type and argument types, see `register-method`). The dispatcher converts arguments and return values for the types in `*method-value-types*`, currently `bool`, `int` and `float`. Bound functions get the instance pointer, and can get the instance's Lisp object with `instance-object`.
+All methods bound with `bind-method` share one pair of callbacks, `method-call` (Variants) and `method-ptrcall` (raw values). `method_userdata` is an index into `*bound-methods*`, a table of `bound-method` descriptors (function, return type and argument types, see `register-method`). The dispatcher converts arguments and return values for the types in `*method-value-types*`, currently `bool`, `int` and `float`. Bound functions get the instance's Lisp object (`instance-object`), like `self` in GDScript.
 
 ## Classes
 

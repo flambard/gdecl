@@ -23,8 +23,8 @@
 ;;; A Lisp function can't be passed to C, so the BOUND-METHODs are kept in
 ;;; *BOUND-METHODS* and method_userdata is (1+ index), so that it's never NULL.
 ;;;
-;;; The functions get the GDExtensionClassInstancePtr as is, and can get the
-;;; instance's Lisp object with INSTANCE-OBJECT.
+;;; The functions get the instance's Lisp object (see INSTANCE-OBJECT), like
+;;; self in GDScript.
 ;;;
 
 ;; Variant types whose raw values the dispatcher can convert, and their FFI
@@ -62,7 +62,7 @@
 
 (defun register-method (function &key (return-type +variant-type-nil+) argument-types)
   "Register FUNCTION as a method and return its method_userdata. FUNCTION is
-called with the instance pointer and one Lisp value per argument."
+called with the instance's Lisp object and one Lisp value per argument."
   (unless (= return-type +variant-type-nil+)
     (value-ffi-type return-type))
   (mapc #'value-ffi-type argument-types)
@@ -90,7 +90,8 @@ where the raw return value goes."
          (arguments (loop for type in (bound-method-argument-types method)
                           for i from 0
                           collect (read-value (foreign-ref args :pointer-void i) type)))
-         (result (apply (bound-method-function method) instance arguments)))
+         (result (apply (bound-method-function method) (instance-object instance)
+                        arguments)))
     (unless (= return-type +variant-type-nil+)
       (write-value r-ret return-type result))))
 
@@ -118,7 +119,7 @@ value as Variants, as in call_func."
                         (call-type-from-variant-constructor
                          (aref *type-from-variant-constructors* type) value variant)
                         (push (read-value value type) arguments)))
-             (let ((result (apply (bound-method-function method) instance
+             (let ((result (apply (bound-method-function method) (instance-object instance)
                                   (nreverse arguments))))
                (unless (= return-type +variant-type-nil+)
                  (ffi:with-foreign-object (value (value-ffi-type return-type))

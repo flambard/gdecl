@@ -106,7 +106,7 @@ non-local exit."
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
 ARGUMENTS is a list of (name variant-type), and RETURN-TYPE the variant type of
 the return value (+VARIANT-TYPE-NIL+ for none). FUNCTION is called with the
-instance pointer and the arguments as Lisp values."
+instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
   (let ((argument-count (length arguments))
         (has-return-value (/= return-type +variant-type-nil+)))
     (with-string-name (method-name-string method-name)
