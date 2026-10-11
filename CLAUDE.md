@@ -2,6 +2,46 @@
 
 Guidance for working on the gdecl framework: Godot 4 GDExtension programming in Common Lisp with ECL, without godot-cpp. User-facing documentation is in `README.md`. This directory is meant to become a separate repository, so keep it free of anything specific to an application.
 
+## Goal and direction
+
+GDExtension is a low-level C interface, not meant to be used directly by application developers. gdecl's goal is to raise the level of abstraction step by step until writing a Godot application in Lisp is at least as easy as with GDScript or C#, while staying efficient. Godot is mostly used for games, which are performance sensitive, so ease of use must not cost per-frame overhead.
+
+Principles:
+
+- **Build up gradually.** Each layer is built on the one below it: `gd-extension-ffi` (the C interface, one-to-one), then `gd-extension` (Lisp-style helpers), then probably a third layer on top of `gd-extension` for the highest-level concepts, such as the CLOS integration below (not decided yet). Grow the framework from what the demo applications need, and move code from an application into gdecl once the pattern is clear.
+- **Keep the lower layers usable.** An application can always use a lower layer for what the higher ones don't cover yet, or for a hot path.
+- **Do the work up front, not per call.** Look up method binds, StringNames and constructors once (at initialization or registration) and cache them. Prefer `ptrcall` to Variant calls. Avoid allocating in calls that happen every frame (`_process`, `_physics_process`), e.g. by not boxing floats or creating temporary Strings. Prefer compile-time expansion (macros, code generated from `extension_api.json`) to runtime lookup and dispatch.
+- **Measure.** Before choosing a convenient but slower design for something called often, check what it costs.
+
+Where to look for inspiration:
+
+- **GDScript**: the API application developers know. `extends`, `@export` properties, `signal`, virtual methods such as `_ready` and `_process` that you just define, `$Node` paths, `@onready`.
+- **Godot C# (`GodotSharp`)**: the closest model, a garbage-collected language binding. Engine classes are generated from `extension_api.json` as wrapper classes, with method binds cached in static fields. Builtin types such as `Vector2` are value types implemented in C#, not calls into the engine. User classes are ordinary C# classes with attributes (`[Export]`, `[Signal]`), and a source generator writes the registration code. Godot objects and managed objects are linked through a GC handle, and `RefCounted` lifetimes are tied to the managed object.
+
+### CLOS integration (idea, not yet decided)
+
+It would be good if Godot classes were CLOS classes, so that an application writes something like:
+
+```lisp
+(define-godot-class player (sprite-2d)
+  ((speed :initform 400.0 :type float :export t))
+  (:signals (hit)))
+
+(defmethod process ((self player) delta) ...)
+```
+
+Things to find out:
+
+- **Defining classes**: a macro over `defclass`, or a metaclass (`godot-class`) through the MOP, that also registers the class with `classdb_register_extension_class`. Exported slots become properties.
+- **Instances**: `create_instance_func` creates the Lisp instance next to the Godot object. Godot only holds a pointer, so the link must keep the Lisp object reachable for the GC (an index into a table, like `*bound-methods*`) and be removed when Godot frees the object.
+- **Virtual methods**: generic functions (`process`, `ready`, `input`, …) whose methods are found once, in `get_virtual_call_data`, not at every call. Only report a virtual as implemented when the class has a method for it, so Godot doesn't call into Lisp for nothing.
+- **Engine classes**: generate a CLOS class and functions for each Godot class from `extension_api.json`, with method binds cached. Plain (inlinable) functions are cheaper than generic functions; use generic dispatch only where the application can override something.
+- **Wrapping engine objects**: the same Godot object should map to the same Lisp wrapper (instance bindings, `object_set_instance_binding`). `RefCounted` objects need reference counting tied to the wrapper's lifetime (finalizers).
+- **Builtin types**: `Vector2`, `Color`, etc. as Lisp structs or specialized arrays with arithmetic in Lisp, without calls into Godot. Mind `real_t` (single precision in the `float_64` build configuration).
+- **Cost of CLOS dispatch in ECL** for methods called every frame, and whether caching the effective method is enough.
+
+Lisp can also offer what GDScript and C# can't easily: redefining functions and classes in a running game (see the demo's dynamic loading), and a REPL connected to Godot.
+
 ## Layout
 
 - `gdecl.asd`: the ASDF system `gdecl`, with its Lisp code in `lisp/`.

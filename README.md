@@ -4,6 +4,14 @@ gdecl is a framework for programming [Godot](https://godotengine.org) 4 with Com
 
 gdecl is a proof of concept. Its API is incomplete and will change.
 
+## Goals
+
+GDExtension is a low-level C interface, not meant to be used directly by application developers. gdecl builds higher-level, Lisp-style APIs on top of it, step by step, with the aim of making Godot as easy to program in Lisp as in GDScript or C#, and taking inspiration from both. Since Godot is mostly used for games, the higher-level APIs must stay efficient: work such as looking up methods is done once rather than per call, and code called every frame shouldn't allocate.
+
+The lower layers stay available, so you can drop down to them for what the higher ones don't cover yet, or for performance-critical code.
+
+The long-term idea is to integrate Godot's classes with CLOS: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and use generated Lisp classes for Godot's own classes. This would probably be a third package, built on `gd-extension`.
+
 ## Requirements
 
 - Godot ≥ 4.4
