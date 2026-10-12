@@ -512,6 +512,10 @@ signal without arguments has none."
           (dotimes (i argument-count)
             (destruct-property (element-pointer args-info 'property-info i))))))))
 
+;; StringNames with the names of the classes registered with REGISTER-CLASS,
+;; the last one first
+(defvar *registered-classes* '())
+
 (defun register-class (class-name parent-class-name
                        &key (constructor #'identity) destructor tool)
   "Register the class CLASS-NAME, which inherits from the class
@@ -543,7 +547,19 @@ script without @tool."
             (ffi:get-slot-value info 'class-creation-info4 'class-userdata) class-userdata)
       (classdb-register-extension-class4 *class-library* string-name parent-string-name
                                          info))
+    (push string-name *registered-classes*)
     class-name))
+
+(defun unregister-classes ()
+  "Unregister the classes registered with REGISTER-CLASS, in the reverse order,
+so that subclasses go before the classes they inherit from. A deinitialize hook,
+added after DESTROY-PERMANENT-VALUES so that it runs before it, while the class
+names are still there, and after the application's hooks."
+  (dolist (string-name *registered-classes*)
+    (classdb-unregister-extension-class *class-library* string-name))
+  (setf *registered-classes* '()))
+
+(add-deinitialize-hook 'unregister-classes)
 
 (defun bind-virtual (class-name virtual-name function
                      &key (return-type +variant-type-nil+) arguments)

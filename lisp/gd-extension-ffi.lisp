@@ -156,6 +156,7 @@
 (defvar *classdb-construct-object* nil)
 (defvar *classdb-register-extension-class2* nil)
 (defvar *classdb-register-extension-class4* nil)
+(defvar *classdb-unregister-extension-class* nil)
 (defvar *object-destroy* nil)
 (defvar *object-set-instance* nil)
 (defvar *object-set-instance-binding* nil)
@@ -249,6 +250,14 @@
                 :void
                 '(:pointer-void :pointer-void :pointer-void :pointer-void)
                 (list library class-name parent-class-name extension-funcs)))
+
+;; void classdb_unregister_extension_class(GDExtensionClassLibraryPtr p_library,
+;;                                        GDExtensionConstStringNamePtr p_class_name)
+;;
+;; Classes that inherit from a class must be unregistered before it.
+(defun classdb-unregister-extension-class (library class-name)
+  (si:call-cfun *classdb-unregister-extension-class* :void '(:pointer-void :pointer-void)
+                (list library class-name)))
 
 ;; void object_destroy(GDExtensionObjectPtr p_o)
 (defun object-destroy (object)
@@ -500,6 +509,7 @@ that Godot gave the extension, and look up the interface functions."
         *classdb-construct-object* (get-proc-address "classdb_construct_object")
         *classdb-register-extension-class2* (get-proc-address "classdb_register_extension_class2")
         *classdb-register-extension-class4* (get-proc-address "classdb_register_extension_class4")
+        *classdb-unregister-extension-class* (get-proc-address "classdb_unregister_extension_class")
         *object-destroy* (get-proc-address "object_destroy")
         *object-set-instance* (get-proc-address "object_set_instance")
         *object-set-instance-binding* (get-proc-address "object_set_instance_binding")

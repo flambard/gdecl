@@ -13,6 +13,7 @@
            #:classdb-construct-object
            #:classdb-register-extension-class2 ; deprecated
            #:classdb-register-extension-class4
+           #:classdb-unregister-extension-class
            #:object-destroy
            #:object-set-instance
            #:object-set-instance-binding
