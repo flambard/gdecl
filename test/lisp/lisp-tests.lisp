@@ -55,7 +55,13 @@
   (check (= 32 (vector3-dot (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0))))
   (check (equalp (vector3 0.0 0.6 0.8) (vector3-normalized (vector3 0.0 3.0 4.0))))
   (check (equalp (vector3) (vector3-normalized (vector3))))
-  (check (equalp (vector3 -1.0 -2.0 -3.0) (vector3- (vector3 1.0 2.0 3.0)))))
+  (check (equalp (vector3 -1.0 -2.0 -3.0) (vector3- (vector3 1.0 2.0 3.0))))
+  ;; A quarter turn around Y, as Vector3(0, 0, -1).rotated(Vector3.UP, PI / 2)
+  (check (< (vector3-length (vector3- (vector3 -1.0 0.0 0.0)
+                                      (vector3-rotated (vector3 0.0 0.0 -1.0)
+                                                       (vector3 0.0 1.0 0.0)
+                                                       (/ pi 2))))
+            1e-6)))
 
 (deftest objects
   (let ((node (new-node "Node2D"))

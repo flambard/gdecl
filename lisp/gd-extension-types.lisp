@@ -164,6 +164,16 @@ and MAX."
            (- (* (vector3-z a) (vector3-x b)) (* (vector3-x a) (vector3-z b)))
            (- (* (vector3-x a) (vector3-y b)) (* (vector3-y a) (vector3-x b)))))
 
+(defun vector3-rotated (vector axis angle)
+  "Vector3.rotated(): VECTOR rotated around AXIS, a normalized vector, by ANGLE
+radians"
+  ;; Rodrigues' rotation formula
+  (let ((cos (cos angle))
+        (sin (sin angle)))
+    (vector3+ (vector3+ (vector3* vector cos)
+                        (vector3* (vector3-cross axis vector) sin))
+              (vector3* axis (* (vector3-dot axis vector) (- 1 cos))))))
+
 (defun vector3-is-zero-approx (vector)
   "Vector3.is_zero_approx(): true if each component is within Godot's
 CMP_EPSILON of 0"

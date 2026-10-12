@@ -295,6 +295,7 @@ raw values")
            #:vector3-normalized
            #:vector3-dot
            #:vector3-cross
+           #:vector3-rotated
            #:vector3-is-zero-approx
            #:read-vector3
            #:write-vector3
@@ -436,6 +437,7 @@ tables and dispatchers behind them")
            #:vector3-normalized
            #:vector3-dot
            #:vector3-cross
+           #:vector3-rotated
            #:vector3-is-zero-approx
            #:basis
            #:basis-p
@@ -511,6 +513,7 @@ classes gdecl defines (godot-engine-classes.lisp) and those applications define.
                 #:vector3-normalized
                 #:vector3-dot
                 #:vector3-cross
+                #:vector3-rotated
                 #:vector3-is-zero-approx
                 #:basis
                 #:basis-p
@@ -544,6 +547,7 @@ classes gdecl defines (godot-engine-classes.lisp) and those applications define.
            #:vector3-normalized
            #:vector3-dot
            #:vector3-cross
+           #:vector3-rotated
            #:vector3-is-zero-approx
            #:basis
            #:basis-p
