@@ -183,6 +183,7 @@
 (defvar *callable-custom-create2* nil)
 (defvar *object-get-instance-id* nil)
 (defvar *variant-get-ptr-builtin-method* nil)
+(defvar *variant-get-ptr-utility-function* nil)
 (defvar *packed-string-array-operator-index* nil)
 
 ;; Not interface functions: the results of get_variant_from_type_constructor and
@@ -467,6 +468,21 @@
                 :int64-t '(:pointer-void :pointer-void :int64-t)
                 (list string text max-write-length)))
 
+;; GDExtensionPtrUtilityFunction
+;; variant_get_ptr_utility_function(GDExtensionConstStringNamePtr p_function,
+;;                                  GDExtensionInt p_hash)
+(defun variant-get-ptr-utility-function (function hash)
+  (si:call-cfun *variant-get-ptr-utility-function*
+                :pointer-void '(:pointer-void :int64-t) (list function hash)))
+
+;; Call a function returned by VARIANT-GET-PTR-UTILITY-FUNCTION:
+;; void (*GDExtensionPtrUtilityFunction)(GDExtensionTypePtr r_return,
+;;                                       const GDExtensionConstTypePtr *p_args,
+;;                                       int p_argument_count)
+(defun call-ptr-utility-function (function r-return args argument-count)
+  (si:call-cfun function :void '(:pointer-void :pointer-void :int)
+                (list r-return args argument-count)))
+
 ;; GDExtensionPtrBuiltInMethod
 ;; variant_get_ptr_builtin_method(GDExtensionVariantType p_type,
 ;;                                GDExtensionConstStringNamePtr p_method,
@@ -548,6 +564,7 @@ that Godot gave the extension, and look up the interface functions."
         *callable-custom-create2* (get-proc-address "callable_custom_create2")
         *object-get-instance-id* (get-proc-address "object_get_instance_id")
         *variant-get-ptr-builtin-method* (get-proc-address "variant_get_ptr_builtin_method")
+        *variant-get-ptr-utility-function* (get-proc-address "variant_get_ptr_utility_function")
         *packed-string-array-operator-index* (get-proc-address "packed_string_array_operator_index"))
   (setf *string-name-destructor* (variant-get-ptr-destructor +variant-type-string-name+)
         *string-destructor* (variant-get-ptr-destructor +variant-type-string+)

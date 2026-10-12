@@ -26,7 +26,9 @@
   ;; The classes (JSON objects) by name
   (classes (make-hash-table :test #'equal))
   ;; The names of the engine singletons by the names of their classes
-  (singletons (make-hash-table :test #'equal)))
+  (singletons (make-hash-table :test #'equal))
+  ;; The utility functions (JSON objects), such as randf_range
+  (utility-functions '()))
 
 (defparameter *variant-type-names*
   `(("Nil" . ,+variant-type-nil+)
@@ -79,6 +81,7 @@
             (api (make-extension-api)))
         (dolist (class (json-get json "classes"))
           (setf (gethash (json-get class "name") (extension-api-classes api)) class))
+        (setf (extension-api-utility-functions api) (json-get json "utility_functions"))
         (dolist (singleton (json-get json "singletons"))
           (setf (gethash (json-get singleton "type") (extension-api-singletons api))
                 (json-get singleton "name")))
@@ -92,6 +95,10 @@
   "The name of the engine singleton whose class is CLASS-NAME, such as \"Input\",
 or NIL if the class has no singleton."
   (values (gethash class-name (extension-api-singletons (extension-api)))))
+
+(defun api-utility-functions ()
+  "The utility functions of @GlobalScope, such as randf_range, as JSON objects."
+  (extension-api-utility-functions (extension-api)))
 
 (defun api-method (class-name method-name)
   "The method METHOD-NAME of the engine class CLASS-NAME (both strings) as a JSON

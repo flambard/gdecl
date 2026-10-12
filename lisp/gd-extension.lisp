@@ -195,9 +195,11 @@ needs no destroying."
       (when destructor
         `(,destructor ,pointer))))
 
-  (defun ptrcall-method-form (method-bind object arguments return-type)
+  (defun ptrcall-method-form (method-bind object arguments return-type &key utility)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
-ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
+ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD. If UTILITY is true,
+METHOD-BIND is a utility function (see DEFINE-UTILITY-FUNCTIONS) instead, and
+OBJECT isn't used."
     (let ((has-return-value (not (eql return-type +variant-type-nil+)))
           (args (gensym "ARGS"))
           (r-ret (gensym "R-RET")))
@@ -218,10 +220,11 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                          ;; PackedStringArray, so the old value must be empty
                          ,@(when has-return-value
                              `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
-                         (object-method-bind-ptrcall ,method-bind ,object ,args
-                                                     ,(if has-return-value
-                                                          r-ret
-                                                          '(ffi:make-null-pointer :void)))
+                         ,(let ((r-ret (if has-return-value r-ret '(ffi:make-null-pointer :void))))
+                            (if utility
+                                `(call-ptr-utility-function ,method-bind ,r-ret ,args
+                                                            ,(length arguments))
+                                `(object-method-bind-ptrcall ,method-bind ,object ,args ,r-ret)))
                          ,(when has-return-value
                             (engine-value-read-form return-type r-ret))))
                 ;; Raw values that need it, such as Variants, are destroyed
@@ -237,11 +240,15 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                 `(unwind-protect ,call ,@destroy-forms)
                 call)))))
 
-  (defun variant-call-method-form (method-bind object arguments return-type name rest)
+  (defun variant-call-method-form (method-bind object arguments return-type name rest
+                                   &key utility)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a vararg
 method, with object_method_bind_call, with the arguments and the result as
 Variants. REST, if not NIL, is the variable with the list of further arguments,
-converted to Variants by their Lisp types (see WRITE-VARIANT)."
+converted to Variants by their Lisp types (see WRITE-VARIANT). If UTILITY is
+true, METHOD-BIND is a vararg utility function (see DEFINE-UTILITY-FUNCTIONS)
+instead, which takes Variants and returns a raw value of its return type, and
+OBJECT isn't used."
     (let ((has-return-value (not (eql return-type +variant-type-nil+)))
           (declared-count (length arguments))
           (count (gensym "COUNT"))
@@ -262,9 +269,11 @@ converted to Variants by their Lisp types (see WRITE-VARIANT)."
                                       (,variants ,(array-type 'variant))
                                       ,@(loop for (nil nil nil ffi-type raw) in arguments
                                               when ffi-type collect `(,raw ',ffi-type))
-                                      (,r-return 'variant)
-                                      (,r-error 'call-error)
-                                      ,@(when (and has-return-value (not (eql return-type :variant)))
+                                      ,@(unless utility
+                                          `((,r-return 'variant)
+                                            (,r-error 'call-error)))
+                                      ,@(when (and has-return-value
+                                                   (or utility (not (eql return-type :variant))))
                                           `((,r-ret ',(engine-value-ffi-type return-type)))))
              ;; All Nil, so they can all be destroyed, also if making one fails
              (clear-foreign-object ,variants ,(array-type 'variant))
@@ -297,24 +306,38 @@ converted to Variants by their Lisp types (see WRITE-VARIANT)."
                                 for variant = (element-pointer ,variants 'variant i)
                                 do (write-variant variant value)
                                    (setf (foreign-ref ,args :pointer-void i) variant))))
-                    (object-method-bind-call ,method-bind ,object ,args ,count ,r-return ,r-error)
-                    (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
-                      (unless (= ,call-error +call-ok+)
-                        (error "Calling ~a failed with call error ~d" ',name ,call-error)))
-                    ,(cond ((not has-return-value) nil)
-                           ((eql return-type :variant) `(read-variant ,r-return))
-                           (t
-                            `(progn
-                               (call-type-from-variant-constructor
-                                (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
-                               ,(let ((destroy-form (engine-value-destroy-form return-type r-ret)))
-                                  (if destroy-form
-                                      `(unwind-protect ,(engine-value-read-form return-type r-ret)
-                                         ,destroy-form)
-                                      (engine-value-read-form return-type r-ret)))))))
+                    ,@(if utility
+                          `(,@(when has-return-value
+                                `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
+                            (call-ptr-utility-function ,method-bind
+                                                       ,(if has-return-value
+                                                            r-ret
+                                                            '(ffi:make-null-pointer :void))
+                                                       ,args ,count))
+                          `((object-method-bind-call ,method-bind ,object ,args ,count
+                                                     ,r-return ,r-error)
+                            (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
+                              (unless (= ,call-error +call-ok+)
+                                (error "Calling ~a failed with call error ~d" ',name ,call-error)))))
+                    ,(flet ((read-raw-result ()
+                              ;; The raw value at R-RET, destroyed afterwards
+                              (let ((destroy-form (engine-value-destroy-form return-type r-ret)))
+                                (if destroy-form
+                                    `(unwind-protect ,(engine-value-read-form return-type r-ret)
+                                       ,destroy-form)
+                                    (engine-value-read-form return-type r-ret)))))
+                       (cond ((not has-return-value) nil)
+                             (utility (read-raw-result))
+                             ((eql return-type :variant) `(read-variant ,r-return))
+                             (t
+                              `(progn
+                                 (call-type-from-variant-constructor
+                                  (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
+                                 ,(read-raw-result))))))
                (dotimes (i ,count)
                  (variant-destroy (element-pointer ,variants 'variant i)))
-               (variant-destroy ,r-return)))))))
+               ,@(unless utility
+                   `((variant-destroy ,r-return)))))))))
 
   (defun temporary-names-form (arguments form)
     "FORM, the call of an engine method with ARGUMENTS (as in
@@ -572,6 +595,113 @@ application defines the others it uses, and they're added to GODOT too."
          (export ',(reverse names) :godot))
        ,@(reverse forms)
        ',class-name)))
+
+;;;
+;;; Utility functions
+;;;
+;;; DEFINE-UTILITY-FUNCTIONS defines a function for each of Godot's utility
+;;; functions, the global functions of GDScript in @GlobalScope, such as
+;;; randf_range and push_error. They're called through a function pointer from
+;;; variant_get_ptr_utility_function, with raw values like ptrcall, or with
+;;; Variants if they're vararg (such as print), so their code is generated like
+;;; that of engine methods.
+;;;
+
+(defun lookup-utility-function (function-name hash)
+  "The function pointer of the utility function FUNCTION-NAME with HASH, for an
+initialize cell. Signals an error if Godot has no such function."
+  (let ((function (with-string-name (string-name function-name)
+                    (variant-get-ptr-utility-function string-name hash))))
+    (when (ffi:null-pointer-p function)
+      (error "Godot has no utility function ~a with hash ~d. Was extension_api.json ~
+dumped from another version of Godot? Run make godot-api."
+             function-name hash))
+    function))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun utility-function-defun (name function)
+    "The DEFUN of NAME, a function that calls the utility function FUNCTION, a
+JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
+    (let* ((function-name (json-get function "name"))
+           (vararg (json-get function "is_vararg"))
+           (hash (json-get function "hash"))
+           (return-type (let ((type (json-get function "return_type")))
+                          (if type
+                              (engine-method-variant-type type "the result")
+                              +variant-type-nil+)))
+           (arguments (loop for (arg-name variant-type default) in (engine-method-arguments function)
+                            collect (list arg-name variant-type default
+                                          (engine-value-ffi-type variant-type)
+                                          (gensym (symbol-name arg-name)))))
+           (rest (and vararg (intern "ARGUMENTS")))
+           (function-pointer (gensym "FUNCTION"))
+           (name-positions (loop for (nil variant-type) in arguments
+                                 for i from 0
+                                 when (eql variant-type +variant-type-string-name+)
+                                   collect (cons i 'sname)
+                                 when (eql variant-type +variant-type-node-path+)
+                                   collect (cons i 'npath))))
+      `(progn
+         (defun ,name (,@(loop for (arg-name nil default) in arguments
+                               unless default collect arg-name)
+                       ,@(when (some #'third arguments) '(&optional))
+                       ,@(loop for (arg-name nil default) in arguments
+                               when default collect (list arg-name (first default)))
+                       ,@(when rest `(&rest ,rest)))
+           ,(format nil "Call the utility function ~a(~{~a~^, ~}) of @GlobalScope~@[ with ~a~]."
+                    function-name
+                    (append (mapcar (lambda (argument) (json-get argument "name"))
+                                    (json-get function "arguments"))
+                            (and rest '("...")))
+                    (and vararg "Variants"))
+           (let ((,function-pointer (car (load-time-value
+                                          (make-initialize-cell
+                                           (lambda ()
+                                             (lookup-utility-function ,function-name ,hash)))))))
+             (unless ,function-pointer
+               (error "The utility function ~a wasn't found" ,function-name))
+             ,(temporary-names-form
+               arguments
+               (if vararg
+                   (variant-call-method-form function-pointer nil arguments return-type name rest
+                                             :utility t)
+                   (ptrcall-method-form function-pointer nil arguments return-type :utility t)))))
+         ,@(when name-positions
+             `((define-compiler-macro ,name (&whole form &rest arguments)
+                 (or (wrap-literal-names ',name arguments ',name-positions)
+                     form))))))))
+
+(defmacro define-utility-functions ()
+  "Define a function for each of Godot's utility functions (the global functions
+of GDScript in @GlobalScope, such as randf_range) that can be called yet, named
+in Lisp style and exported from the package GODOT-UTILITY:
+GODOT-UTILITY:RANDF-RANGE. They're
+called like engine methods (see DEFINE-ENGINE-METHOD); vararg ones, such as
+print, take any number of arguments, converted to Variants. Those named like a
+symbol of Common Lisp, such as sin, abs and max, are left out, as Common Lisp
+has them too, except print, which is GODOT-UTILITY:GODOT-PRINT, as it prints
+to Godot's output, also in the editor."
+  (let ((*package* (find-package :godot-utility))
+        (names '())
+        (forms '()))
+    (dolist (function (api-utility-functions))
+      (let* ((function-name (json-get function "name"))
+             (lisp-name (cond ((string= function-name "print") "GODOT-PRINT")
+                              ((find-symbol (lisp-style-method-name function-name)
+                                            :common-lisp)
+                               nil)
+                              (t (lisp-style-method-name function-name))))
+             (name (and lisp-name (intern lisp-name)))
+             ;; NIL if the function can't be called yet
+             (form (and name (ignore-errors (utility-function-defun name function)))))
+        (when form
+          (push name names)
+          (push form forms))))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (export ',(reverse names) :godot-utility))
+       ,@(reverse forms)
+       nil)))
 
 ;;;
 ;;; References

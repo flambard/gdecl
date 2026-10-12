@@ -48,6 +48,8 @@
            #:object-get-instance-id
            #:*print-error*
            #:variant-get-ptr-builtin-method
+           #:variant-get-ptr-utility-function
+           #:call-ptr-utility-function
            #:call-ptr-builtin-method
            #:packed-string-array-operator-index
            #:*packed-string-array-size*
@@ -392,6 +394,7 @@ tables and dispatchers behind them")
            ;; Calling engine methods
            #:define-engine-method
            #:define-engine-class
+           #:define-utility-functions
            ;; Signals
            #:+connect-deferred+
            #:+connect-one-shot+
@@ -455,3 +458,11 @@ classes gdecl defines (godot-engine-classes.lisp) and those applications define.
            #:rect2-p
            #:rect2-position
            #:rect2-size))
+
+(defpackage #:godot-utility
+  (:documentation "Godot's utility functions in Lisp: the global functions of
+GDScript in @GlobalScope, e.g. RANDF-RANGE and PUSH-ERROR, defined with
+GD-EXTENSION:DEFINE-UTILITY-FUNCTIONS. Those named like Common Lisp's are left
+out; print is GODOT-PRINT.")
+  (:nicknames #:gd-util)
+  (:use #:cl))
