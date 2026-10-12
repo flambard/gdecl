@@ -149,6 +149,7 @@
            #:+call-error-method-not-const+
            #:+property-hint-none+
            #:+property-hint-resource-type+
+           #:+property-hint-node-type+
            #:+property-usage-default+
            ;; Structs
            #:+string-name-size+

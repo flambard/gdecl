@@ -141,6 +141,7 @@
 ;; Only the values used so far.
 (defconstant +property-hint-none+ 0)
 (defconstant +property-hint-resource-type+ 17)
+(defconstant +property-hint-node-type+ 34)
 (defconstant +property-usage-default+ 6)
 
 ;;;

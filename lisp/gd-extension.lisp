@@ -596,22 +596,48 @@ REGISTER-CLASS) and the arguments as Lisp values."
         (dotimes (i argument-count)
           (destruct-property (element-pointer args-info 'property-info i)))))))
 
-(defun bind-property (class-name name type getter setter
-                      &key (hint +property-hint-none+) (hint-string "") (property-class-name ""))
-  "Register the property NAME of the class CLASS-NAME, of TYPE (as in
-VARIANT-TYPE, e.g. :INT), with the bound methods GETTER and SETTER (method names). HINT and HINT-STRING
-tell the editor how to edit it, e.g. +PROPERTY-HINT-RESOURCE-TYPE+ and
-\"PackedScene\" for a resource of that class, like @export var x: PackedScene
-in GDScript; PROPERTY-CLASS-NAME is then the class name too."
+(define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
+
+(defun inherits-class-p (class-name parent-class-name)
+  "True if the class CLASS-NAME is PARENT-CLASS-NAME or inherits from it (both
+strings)."
   (with-string-name (class-string-name class-name)
-    (ffi:with-foreign-object (info 'property-info)
-      (make-property-full info (variant-type type) name hint hint-string property-class-name
-                          +property-usage-default+)
-      (with-string-name (getter-name getter)
-        (with-string-name (setter-name setter)
-          (classdb-register-extension-class-property *class-library* class-string-name
-                                                     info setter-name getter-name)))
-      (destruct-property info))))
+    (with-string-name (parent-string-name parent-class-name)
+      (class-db-is-parent-class (singleton "ClassDB") class-string-name parent-string-name))))
+
+(defun bind-property (class-name name type getter setter
+                      &key class (hint +property-hint-none+) (hint-string ""))
+  "Register the property NAME of the class CLASS-NAME, of TYPE (as in
+VARIANT-TYPE, e.g. :INT), with the bound methods GETTER and SETTER (method
+names).
+
+For an :OBJECT property, CLASS is the class of its value, e.g. \"PackedScene\"
+for a property like @export var mob_scene: PackedScene in GDScript. It's
+edited in the editor as a resource of that class, or as a node of that class if
+it's a Node class.
+
+Otherwise, HINT and HINT-STRING tell the editor how to edit it, as in Godot's
+PropertyHint."
+  (let ((type (variant-type type))
+        (property-class-name ""))
+    (when class
+      (unless (= type +variant-type-object+)
+        (error "The property ~a.~a has a class, ~a, but isn't an :OBJECT" class-name name class))
+      (setf hint (cond ((inherits-class-p class "Resource") +property-hint-resource-type+)
+                       ((inherits-class-p class "Node") +property-hint-node-type+)
+                       (t (error "The class ~a of the property ~a.~a is neither a Resource nor a Node"
+                                 class class-name name)))
+            hint-string class
+            property-class-name class))
+    (with-string-name (class-string-name class-name)
+      (ffi:with-foreign-object (info 'property-info)
+        (make-property-full info type name hint hint-string property-class-name
+                            +property-usage-default+)
+        (with-string-name (getter-name getter)
+          (with-string-name (setter-name setter)
+            (classdb-register-extension-class-property *class-library* class-string-name
+                                                       info setter-name getter-name)))
+        (destruct-property info)))))
 
 (defun bind-signal (class-name signal-name &optional arguments)
   "Register the signal SIGNAL-NAME of the class CLASS-NAME, like signal in
@@ -710,15 +736,6 @@ string PROBLEM that says why the method can't be bound."
                               nil))
                     (error (e)
                       (list class-name nil nil (princ-to-string e)))))))
-
-(define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
-
-(defun inherits-class-p (class-name parent-class-name)
-  "True if the class CLASS-NAME is PARENT-CLASS-NAME or inherits from it (both
-strings)."
-  (with-string-name (class-string-name class-name)
-    (with-string-name (parent-string-name parent-class-name)
-      (class-db-is-parent-class (singleton "ClassDB") class-string-name parent-string-name))))
 
 (defun bind-virtual-with-signatures (class-name virtual-name function signatures)
   "Bind FUNCTION as the virtual method VIRTUAL-NAME of the class CLASS-NAME, with
