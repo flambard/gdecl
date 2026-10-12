@@ -429,6 +429,64 @@ emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
     (error (e)
       (error "In (DEFINE-ENGINE-METHOD ~s (~s ~s)): ~a" name class-name method-name e))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun lisp-style-class-name (class-name)
+    "The name of the engine class CLASS-NAME in Lisp style, as in the names of the
+functions of DEFINE-ENGINE-CLASS: \"Node2D\" becomes \"NODE-2D\",
+\"AnimatedSprite2D\" \"ANIMATED-SPRITE-2D\" and \"HTTPRequest\" \"HTTP-REQUEST\"."
+    (with-output-to-string (out)
+      (loop for i from 0 below (length class-name)
+            for char = (char class-name i)
+            for previous = (and (> i 0) (char class-name (1- i)))
+            for next = (and (< (1+ i) (length class-name)) (char class-name (1+ i)))
+            do (when (and previous
+                          (or
+                           ;; nodeP
+                           (and (upper-case-p char) (lower-case-p previous))
+                           ;; HTTPRequest
+                           (and (upper-case-p char) (upper-case-p previous)
+                                next (lower-case-p next))
+                           ;; Node2D
+                           (and (digit-char-p char) (alpha-char-p previous))))
+                 (write-char #\- out))
+               (write-char (char-upcase char) out))))
+
+  (defun lisp-style-method-name (method-name)
+    "The name of the method METHOD-NAME in Lisp style: \"get_node\" becomes
+\"GET-NODE\"."
+    (string-upcase (substitute #\- #\_ method-name))))
+
+(defmacro define-engine-class (class-name)
+  "Define a function for each method of the engine class CLASS-NAME (a string)
+that DEFINE-ENGINE-METHOD can call, named after the class and the method in
+Lisp style, and exported from the package GODOT: Node2D.get_position becomes
+GODOT:NODE-2D-GET-POSITION. Only the methods the class itself defines get
+functions, not those it inherits, so call get_position of a Sprite2D with
+NODE-2D-GET-POSITION. Methods with types that aren't supported yet, and
+virtual methods, are skipped. GODOT already has the most used classes; an
+application defines the others it uses, and they're added to GODOT too."
+  (let* ((class (or (api-class class-name)
+                    (error "No engine class ~a in ~a" class-name *extension-api-file*)))
+         (prefix (lisp-style-class-name class-name))
+         ;; The functions' names, and their arguments' names, are in GODOT
+         (*package* (find-package :godot))
+         (names '())
+         (forms '()))
+    (dolist (method (json-get class "methods"))
+      (let ((method-name (json-get method "name")))
+        (unless (json-get method "is_virtual")
+          (let* ((name (intern (format nil "~a-~a" prefix (lisp-style-method-name method-name))))
+                 ;; NIL if the method can't be called yet
+                 (form (ignore-errors (engine-method-defun name class-name method-name '()))))
+            (when form
+              (push name names)
+              (push form forms))))))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (export ',(reverse names) :godot))
+       ,@(reverse forms)
+       ',class-name)))
+
 ;;;
 ;;; References
 ;;;

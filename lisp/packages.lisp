@@ -389,6 +389,7 @@ tables and dispatchers behind them")
            #:singleton
            ;; Calling engine methods
            #:define-engine-method
+           #:define-engine-class
            ;; Signals
            #:+connect-deferred+
            #:+connect-one-shot+
@@ -413,3 +414,11 @@ tables and dispatchers behind them")
            #:bind-method
            #:bind-property
            #:bind-signal))
+
+(defpackage #:godot
+  (:documentation "Godot's API in Lisp: functions that call the methods of
+engine classes, named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
+DEFINE-ENGINE-CLASS defines them and exports them from here, both for the
+classes gdecl defines (godot-engine-classes.lisp) and those applications define.")
+  (:nicknames #:gd)
+  (:use #:cl))

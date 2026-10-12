@@ -13,4 +13,5 @@
                  (:file "json" :depends-on ("packages"))
                  (:file "extension-api" :depends-on ("gd-extension-ffi" "json"))
                  (:file "gd-extension" :depends-on ("gd-extension-ffi" "gd-extension-types"
-                                                    "gd-extension-callback" "extension-api"))))
+                                                    "gd-extension-callback" "extension-api"))
+                 (:file "godot-engine-classes" :depends-on ("gd-extension"))))
