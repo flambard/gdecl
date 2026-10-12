@@ -392,11 +392,15 @@ signature from extension_api.json."
                         form))))))))))
 
 (defun lookup-method-bind (class-name method-name hash)
+  "The method bind of CLASS-NAME.METHOD-NAME with HASH, for an initialize cell.
+Signals an error if Godot has no such method, which INITIALIZE reports like
+Godot's own errors."
   (let ((method-bind (get-method-bind class-name method-name hash)))
-    (if (ffi:null-pointer-p method-bind)
-        (progn (format t "~&Error: no method ~a.~a with hash ~d~%" class-name method-name hash)
-               nil)
-        method-bind)))
+    (when (ffi:null-pointer-p method-bind)
+      (error "Godot has no method ~a.~a with hash ~d. Was extension_api.json ~
+dumped from another version of Godot? Run make godot-api."
+             class-name method-name hash))
+    method-bind))
 
 (defmacro define-engine-method (name (class-name method-name) &key extra-arguments)
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class

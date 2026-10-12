@@ -280,6 +280,7 @@ raw values")
            #:write-godot-string
            #:read-packed-string-array
            #:write-variant
+           #:variant-value-p
            #:read-variant
            #:callable
            #:callable-p

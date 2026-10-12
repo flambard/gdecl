@@ -143,6 +143,10 @@ exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK."
 (defun write-object (pointer value)
   (setf (foreign-ref pointer :pointer-void) (object-pointer value)))
 
+(defun variant-value-p (value)
+  "True if WRITE-VARIANT can make a Variant from VALUE."
+  (typep value '(or boolean integer real vector2)))
+
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
 by its Lisp type: T or NIL is a bool, an integer an int, a real a float and a

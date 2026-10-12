@@ -214,6 +214,15 @@ value as Variants, as in call_func."
                             ((and (= type +variant-type-object+)
                                   (= variant-type +variant-type-nil+))
                              (push nil arguments))
+                            ;; A float for an int and an int for a float, as
+                            ;; Godot converts them for its own methods (the
+                            ;; float truncated, like int() in GDScript)
+                            ((and (= type +variant-type-int+)
+                                  (= variant-type +variant-type-float+))
+                             (push (values (truncate (read-variant variant))) arguments))
+                            ((and (= type +variant-type-float+)
+                                  (= variant-type +variant-type-int+))
+                             (push (float (read-variant variant) 1d0) arguments))
                             (t
                              (set-call-error r-error +call-error-invalid-argument+
                                              :argument i :expected type)
@@ -518,19 +527,25 @@ until the last copy of the Callable is destroyed."
 ;;                                       GDExtensionVariantPtr r_return,
 ;;                                       GDExtensionCallError *r_error)
 ;;
-;; The result of the function isn't returned (R-RETURN stays Nil). Godot doesn't
-;; initialize R-ERROR, so it's always set; to OK also after a Lisp error, as for
-;; a bound method that fails.
+;; The result of the function is returned as a Variant, if it can be one (see
+;; VARIANT-VALUE-P); NIL, and values that can't be Variants yet, return null.
+;; Callables are mostly signal handlers, whose results Godot ignores, so a
+;; result that can't be returned isn't an error. Godot doesn't initialize
+;; R-ERROR, so it's always set; to OK also after a Lisp error, as for a bound
+;; method that fails.
 (ffi:defcallback callable-call :void
     ((callable-userdata :pointer-void) (args :pointer-void) (argument-count :int64-t)
      (r-return :pointer-void) (r-error :pointer-void))
-  (declare (ignore r-return))
   (handler-case
       (progn
         (set-call-error r-error +call-ok+)
-        (apply (userdata-callable-function callable-userdata)
-               (loop for i below argument-count
-                     collect (read-variant (foreign-ref args :pointer-void i)))))
+        (let ((result (apply (userdata-callable-function callable-userdata)
+                             (loop for i below argument-count
+                                   collect (read-variant (foreign-ref args :pointer-void i))))))
+          (when (and result (variant-value-p result))
+            ;; R-RETURN is a Variant already (Nil)
+            (variant-destroy r-return)
+            (write-variant r-return result))))
     (error (e)
       (report-error "Lisp callable" e))))
 
