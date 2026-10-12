@@ -315,6 +315,13 @@ tables and dispatchers behind them")
            #:instance-object
            #:lisp-object))
 
+(defpackage #:gdecl-json
+  (:documentation "A small JSON reader, for extension_api.json")
+  (:use #:cl)
+  (:export #:parse-json
+           #:read-json-file
+           #:json-get))
+
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)

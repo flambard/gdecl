@@ -1,0 +1,127 @@
+(in-package :gdecl-json)
+
+;;;
+;;; A small JSON reader, for reading extension_api.json at compile time without
+;;; depending on a library. Objects become alists with string keys, arrays
+;;; lists, true and false T and NIL, null :NULL, and numbers integers or double
+;;; floats.
+;;;
+
+(defvar *source* "JSON text"
+  "What is being read, for error messages: the file in READ-JSON-FILE.")
+
+(defun json-error (position message &rest arguments)
+  (error "Error in ~a at character ~d: ~?" *source* position message arguments))
+
+(defun parse-json (string)
+  "The value of the JSON text STRING."
+  (declare (simple-string string)
+           (optimize (speed 3) (safety 1)))
+  (let ((i 0)
+        (end (length string)))
+    (declare (fixnum i end))
+    (labels ((peek ()
+               (if (< i end) (schar string i) (json-error i "Unexpected end")))
+             (skip-whitespace ()
+               (loop while (and (< i end)
+                                (member (schar string i) '(#\Space #\Tab #\Newline #\Return)))
+                     do (incf i)))
+             (expect (char)
+               (skip-whitespace)
+               (unless (char= (peek) char)
+                 (json-error i "Expected ~c" char))
+               (incf i))
+             (read-literal (literal value)
+               (let ((literal-end (+ i (length literal))))
+                 (unless (and (<= literal-end end)
+                              (string= literal string :start2 i :end2 literal-end))
+                   (json-error i "Unexpected character ~c" (peek)))
+                 (setf i literal-end)
+                 value))
+             (read-string ()
+               (expect #\")
+               (let ((start i))
+                 ;; Most strings have no escapes, so they're copied in one go
+                 (loop until (member (peek) '(#\" #\\)) do (incf i))
+                 (if (char= (schar string i) #\")
+                     (prog1 (subseq string start i) (incf i))
+                     (let ((out (make-array (- i start) :element-type 'character
+                                                        :fill-pointer 0 :adjustable t)))
+                       (loop for j from start below i
+                             do (vector-push-extend (schar string j) out))
+                       (loop for char = (peek)
+                             do (incf i)
+                                (case char
+                                  (#\" (return (coerce out 'simple-string)))
+                                  (#\\
+                                   (let ((escape (peek)))
+                                     (incf i)
+                                     (vector-push-extend
+                                      (case escape
+                                        (#\n #\Newline)
+                                        (#\t #\Tab)
+                                        (#\r #\Return)
+                                        (#\b #\Backspace)
+                                        (#\f #\Page)
+                                        (#\u (prog1 (code-char (parse-integer string :start i
+                                                                                     :end (+ i 4)
+                                                                                     :radix 16))
+                                               (incf i 4)))
+                                        (t escape))
+                                      out)))
+                                  (t (vector-push-extend char out))))))))
+             (read-number ()
+               (let ((start i))
+                 (loop while (and (< i end)
+                                  (find (schar string i) "+-0123456789.eE"))
+                       do (incf i))
+                 (let ((*read-default-float-format* 'double-float))
+                   (let ((number (read-from-string string t nil :start start :end i)))
+                     (unless (numberp number)
+                       (json-error start "Invalid number"))
+                     number))))
+             (read-value ()
+               (skip-whitespace)
+               (case (peek)
+                 (#\{ (incf i)
+                  (skip-whitespace)
+                  (if (char= (peek) #\})
+                      (progn (incf i) '())
+                      (loop for key = (read-string)
+                            do (expect #\:)
+                            collect (cons key (read-value))
+                            do (skip-whitespace)
+                               (if (char= (peek) #\,)
+                                   (incf i)
+                                   (progn (expect #\}) (loop-finish))))))
+                 (#\[ (incf i)
+                  (skip-whitespace)
+                  (if (char= (peek) #\])
+                      (progn (incf i) '())
+                      (loop collect (read-value)
+                            do (skip-whitespace)
+                               (if (char= (peek) #\,)
+                                   (incf i)
+                                   (progn (expect #\]) (loop-finish))))))
+                 (#\" (read-string))
+                 (#\t (read-literal "true" t))
+                 (#\f (read-literal "false" nil))
+                 (#\n (read-literal "null" :null))
+                 (t (read-number)))))
+      (prog1 (read-value)
+        (skip-whitespace)
+        (when (< i end)
+          (json-error i "Unexpected text after the value"))))))
+
+(defun read-json-file (file)
+  "The value of the JSON text in FILE, read as UTF-8."
+  (with-open-file (stream file :external-format :utf-8)
+    (let* ((string (make-string (file-length stream)))
+           (end (read-sequence string stream))
+           (*source* file))
+      (parse-json (subseq string 0 end)))))
+
+(defun json-get (object key &optional default)
+  "The value of KEY (a string) in the JSON object OBJECT, or DEFAULT."
+  (let ((entry (assoc key object :test #'string=)))
+    (if entry (cdr entry) default)))
