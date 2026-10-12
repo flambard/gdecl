@@ -763,6 +763,9 @@ REGISTER-CLASS) and the arguments as Lisp values."
 
 (define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
 
+;; For the :ONREADY slots of DEFINE-CLASS
+(define-engine-method node-get-node ("Node" "get_node"))
+
 (defun inherits-class-p (class-name parent-class-name)
   "True if the class CLASS-NAME is PARENT-CLASS-NAME or inherits from it (both
 strings)."
@@ -1047,7 +1050,7 @@ PARENT-CLASS-NAME (both strings), with NAME as the struct of its instances'
 Lisp objects, like extends and the script of a class in GDScript.
 
 The struct includes GODOT-OBJECT, and has the SLOTS, each a symbol or (name
-initform &key export class setter), as in DEFSTRUCT. A slot with EXPORT, a type
+initform &key export class setter onready), as in DEFSTRUCT. A slot with EXPORT, a type
 as in VARIANT-TYPE, is a property, like @export var in GDScript: its name in
 Godot style (mob-scene becomes mob_scene), with the getter and setter methods
 get_<name> and set_<name>. CLASS is as in BIND-PROPERTY. If it's a RefCounted
@@ -1056,6 +1059,11 @@ Ref<T>: the setter takes one (see SETF-REFERENCE) and it's given back when Godot
 frees the instance. SETTER, a function called with the Lisp object and the
 value, replaces the generated setter, and then the slot's references are up to
 it.
+
+A slot with ONREADY is set when the instance is ready, before the class's
+_ready virtual method runs, like @onready var in GDScript: to the node at the
+path ONREADY, a string, as with $Path, or to the result of the function ONREADY,
+called with the Lisp object.
 
 OPTIONS are:
   (:signal name (argument-name type)...), see BIND-SIGNAL
@@ -1072,14 +1080,23 @@ initialize hooks of the application run."
   (let ((make-name (intern (format nil "MAKE-~a" (symbol-name name))))
         (struct-slots '())
         (property-forms '())
+        ;; The forms that set the :ONREADY slots of OBJECT
+        (onready-forms '())
         ;; The exported slots with a class whose references are managed here:
         ;; a list of (accessor class variable), where the variable says
         ;; whether the class is RefCounted, found out at registration
         (reference-slots '()))
     (dolist (slot slots)
-      (destructuring-bind (slot-name &optional initform &key export class setter)
+      (destructuring-bind (slot-name &optional initform &key export class setter onready)
           (if (listp slot) slot (list slot))
         (push `(,slot-name ,initform) struct-slots)
+        (when onready
+          (push `(setf (,(intern (format nil "~a-~a" (symbol-name name) (symbol-name slot-name)))
+                        object)
+                       ,(if (stringp onready)
+                            `(node-get-node object ,onready)
+                            `(funcall ,(function-form onready) object)))
+                onready-forms))
         (cond (export
                (let ((accessor (intern (format nil "~a-~a" (symbol-name name)
                                                (symbol-name slot-name))))
@@ -1094,6 +1111,19 @@ initialize hooks of the application run."
                                                             export class setter ref-counted)))))
               ((or class setter)
                (error "The slot ~s of ~s has :CLASS or :SETTER, but no :EXPORT" slot-name name)))))
+    (when onready-forms
+      ;; The slots are set in _ready, before the class's own _ready, if any
+      (let ((ready (find-if (lambda (option)
+                              (and (eq (first option) :virtual)
+                                   (equal (second option) "_ready")))
+                            options)))
+        (setf options
+              (cons `(:virtual "_ready"
+                               (lambda (object)
+                                 ,@(reverse onready-forms)
+                                 ,@(when ready
+                                     `((funcall ,(function-form (third ready)) object)))))
+                    (remove ready options)))))
     (let* ((destructor (second (assoc :destructor options)))
            (tool (second (assoc :tool options)))
            (release-forms (loop for (accessor nil ref-counted) in (reverse reference-slots)
