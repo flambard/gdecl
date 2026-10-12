@@ -374,7 +374,9 @@ signature from extension_api.json."
                        (mapcar (lambda (argument) (json-get argument "name"))
                                (json-get method "arguments"))
                        (and vararg "Variants"))
-              (let (,@(when static `((,object (ffi:make-null-pointer :void))))
+              (let ((,object ,(if static
+                                 '(ffi:make-null-pointer :void)
+                                 `(object-pointer ,object)))
                     (,method-bind (car (load-time-value
                                         (make-initialize-cell
                                          (lambda ()
@@ -400,8 +402,8 @@ signature from extension_api.json."
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
 CLASS-NAME (or a class it inherits from). The method's hash, arguments and
 return type are looked up in extension_api.json when the macro is expanded.
-The function takes the Godot object pointer (unless the method is static) and
-then the method's arguments as Lisp values, and returns the result as a Lisp
+The function takes the Godot object (a pointer or a GODOT-OBJECT; none if the
+method is static) and then the method's arguments as Lisp values, and returns the result as a Lisp
 value. Arguments with a default value are optional, if the default can be
 expressed in Lisp (bool, int, float, String, StringName, NodePath, Vector2 and
 null). The arguments are named as in extension_api.json, in Lisp style.
@@ -409,8 +411,10 @@ null). The arguments are named as in extension_api.json, in Lisp style.
 Supported types: bool, int (also enums and bitfields), float, Vector2, String
 (a Lisp string), Callable (a CALLABLE), StringName and NodePath as arguments
 (pointers to them, see SNAME and NPATH), Variant as an argument (converted from
-the Lisp value by its type, see WRITE-VARIANT), and Rect2, Object (a Godot
-object pointer) and PackedStringArray (a list of strings) as results.
+the Lisp value by its type, see WRITE-VARIANT), Object (a Godot object pointer
+or a GODOT-OBJECT), and Rect2 and PackedStringArray (a list of strings) as
+results. An Object result is the Lisp object of an instance of an extension
+class (see LISP-OBJECT), and otherwise the Godot object pointer.
 
 A StringName or NodePath argument can also be given as a literal string in a
 call, e.g. (EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in SNAME or
@@ -443,7 +447,7 @@ emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
   "Take a reference to the RefCounted OBJECT (a Godot object pointer, or NULL), to
 keep it alive while Lisp holds on to it. Give it back with RELEASE-REFERENCE.
 Returns OBJECT."
-  (unless (ffi:null-pointer-p object)
+  (unless (ffi:null-pointer-p (object-pointer object))
     (ref-counted-reference object))
   object)
 
@@ -451,9 +455,10 @@ Returns OBJECT."
   "Give back a reference to the RefCounted OBJECT (a Godot object pointer, or
 NULL), and destroy the object if it was the last one, like the destructor of
 Ref<T>."
-  (unless (ffi:null-pointer-p object)
-    (when (ref-counted-unreference object)
-      (object-destroy object))))
+  (let ((pointer (object-pointer object)))
+    (unless (ffi:null-pointer-p pointer)
+      (when (ref-counted-unreference pointer)
+        (object-destroy pointer)))))
 
 (defmacro with-reference ((var form) &body body)
   "Evaluate BODY with VAR bound to the RefCounted object (a Godot object pointer)
@@ -479,11 +484,11 @@ BODY exits, also on a non-local exit."
 
 (defun connect-signal (object signal-name function &key (target object) (flags 0))
   "Connect the signal SIGNAL-NAME (a StringName, see SNAME, or a literal string)
-of OBJECT to the Lisp FUNCTION, which is called with the signal's arguments as Lisp values, like
-signal.connect(callable, flags) in GDScript. The connection is bound to TARGET
-(a Godot object pointer, by default OBJECT): it's removed when TARGET is freed.
-FLAGS are Object.ConnectFlags, such as +CONNECT-ONE-SHOT+. Returns Godot's
-error code."
+of OBJECT to the Lisp FUNCTION, which is called with the signal's arguments as
+Lisp values, like signal.connect(callable, flags) in GDScript. The connection
+is bound to TARGET (a Godot object or its Lisp object, by default OBJECT): it's
+removed when TARGET is freed. FLAGS are Object.ConnectFlags, such as
++CONNECT-ONE-SHOT+. Returns Godot's error code."
   (object-connect object signal-name (callable target function) flags))
 
 ;; A literal string as SIGNAL-NAME becomes (SNAME string), as for engine methods
@@ -663,11 +668,15 @@ without arguments has none."
 (defvar *registered-classes* '())
 
 (defun register-class (class-name parent-class-name
-                       &key (constructor #'identity) destructor tool)
+                       &key (constructor (lambda (pointer)
+                                           (make-godot-object :pointer pointer)))
+                            destructor tool)
   "Register the class CLASS-NAME, which inherits from the class
 PARENT-CLASS-NAME (both strings). When Godot creates an instance, CONSTRUCTOR
 is called with the Godot object pointer, and returns the instance's Lisp object
-(see INSTANCE-OBJECT); the default is the object pointer itself. When Godot
+(see INSTANCE-OBJECT), a GODOT-OBJECT: usually a struct that includes
+GODOT-OBJECT, made with the pointer as its POINTER. The default makes a plain
+GODOT-OBJECT. When Godot
 frees the instance, DESTRUCTOR, if given, is called with the Lisp object.
 
 Unless TOOL is true, the class is a runtime class: in the editor, its instances

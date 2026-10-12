@@ -374,9 +374,24 @@ its GDExtensionClassInstancePtr."
     lisp-object))
 
 (defun lisp-object (godot-object)
-  "The Lisp object of GODOT-OBJECT, a Godot object pointer, if it's an instance
-of an extension class registered with GD-EXTENSION:REGISTER-CLASS, else NIL."
-  (values (gethash (ffi:pointer-address godot-object) *lisp-objects*)))
+  "The Lisp object of GODOT-OBJECT, a Godot object pointer (or its Lisp object),
+if it's an instance of an extension class registered with
+GD-EXTENSION:REGISTER-CLASS, else NIL."
+  (values (gethash (ffi:pointer-address (object-pointer godot-object)) *lisp-objects*)))
+
+(defun read-lisp-object (pointer)
+  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: the Lisp object of
+an instance of an extension class, else the Godot object pointer."
+  (let ((object (read-object pointer)))
+    (or (lisp-object object) object)))
+
+;; Objects that Godot gives Lisp (results of engine methods, arguments of
+;; bound methods and Callables) are instances' Lisp objects where there are
+;; any
+(add-value-type (make-value-type :variant-type +variant-type-object+
+                                 :ffi-type :pointer-void
+                                 :reader 'read-lisp-object
+                                 :writer 'write-object))
 
 (defun instance-object (instance)
   "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
@@ -483,7 +498,7 @@ until the last copy of the Callable is destroyed."
           (add-callable-function (callable-function callable))
           (ffi:get-slot-value info 'callable-custom-info2 'token) *class-library*
           (ffi:get-slot-value info 'callable-custom-info2 'object-id)
-          (object-get-instance-id (callable-target callable))
+          (object-get-instance-id (object-pointer (callable-target callable)))
           (ffi:get-slot-value info 'callable-custom-info2 'call-func)
           (ffi:callback 'callable-call)
           (ffi:get-slot-value info 'callable-custom-info2 'free-func)

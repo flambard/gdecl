@@ -251,7 +251,12 @@
 raw values")
   (:nicknames #:gdext-types)
   (:use #:cl #:gd-extension-ffi)
-  (:export #:vector2
+  (:export #:godot-object
+           #:make-godot-object
+           #:godot-object-p
+           #:godot-object-pointer
+           #:object-pointer
+           #:vector2
            #:vector2-p
            #:vector2-x
            #:vector2-y
@@ -269,6 +274,8 @@ raw values")
            #:rect2-size
            #:read-rect2
            #:write-rect2
+           #:read-object
+           #:write-object
            #:read-godot-string
            #:write-godot-string
            #:read-packed-string-array
@@ -358,6 +365,10 @@ tables and dispatchers behind them")
            #:cast-pointer
            #:foreign-ref
            ;; From GD-EXTENSION-TYPES
+           #:godot-object
+           #:godot-object-p
+           #:godot-object-pointer
+           #:object-pointer
            #:vector2
            #:vector2-p
            #:vector2-x
