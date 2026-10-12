@@ -417,9 +417,40 @@ tables and dispatchers behind them")
            #:bind-signal))
 
 (defpackage #:godot
-  (:documentation "Godot's API in Lisp: functions that call the methods of
-engine classes, named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
-DEFINE-ENGINE-CLASS defines them and exports them from here, both for the
+  (:documentation "Godot's API in Lisp: the builtin types Vector2 and Rect2 (from
+GD-EXTENSION-TYPES), and functions that call the methods of engine classes,
+named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
+DEFINE-ENGINE-CLASS defines the functions and exports them from here, both for the
 classes gdecl defines (godot-engine-classes.lisp) and those applications define.")
   (:nicknames #:gd)
-  (:use #:cl))
+  (:use #:cl)
+  ;; Godot's builtin types in Lisp
+  (:import-from #:gd-extension-types
+                #:vector2
+                #:vector2-p
+                #:vector2-x
+                #:vector2-y
+                #:vector2+
+                #:vector2*
+                #:vector2-length
+                #:vector2-normalized
+                #:vector2-rotated
+                #:vector2-clamp
+                #:rect2
+                #:rect2-p
+                #:rect2-position
+                #:rect2-size)
+  (:export #:vector2
+           #:vector2-p
+           #:vector2-x
+           #:vector2-y
+           #:vector2+
+           #:vector2*
+           #:vector2-length
+           #:vector2-normalized
+           #:vector2-rotated
+           #:vector2-clamp
+           #:rect2
+           #:rect2-p
+           #:rect2-position
+           #:rect2-size))
