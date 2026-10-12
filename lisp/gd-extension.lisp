@@ -117,9 +117,11 @@ as \"Input\". Looked up once."
 ;;; Calling engine methods
 ;;;
 ;;; DEFINE-ENGINE-METHOD defines a Lisp function that calls a method of a Godot
-;;; class with ptrcall. The method bind is looked up once, in an initialize
-;;; cell, and the code that converts the arguments and the result is generated
-;;; for each type when the macro is expanded.
+;;; class with ptrcall (or with Variants, for a vararg method). The method's hash
+;;; and signature are looked up in extension_api.json (see extension-api.lisp)
+;;; when the macro is expanded. The method bind is looked up once, in an
+;;; initialize cell, and the code that converts the arguments and the result is
+;;; generated for each type when the macro is expanded.
 ;;;
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -247,31 +249,101 @@ with object_method_bind_call, with the arguments and the result as Variants."
              (variant-destroy (element-pointer ,variants 'variant i)))
            (variant-destroy ,r-return)))))
 
-  (defun engine-method-defun (name class-name method-name hash arguments return-type
-                              body-form-function)
-    "The DEFUN of NAME for DEFINE-ENGINE-METHOD and DEFINE-ENGINE-VARARG-METHOD.
-BODY-FORM-FUNCTION makes the code that calls the method, given the variables
-with the method bind and the object, the parsed arguments and the return type."
-    (let ((return-type (eval return-type))
-          (arguments (loop for (arg-name type . default) in arguments
-                           for variant-type = (eval type)
-                           collect (list arg-name variant-type default
-                                         (engine-value-ffi-type variant-type)
-                                         (gensym (symbol-name arg-name)))))
-          (object (gensym "OBJECT"))
-          (method-bind (gensym "METHOD-BIND")))
-      `(defun ,name (,object
-                     ,@(loop for (arg-name nil default) in arguments
-                             unless default collect arg-name)
-                     ,@(when (some #'third arguments) '(&optional))
-                     ,@(loop for (arg-name nil default) in arguments
-                             when default collect (list arg-name (first default))))
-         (let ((,method-bind (car (load-time-value
-                                   (make-initialize-cell
-                                    (lambda () (lookup-method-bind ,class-name ,method-name ,hash)))))))
-           (unless ,method-bind
-             (error "The method ~a.~a wasn't found" ,class-name ,method-name))
-           ,(funcall body-form-function method-bind object arguments return-type))))))
+  (defun engine-method-argument-symbol (name)
+    "The symbol for the argument NAME, a string from extension_api.json, in the
+lambda list of an engine method: NAME in Lisp style, in the current package."
+    (let ((symbol (intern (string-upcase (substitute #\- #\_ name)))))
+      ;; Such as T
+      (if (constantp symbol)
+          (intern (concatenate 'string (symbol-name symbol) "-ARGUMENT"))
+          symbol)))
+
+  (defun engine-method-variant-type (type what)
+    "The variant type of TYPE (a type name from extension_api.json) of WHAT, the
+name of an argument or \"the result\", if engine methods support it."
+    (let ((variant-type (api-variant-type type)))
+      (unless (ignore-errors (find-value-type variant-type))
+        (error "Unsupported type ~a of ~a" type what))
+      variant-type))
+
+  (defun engine-method-arguments (method)
+    "The arguments of METHOD (a method from extension_api.json), as a list of
+(symbol variant-type default), where DEFAULT is a list of the form for the
+default value, or NIL if the argument is required. Only the last arguments with
+supported default values become optional."
+    (let* ((arguments (json-get method "arguments"))
+           (types (mapcar (lambda (argument)
+                            (engine-method-variant-type (json-get argument "type")
+                                                        (json-get argument "name")))
+                          arguments))
+           (defaults (mapcar (lambda (argument type)
+                               (let ((default (json-get argument "default_value")))
+                                 (and default (api-default-form default type))))
+                             arguments types))
+           (first-optional (1+ (or (position nil defaults :from-end t) -1))))
+      (loop for argument in arguments
+            for type in types
+            for default in defaults
+            for i from 0
+            collect (list (engine-method-argument-symbol (json-get argument "name"))
+                          type
+                          (and (>= i first-optional) default)))))
+
+  (defun engine-method-defun (name class-name method-name extra-arguments)
+    "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
+signature from extension_api.json."
+    (multiple-value-bind (method defining-class) (api-method class-name method-name)
+      (when (json-get method "is_virtual")
+        (error "~a.~a is a virtual method, which can't be called through a method bind"
+               class-name method-name))
+      (let* ((vararg (json-get method "is_vararg"))
+             (static (json-get method "is_static"))
+             (hash (json-get method "hash"))
+             (return-value (json-get method "return_value"))
+             (return-type (if return-value
+                              (engine-method-variant-type (json-get return-value "type")
+                                                          "the result")
+                              +variant-type-nil+))
+             (arguments (engine-method-arguments method)))
+        (when (eql return-type :variant)
+          (error "Variant results aren't supported yet"))
+        (when extra-arguments
+          (unless vararg
+            (error "~a.~a isn't a vararg method, so it takes no extra arguments"
+                   class-name method-name))
+          ;; The extra arguments come after the declared ones, which are then
+          ;; all required
+          (setf arguments (append (loop for (arg-name type nil) in arguments
+                                        collect (list arg-name type nil))
+                                  (loop for (arg-name type) in extra-arguments
+                                        collect (list arg-name (eval type) nil)))))
+        (let ((arguments (loop for (arg-name variant-type default) in arguments
+                               collect (list arg-name variant-type default
+                                             (engine-value-ffi-type variant-type)
+                                             (gensym (symbol-name arg-name)))))
+              (object (gensym "OBJECT"))
+              (method-bind (gensym "METHOD-BIND")))
+          `(defun ,name (,@(unless static (list object))
+                         ,@(loop for (arg-name nil default) in arguments
+                                 unless default collect arg-name)
+                         ,@(when (some #'third arguments) '(&optional))
+                         ,@(loop for (arg-name nil default) in arguments
+                                 when default collect (list arg-name (first default))))
+             ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]."
+                      static defining-class method-name
+                      (mapcar (lambda (argument) (json-get argument "name"))
+                              (json-get method "arguments"))
+                      (and vararg "Variants"))
+             (let (,@(when static `((,object (ffi:make-null-pointer :void))))
+                   (,method-bind (car (load-time-value
+                                       (make-initialize-cell
+                                        (lambda ()
+                                          (lookup-method-bind ,defining-class ,method-name ,hash)))))))
+               (unless ,method-bind
+                 (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
+               ,(if vararg
+                    (variant-call-method-form method-bind object arguments return-type name)
+                    (ptrcall-method-form method-bind object arguments return-type)))))))))
 
 (defun lookup-method-bind (class-name method-name hash)
   (let ((method-bind (get-method-bind class-name method-name hash)))
@@ -280,35 +352,30 @@ with the method bind and the object, the parsed arguments and the return type."
                nil)
         method-bind)))
 
-(defmacro define-engine-method (name (class-name method-name hash)
-                                &key arguments (return-type '+variant-type-nil+))
+(defmacro define-engine-method (name (class-name method-name) &key extra-arguments)
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
-CLASS-NAME with ptrcall. The function takes the Godot object pointer and then
-the method's arguments as Lisp values, and returns the result as a Lisp value.
-HASH is the hash of the method from extension_api.json. ARGUMENTS is a list of
-(name variant-type) or (name variant-type default); arguments with a default
-are optional. RETURN-TYPE is the variant type of the result (+VARIANT-TYPE-NIL+
-for none; int for an enum). Supported types: bool, int, float, Vector2;
-StringName and NodePath as arguments (pointers to them, see SNAME and NPATH);
-:VARIANT as an argument for a Variant, converted from the Lisp value by its
-type (see WRITE-VARIANT); Rect2 and Object (a Godot object pointer) as results.
+CLASS-NAME (or a class it inherits from). The method's hash, arguments and
+return type are looked up in extension_api.json when the macro is expanded.
+The function takes the Godot object pointer (unless the method is static) and
+then the method's arguments as Lisp values, and returns the result as a Lisp
+value. Arguments with a default value are optional, if the default can be
+expressed in Lisp (bool, int, float, String, StringName, NodePath, Vector2 and
+null). The arguments are named as in extension_api.json, in Lisp style.
 
-For vararg methods, use DEFINE-ENGINE-VARARG-METHOD."
-  (engine-method-defun name class-name method-name hash arguments return-type
-                       (lambda (method-bind object arguments return-type)
-                         (ptrcall-method-form method-bind object arguments return-type))))
+Supported types: bool, int (also enums and bitfields), float, Vector2, String
+(a Lisp string), Callable (a CALLABLE), StringName and NodePath as arguments
+(pointers to them, see SNAME and NPATH), Variant as an argument (converted from
+the Lisp value by its type, see WRITE-VARIANT), and Rect2, Object (a Godot
+object pointer) and PackedStringArray (a list of strings) as results.
 
-(defmacro define-engine-vararg-method (name (class-name method-name hash)
-                                       &key arguments (return-type '+variant-type-nil+))
-  "Like DEFINE-ENGINE-METHOD, for a vararg method (is_vararg in
-extension_api.json), such as emit_signal. Vararg methods can't be called with
-ptrcall; the function converts the arguments and the result to and from
-Variants, and signals an error if the call fails. Only the arguments in
-ARGUMENTS can be passed so far, no extra ones."
-  (engine-method-defun name class-name method-name hash arguments return-type
-                       (lambda (method-bind object arguments return-type)
-                         (variant-call-method-form method-bind object arguments return-type
-                                                   name))))
+The method is called with ptrcall, except for vararg methods (such as
+emit_signal), which are called with Variants; a failed call signals an error.
+EXTRA-ARGUMENTS, for a vararg method, is a list of (name variant-type) for
+arguments after the declared ones, e.g. ((position +VARIANT-TYPE-VECTOR2+)) for
+emit_signal(signal, position)."
+  (handler-case (engine-method-defun name class-name method-name extra-arguments)
+    (error (e)
+      (error "In (DEFINE-ENGINE-METHOD ~s (~s ~s)): ~a" name class-name method-name e))))
 
 ;;;
 ;;; References
@@ -320,11 +387,9 @@ ARGUMENTS can be passed so far, no extra ones."
 ;;; to a bound method, take a reference with ADD-REFERENCE.
 ;;;
 
-(define-engine-method ref-counted-reference ("RefCounted" "reference" 2240911060)
-  :return-type +variant-type-bool+)
+(define-engine-method ref-counted-reference ("RefCounted" "reference"))
 
-(define-engine-method ref-counted-unreference ("RefCounted" "unreference" 2240911060)
-  :return-type +variant-type-bool+)
+(define-engine-method ref-counted-unreference ("RefCounted" "unreference"))
 
 (defun add-reference (object)
   "Take a reference to the RefCounted OBJECT (a Godot object pointer, or NULL), to
@@ -362,11 +427,7 @@ BODY exits, also on a non-local exit."
 (defconstant +connect-deferred+ 1)
 (defconstant +connect-one-shot+ 4)
 
-(define-engine-method object-connect ("Object" "connect" 1518946055)
-  :arguments ((signal-name +variant-type-string-name+)
-              (callable +variant-type-callable+)
-              (flags +variant-type-int+ 0))
-  :return-type +variant-type-int+)      ; Error
+(define-engine-method object-connect ("Object" "connect"))
 
 (defun connect-signal (object signal-name function &key (target object) (flags 0))
   "Connect the signal SIGNAL-NAME (a StringName, see SNAME) of OBJECT to the Lisp

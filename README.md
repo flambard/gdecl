@@ -87,14 +87,13 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
   - `add-initialize-hook` registers your entry point, and `add-deinitialize-hook` a function to run when Godot unloads the extension.
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
   - `vector2` and `rect2` (re-exported from `gd-extension-types`) are Lisp versions of Godot's Vector2 and Rect2: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`, with `vector2+`, `vector2*`, `vector2-length`, `vector2-normalized`, `vector2-rotated` and `vector2-clamp`.
-  - `define-engine-method` defines a Lisp function that calls a Godot method, with the hash from `extension_api.json`:
+  - `define-engine-method` defines a Lisp function that calls a Godot method. Its hash and signature are looked up in `extension_api.json` when your code is compiled:
     ```lisp
-    (define-engine-method is-action-pressed ("Input" "is_action_pressed" 1558498928)
-      :arguments ((action +variant-type-string-name+)
-                  (exact-match +variant-type-bool+ nil)) ; optional, default NIL
-      :return-type +variant-type-bool+)
+    (define-engine-method is-action-pressed ("Input" "is_action_pressed"))
+
+    (is-action-pressed (singleton "Input") (sname "ui_up"))
     ```
-    The function takes the Godot object pointer and then the method's arguments. Supported types so far: bool, int, float, Vector2, String (a Lisp string), StringName, NodePath and `:variant` (arguments; a Variant argument is converted from the Lisp value by its type: `t`/`nil`, integer, real or `vector2`), and Rect2, Object and PackedStringArray (results; an Object is a Godot object pointer, a PackedStringArray a list of strings). Vararg methods such as `emit_signal` are defined with `define-engine-vararg-method` instead, which calls them with Variants; only with their declared arguments so far.
+    The function takes the Godot object pointer (unless the method is static) and then the method's arguments, named as in Godot. Arguments with default values are optional (`exact-match` above), if the default can be written in Lisp. The class can also be one that inherits the method, e.g. `("Sprite2D" "get_position")`. Supported types so far: bool, int (also enums), float, Vector2, String (a Lisp string), StringName, NodePath, Callable and Variant (arguments; a Variant argument is converted from the Lisp value by its type: `t`/`nil`, integer, real or `vector2`), and Rect2, Object and PackedStringArray (results; an Object is a Godot object pointer, a PackedStringArray a list of strings). Other types give an error when the code is compiled. Vararg methods such as `emit_signal` are called with Variants; give the arguments after the declared ones with `:extra-arguments`, e.g. `(define-engine-method emit-hit ("Object" "emit_signal") :extra-arguments ((damage +variant-type-int+)))`.
   - An engine method that returns a RefCounted object, such as a Resource, returns it with a reference you own, like a `Ref<T>` in C++. Give it back with `release-reference`, or use `(with-reference (frames (get-sprite-frames sprite)) ...)`. To keep a RefCounted object you got another way, e.g. as a bound method's argument, take a reference with `add-reference`.
   - `connect-signal` connects a signal to a Lisp function, through a Godot Callable that calls it. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
     ```lisp
@@ -111,6 +110,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 - **`gd-extension-ffi`** (nickname `gdext-ffi`): the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `gd-extension` package doesn't cover yet.
 - **`gd-extension-types`** (nickname `gdext-types`): Godot's builtin types in Lisp, and converting them to and from raw values. `gd-extension` re-exports the parts applications use.
 - **`gd-extension-callback`** (nickname `gdext-callback`): what runs when Godot calls into Lisp, such as creating instances of your classes and calling your bound methods. Used by `gd-extension`; applications don't need it.
+- **`gdecl-json`**: a small JSON reader, used to read `extension_api.json` when your code is compiled.
 
 ## License
 

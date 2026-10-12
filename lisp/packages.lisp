@@ -326,6 +326,9 @@ tables and dispatchers behind them")
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)
   (:use #:cl #:gd-extension-ffi #:gd-extension-types)
+  (:import-from #:gdecl-json
+                #:read-json-file
+                #:json-get)
   (:import-from #:gd-extension-callback
                 #:method-ptrcall
                 #:method-call
@@ -373,7 +376,6 @@ tables and dispatchers behind them")
            #:singleton
            ;; Calling engine methods
            #:define-engine-method
-           #:define-engine-vararg-method
            ;; Signals
            #:+connect-deferred+
            #:+connect-one-shot+
