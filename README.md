@@ -91,14 +91,14 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
     ```lisp
     (define-engine-method is-action-pressed ("Input" "is_action_pressed"))
 
-    (is-action-pressed (singleton "Input") (sname "ui_up"))
+    (is-action-pressed (singleton "Input") "ui_up")
     ```
-    The function takes the Godot object pointer (unless the method is static) and then the method's arguments, named as in Godot. Arguments with default values are optional (`exact-match` above), if the default can be written in Lisp. The class can also be one that inherits the method, e.g. `("Sprite2D" "get_position")`. Supported types so far: bool, int (also enums), float, Vector2, String (a Lisp string), StringName, NodePath, Callable and Variant (arguments; a Variant argument is converted from the Lisp value by its type: `t`/`nil`, integer, real or `vector2`), and Rect2, Object and PackedStringArray (results; an Object is a Godot object pointer, a PackedStringArray a list of strings). Other types give an error when the code is compiled. Vararg methods such as `emit_signal` are called with Variants; give the arguments after the declared ones with `:extra-arguments`, e.g. `(define-engine-method emit-hit ("Object" "emit_signal") :extra-arguments ((damage +variant-type-int+)))`.
+    The function takes the Godot object pointer (unless the method is static) and then the method's arguments, named as in Godot. A StringName or NodePath argument can be a literal string, as `"ui_up"` above: it's turned into `(sname "ui_up")` when the code is compiled, so it's created once. Other values for them must be StringNames and NodePaths, e.g. from `sname`, `npath` or `with-string-name`. Arguments with default values are optional (`exact-match` above), if the default can be written in Lisp. The class can also be one that inherits the method, e.g. `("Sprite2D" "get_position")`. Supported types so far: bool, int (also enums), float, Vector2, String (a Lisp string), StringName, NodePath, Callable and Variant (arguments; a Variant argument is converted from the Lisp value by its type: `t`/`nil`, integer, real or `vector2`), and Rect2, Object and PackedStringArray (results; an Object is a Godot object pointer, a PackedStringArray a list of strings). Other types give an error when the code is compiled. Vararg methods such as `emit_signal` are called with Variants; give the arguments after the declared ones with `:extra-arguments`, e.g. `(define-engine-method emit-hit ("Object" "emit_signal") :extra-arguments ((damage +variant-type-int+)))`.
   - An engine method that returns a RefCounted object, such as a Resource, returns it with a reference you own, like a `Ref<T>` in C++. Give it back with `release-reference`, or use `(with-reference (frames (get-sprite-frames sprite)) ...)`. To keep a RefCounted object you got another way, e.g. as a bound method's argument, take a reference with `add-reference`.
   - `connect-signal` connects a signal to a Lisp function, through a Godot Callable that calls it. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
     ```lisp
-    (after-signal ((get-node hud (npath "MessageTimer")) (sname "timeout") :target hud)
-      (show (get-node hud (npath "StartButton"))))
+    (after-signal ((get-node hud "MessageTimer") (sname "timeout") :target hud)
+      (show (get-node hud "StartButton")))
     ```
     The connection is bound to a target object (by default the one emitting the signal), and goes away when that object is freed.
   - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, `(npath "AnimatedSprite2D")` a NodePath created once, and `(singleton "Input")` an engine singleton, looked up once.

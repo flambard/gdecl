@@ -249,6 +249,20 @@ with object_method_bind_call, with the arguments and the result as Variants."
              (variant-destroy (element-pointer ,variants 'variant i)))
            (variant-destroy ,r-return)))))
 
+  (defun wrap-literal-names (name arguments positions)
+    "The call of the engine method NAME with ARGUMENTS (forms), for its compiler
+macro: each literal string at one of POSITIONS, a list of (index . macro), is
+wrapped in the macro (SNAME or NPATH), so the StringName or NodePath is created
+once. NIL if there's nothing to wrap, so the call is left as it is."
+    (when (loop for (i) in positions
+                thereis (stringp (nth i arguments)))
+      `(,name ,@(loop for argument in arguments
+                      for i from 0
+                      for macro = (cdr (assoc i positions))
+                      collect (if (and macro (stringp argument))
+                                  `(,macro ,argument)
+                                  argument)))))
+
   (defun engine-method-argument-symbol (name)
     "The symbol for the argument NAME, a string from extension_api.json, in the
 lambda list of an engine method: NAME in Lisp style, in the current package."
@@ -322,28 +336,41 @@ signature from extension_api.json."
                                              (engine-value-ffi-type variant-type)
                                              (gensym (symbol-name arg-name)))))
               (object (gensym "OBJECT"))
-              (method-bind (gensym "METHOD-BIND")))
-          `(defun ,name (,@(unless static (list object))
-                         ,@(loop for (arg-name nil default) in arguments
-                                 unless default collect arg-name)
-                         ,@(when (some #'third arguments) '(&optional))
-                         ,@(loop for (arg-name nil default) in arguments
-                                 when default collect (list arg-name (first default))))
-             ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]."
-                      static defining-class method-name
-                      (mapcar (lambda (argument) (json-get argument "name"))
-                              (json-get method "arguments"))
-                      (and vararg "Variants"))
-             (let (,@(when static `((,object (ffi:make-null-pointer :void))))
-                   (,method-bind (car (load-time-value
-                                       (make-initialize-cell
-                                        (lambda ()
-                                          (lookup-method-bind ,defining-class ,method-name ,hash)))))))
-               (unless ,method-bind
-                 (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
-               ,(if vararg
-                    (variant-call-method-form method-bind object arguments return-type name)
-                    (ptrcall-method-form method-bind object arguments return-type)))))))))
+              (method-bind (gensym "METHOD-BIND"))
+              ;; The positions in a call of the StringName and NodePath
+              ;; arguments, which can be given as literal strings
+              (name-positions (loop for (nil variant-type) in arguments
+                                    for i from (if static 0 1)
+                                    when (eql variant-type +variant-type-string-name+)
+                                      collect (cons i 'sname)
+                                    when (eql variant-type +variant-type-node-path+)
+                                      collect (cons i 'npath))))
+          `(progn
+            (defun ,name (,@(unless static (list object))
+                          ,@(loop for (arg-name nil default) in arguments
+                                  unless default collect arg-name)
+                          ,@(when (some #'third arguments) '(&optional))
+                          ,@(loop for (arg-name nil default) in arguments
+                                  when default collect (list arg-name (first default))))
+              ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]."
+                       static defining-class method-name
+                       (mapcar (lambda (argument) (json-get argument "name"))
+                               (json-get method "arguments"))
+                       (and vararg "Variants"))
+              (let (,@(when static `((,object (ffi:make-null-pointer :void))))
+                    (,method-bind (car (load-time-value
+                                        (make-initialize-cell
+                                         (lambda ()
+                                           (lookup-method-bind ,defining-class ,method-name ,hash)))))))
+                (unless ,method-bind
+                  (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
+                ,(if vararg
+                     (variant-call-method-form method-bind object arguments return-type name)
+                     (ptrcall-method-form method-bind object arguments return-type))))
+            ,@(when name-positions
+                `((define-compiler-macro ,name (&whole form &rest arguments)
+                    (or (wrap-literal-names ',name arguments ',name-positions)
+                        form))))))))))
 
 (defun lookup-method-bind (class-name method-name hash)
   (let ((method-bind (get-method-bind class-name method-name hash)))
@@ -367,6 +394,10 @@ Supported types: bool, int (also enums and bitfields), float, Vector2, String
 (pointers to them, see SNAME and NPATH), Variant as an argument (converted from
 the Lisp value by its type, see WRITE-VARIANT), and Rect2, Object (a Godot
 object pointer) and PackedStringArray (a list of strings) as results.
+
+A StringName or NodePath argument can also be given as a literal string in a
+call, e.g. (EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in SNAME or
+NPATH, so it's created once, not at every call.
 
 The method is called with ptrcall, except for vararg methods (such as
 emit_signal), which are called with Variants; a failed call signals an error.
