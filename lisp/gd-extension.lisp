@@ -13,6 +13,23 @@
 ;;; Helpers
 ;;;
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun variant-type (designator)
+    "The variant type designated by DESIGNATOR: a variant type (an integer, such
+as +VARIANT-TYPE-FLOAT+), or a keyword named like one, such as :FLOAT, :VECTOR2,
+:STRING-NAME or :PACKED-STRING-ARRAY."
+    (etypecase designator
+      (integer designator)
+      (keyword
+       (let ((symbol (find-symbol (format nil "+VARIANT-TYPE-~a+" (symbol-name designator))
+                                  :gd-extension-ffi)))
+         (if (and symbol
+                  (not (eq designator :variant-max))
+                  (eq (nth-value 1 (find-symbol (symbol-name symbol) :gd-extension-ffi))
+                      :external))
+             (symbol-value symbol)
+             (error "No variant type ~s" designator)))))))
+
 (defmacro with-string-name ((var contents) &body body)
   "Evaluate BODY with VAR bound to a pointer to a StringName created from the
 string CONTENTS. The StringName is destroyed when BODY exits, also on a
@@ -330,7 +347,7 @@ signature from extension_api.json."
           (setf arguments (append (loop for (arg-name type nil) in arguments
                                         collect (list arg-name type nil))
                                   (loop for (arg-name type) in extra-arguments
-                                        collect (list arg-name (eval type) nil)))))
+                                        collect (list arg-name (variant-type (eval type)) nil)))))
         (let ((arguments (loop for (arg-name variant-type default) in arguments
                                collect (list arg-name variant-type default
                                              (engine-value-ffi-type variant-type)
@@ -401,9 +418,9 @@ NPATH, so it's created once, not at every call.
 
 The method is called with ptrcall, except for vararg methods (such as
 emit_signal), which are called with Variants; a failed call signals an error.
-EXTRA-ARGUMENTS, for a vararg method, is a list of (name variant-type) for
-arguments after the declared ones, e.g. ((position +VARIANT-TYPE-VECTOR2+)) for
-emit_signal(signal, position)."
+EXTRA-ARGUMENTS, for a vararg method, is a list of (name type) for
+arguments after the declared ones, e.g. ((position :vector2)) for
+emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
   (handler-case (engine-method-defun name class-name method-name extra-arguments)
     (error (e)
       (error "In (DEFINE-ENGINE-METHOD ~s (~s ~s)): ~a" name class-name method-name e))))
@@ -528,11 +545,15 @@ the code belongs to, BODY isn't run if that object has been freed by then."
 (defun bind-method (class-name method-name function
                     &key (return-type +variant-type-nil+) arguments)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
-ARGUMENTS is a list of (name variant-type), and RETURN-TYPE the variant type of
-the return value (+VARIANT-TYPE-NIL+ for none). FUNCTION is called with the
-instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
-  (let ((argument-count (length arguments))
-        (has-return-value (/= return-type +variant-type-nil+)))
+ARGUMENTS is a list of (name type), and RETURN-TYPE the type of the return
+value (:NIL for none), where a type is as in VARIANT-TYPE, e.g. :INT or
+:VECTOR2. FUNCTION is called with the instance's Lisp object (see
+REGISTER-CLASS) and the arguments as Lisp values."
+  (let* ((return-type (variant-type return-type))
+         (arguments (loop for (name type) in arguments
+                          collect (list name (variant-type type))))
+         (argument-count (length arguments))
+         (has-return-value (/= return-type +variant-type-nil+)))
     (with-string-name (method-name-string method-name)
       (ffi:with-foreign-objects ((return-info 'property-info)
                                  ;; At least one element, so the arrays are never empty
@@ -577,14 +598,14 @@ instance's Lisp object (see REGISTER-CLASS) and the arguments as Lisp values."
 
 (defun bind-property (class-name name type getter setter
                       &key (hint +property-hint-none+) (hint-string "") (property-class-name ""))
-  "Register the property NAME of the class CLASS-NAME, of the variant type TYPE,
-with the bound methods GETTER and SETTER (method names). HINT and HINT-STRING
+  "Register the property NAME of the class CLASS-NAME, of TYPE (as in
+VARIANT-TYPE, e.g. :INT), with the bound methods GETTER and SETTER (method names). HINT and HINT-STRING
 tell the editor how to edit it, e.g. +PROPERTY-HINT-RESOURCE-TYPE+ and
 \"PackedScene\" for a resource of that class, like @export var x: PackedScene
 in GDScript; PROPERTY-CLASS-NAME is then the class name too."
   (with-string-name (class-string-name class-name)
     (ffi:with-foreign-object (info 'property-info)
-      (make-property-full info type name hint hint-string property-class-name
+      (make-property-full info (variant-type type) name hint hint-string property-class-name
                           +property-usage-default+)
       (with-string-name (getter-name getter)
         (with-string-name (setter-name setter)
@@ -594,9 +615,11 @@ in GDScript; PROPERTY-CLASS-NAME is then the class name too."
 
 (defun bind-signal (class-name signal-name &optional arguments)
   "Register the signal SIGNAL-NAME of the class CLASS-NAME, like signal in
-GDScript. ARGUMENTS is a list of (name variant-type), as in BIND-METHOD; a
-signal without arguments has none."
-  (let ((argument-count (length arguments)))
+GDScript. ARGUMENTS is a list of (name type), as in BIND-METHOD; a signal
+without arguments has none."
+  (let* ((arguments (loop for (name type) in arguments
+                          collect (list name (variant-type type))))
+         (argument-count (length arguments)))
     (with-string-name (class-string-name class-name)
       (with-string-name (signal-string-name signal-name)
         ;; At least one element, so the array is never empty
@@ -658,16 +681,74 @@ names are still there, and after the application's hooks."
 
 (add-deinitialize-hook 'unregister-classes)
 
-(defun bind-virtual (class-name virtual-name function
-                     &key (return-type +variant-type-nil+) arguments)
+;;;
+;;; Virtual methods
+;;;
+;;; BIND-VIRTUAL looks up the virtual method's signature in extension_api.json
+;;; when it's expanded. Engine classes can have virtual methods with the same
+;;; name and different signatures (such as _process in Node and in
+;;; AnimationNode), so the expansion has the signatures of all of them, and the
+;;; one of the class that the extension class inherits from is chosen when it's
+;;; bound, with ClassDB.is_parent_class.
+;;;
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun virtual-signatures (virtual-name)
+    "The signatures of the virtual methods VIRTUAL-NAME of the engine classes, as
+a list of (class-name return-type argument-types problem): variant types, or a
+string PROBLEM that says why the method can't be bound."
+    (loop for (class-name . method) in (api-virtual-methods virtual-name)
+          collect (handler-case
+                      (let ((return-value (json-get method "return_value")))
+                        (list class-name
+                              (if return-value
+                                  (api-variant-type (json-get return-value "type"))
+                                  +variant-type-nil+)
+                              (mapcar (lambda (argument)
+                                        (api-variant-type (json-get argument "type")))
+                                      (json-get method "arguments"))
+                              nil))
+                    (error (e)
+                      (list class-name nil nil (princ-to-string e)))))))
+
+(define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
+
+(defun inherits-class-p (class-name parent-class-name)
+  "True if the class CLASS-NAME is PARENT-CLASS-NAME or inherits from it (both
+strings)."
+  (with-string-name (class-string-name class-name)
+    (with-string-name (parent-string-name parent-class-name)
+      (class-db-is-parent-class (singleton "ClassDB") class-string-name parent-string-name))))
+
+(defun bind-virtual-with-signatures (class-name virtual-name function signatures)
+  "Bind FUNCTION as the virtual method VIRTUAL-NAME of the class CLASS-NAME, with
+the signature from SIGNATURES (see VIRTUAL-SIGNATURES) of the engine class that
+CLASS-NAME inherits from."
+  (destructuring-bind (&optional defining-class return-type argument-types problem)
+      (find-if (lambda (signature) (inherits-class-p class-name (first signature)))
+               signatures)
+    (unless defining-class
+      (error "~a doesn't inherit from a class with the virtual method ~a (~{~a~^, ~})"
+             class-name virtual-name (mapcar #'first signatures)))
+    (when problem
+      (error "The virtual method ~a.~a can't be bound: ~a" defining-class virtual-name problem))
+    (add-virtual class-name
+                 (new-string-name virtual-name)
+                 (register-method function :name (format nil "~a.~a" class-name virtual-name)
+                                           :return-type return-type
+                                           :argument-types argument-types))))
+
+(defmacro bind-virtual (class-name virtual-name function)
   "Make FUNCTION the class CLASS-NAME's implementation of the virtual method
-VIRTUAL-NAME, such as \"_ready\" or \"_process\". ARGUMENTS and RETURN-TYPE
-must match the virtual method's signature (see extension_api.json), and are
-given as in BIND-METHOD. FUNCTION is called with the instance's Lisp object and
-the arguments as Lisp values. Call it after REGISTER-CLASS, before Godot
+VIRTUAL-NAME, a literal string such as \"_ready\" or \"_process\". FUNCTION is
+called with the instance's Lisp object and the arguments as Lisp values. The
+virtual method's signature is looked up in extension_api.json, in the engine
+class that CLASS-NAME inherits from. Call it after REGISTER-CLASS, before Godot
 creates any instances of the class."
-  (add-virtual class-name
-               (new-string-name virtual-name)
-               (register-method function :name (format nil "~a.~a" class-name virtual-name)
-                                         :return-type return-type
-                                         :argument-types (mapcar #'second arguments))))
+  (unless (stringp virtual-name)
+    (error "The name of the virtual method in BIND-VIRTUAL must be a literal string: ~s"
+           virtual-name))
+  (let ((signatures (virtual-signatures virtual-name)))
+    (unless signatures
+      (error "No engine class has a virtual method ~a (~a)" virtual-name *extension-api-file*))
+    `(bind-virtual-with-signatures ,class-name ,virtual-name ,function ',signatures)))

@@ -98,6 +98,18 @@ second value is the name of the class that defines it."
         finally (error "No method ~a in the engine class ~a or the classes it inherits from (~a)"
                        method-name class-name *extension-api-file*)))
 
+(defun api-virtual-methods (method-name)
+  "The virtual methods named METHOD-NAME (a string) of all engine classes, as a
+list of (class-name . method), with the method as a JSON object, sorted by
+class name."
+  (sort (loop for class being the hash-values of (extension-api-classes (extension-api))
+              for method = (find method-name (json-get class "methods")
+                                 :key (lambda (method) (json-get method "name"))
+                                 :test #'string=)
+              when (and method (json-get method "is_virtual"))
+                collect (cons (json-get class "name") method))
+        #'string< :key #'car))
+
 (defun api-variant-type (type)
   "The variant type of TYPE, a type name from extension_api.json: an int for an
 enum or bitfield, Object for an engine class, :VARIANT for Variant."

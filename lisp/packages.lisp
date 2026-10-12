@@ -348,6 +348,7 @@ tables and dispatchers behind them")
   (:export #:add-initialize-hook
            #:add-deinitialize-hook
            ;; Helpers
+           #:variant-type
            #:with-string-name
            #:with-string
            #:get-method-bind
