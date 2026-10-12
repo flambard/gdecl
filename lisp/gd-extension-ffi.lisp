@@ -607,6 +607,8 @@ that Godot gave the extension, and look up the interface functions."
 (defconstant +variant-size+ 24)
 (defconstant +vector2-size+ 8)
 (defconstant +rect2-size+ 16)
+(defconstant +vector3-size+ 12)
+(defconstant +basis-size+ 36)
 (defconstant +node-path-size+ 8)
 (defconstant +callable-size+ 16)
 (defconstant +packed-string-array-size+ 16)
@@ -638,6 +640,18 @@ that Godot gave the extension, and look up the interface functions."
 (ffi:def-struct godot-rect2
   (position godot-vector2)
   (size godot-vector2))
+;; Godot's Vector3 and Basis, likewise. A Basis is stored as its three rows, the
+;; members x, y and z in builtin_class_member_offsets, though x, y and z of a
+;; Basis in GDScript are its columns.
+(ffi:def-struct godot-vector3
+  (x :float)
+  (y :float)
+  (z :float))
+
+(ffi:def-struct godot-basis
+  (x godot-vector3)
+  (y godot-vector3)
+  (z godot-vector3))
 
 (ffi:def-struct node-path
   (data '(:array :uint8-t #.+node-path-size+)))

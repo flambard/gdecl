@@ -161,6 +161,8 @@
            #:+variant-size+
            #:+vector2-size+
            #:+rect2-size+
+           #:+vector3-size+
+           #:+basis-size+
            #:+node-path-size+
            #:+callable-size+
            #:+packed-string-array-size+
@@ -173,6 +175,9 @@
            #:godot-rect2
            #:position
            #:size
+           #:godot-vector3
+           #:z
+           #:godot-basis
            #:node-path
            #:godot-callable
            #:callable-custom-info2
@@ -278,6 +283,29 @@ raw values")
            #:rect2-size
            #:read-rect2
            #:write-rect2
+           #:vector3
+           #:vector3-p
+           #:vector3-x
+           #:vector3-y
+           #:vector3-z
+           #:vector3+
+           #:vector3-
+           #:vector3*
+           #:vector3-length
+           #:vector3-normalized
+           #:vector3-dot
+           #:vector3-cross
+           #:vector3-is-zero-approx
+           #:read-vector3
+           #:write-vector3
+           #:basis
+           #:basis-p
+           #:basis-x
+           #:basis-y
+           #:basis-z
+           #:basis-looking-at
+           #:read-basis
+           #:write-basis
            #:read-object
            #:write-object
            #:read-godot-string
@@ -396,6 +424,25 @@ tables and dispatchers behind them")
            #:vector2-normalized
            #:vector2-rotated
            #:vector2-clamp
+           #:vector3
+           #:vector3-p
+           #:vector3-x
+           #:vector3-y
+           #:vector3-z
+           #:vector3+
+           #:vector3-
+           #:vector3*
+           #:vector3-length
+           #:vector3-normalized
+           #:vector3-dot
+           #:vector3-cross
+           #:vector3-is-zero-approx
+           #:basis
+           #:basis-p
+           #:basis-x
+           #:basis-y
+           #:basis-z
+           #:basis-looking-at
            ;; Values looked up once
            #:sname
            #:npath
@@ -429,9 +476,9 @@ tables and dispatchers behind them")
            #:bind-signal))
 
 (defpackage #:godot
-  (:documentation "Godot's API in Lisp: the builtin types Vector2 and Rect2 (from
-GD-EXTENSION-TYPES), and functions that call the methods of engine classes,
-named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
+  (:documentation "Godot's API in Lisp: the builtin types Vector2, Rect2, Vector3
+and Basis (from GD-EXTENSION-TYPES), and functions that call the methods of
+engine classes, named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
 DEFINE-ENGINE-CLASS defines the functions and exports them from here, both for the
 classes gdecl defines (godot-engine-classes.lisp) and those applications define.")
   (:nicknames #:gd)
@@ -451,7 +498,26 @@ classes gdecl defines (godot-engine-classes.lisp) and those applications define.
                 #:rect2
                 #:rect2-p
                 #:rect2-position
-                #:rect2-size)
+                #:rect2-size
+                #:vector3
+                #:vector3-p
+                #:vector3-x
+                #:vector3-y
+                #:vector3-z
+                #:vector3+
+                #:vector3-
+                #:vector3*
+                #:vector3-length
+                #:vector3-normalized
+                #:vector3-dot
+                #:vector3-cross
+                #:vector3-is-zero-approx
+                #:basis
+                #:basis-p
+                #:basis-x
+                #:basis-y
+                #:basis-z
+                #:basis-looking-at)
   (:export #:vector2
            #:vector2-p
            #:vector2-x
@@ -465,7 +531,26 @@ classes gdecl defines (godot-engine-classes.lisp) and those applications define.
            #:rect2
            #:rect2-p
            #:rect2-position
-           #:rect2-size))
+           #:rect2-size
+           #:vector3
+           #:vector3-p
+           #:vector3-x
+           #:vector3-y
+           #:vector3-z
+           #:vector3+
+           #:vector3-
+           #:vector3*
+           #:vector3-length
+           #:vector3-normalized
+           #:vector3-dot
+           #:vector3-cross
+           #:vector3-is-zero-approx
+           #:basis
+           #:basis-p
+           #:basis-x
+           #:basis-y
+           #:basis-z
+           #:basis-looking-at))
 
 (defpackage #:godot-utility
   (:documentation "Godot's utility functions in Lisp: the global functions of

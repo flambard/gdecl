@@ -43,6 +43,12 @@
   (:method "add" test-node-add :arguments (("a" :int) ("b" :int)) :return-type :int)
   (:method "scale_vector" test-node-scale-vector
            :arguments (("vector" :vector2) ("factor" :float)) :return-type :vector2)
+  (:method "scale_vector3" test-node-scale-vector3
+           :arguments (("vector" :vector3) ("factor" :float)) :return-type :vector3)
+  (:method "looking_at" test-node-looking-at
+           :arguments (("target" :vector3)) :return-type :basis)
+  (:method "basis_column" test-node-basis-column
+           :arguments (("basis" :basis) ("index" :int)) :return-type :vector3)
   (:method "echo" test-node-echo :arguments (("text" :string)) :return-type :string)
   (:method "is_null" test-node-is-null :arguments (("object" :object)) :return-type :bool)
   (:method "get_self" identity :return-type :object)
@@ -67,6 +73,21 @@
 (defun test-node-scale-vector (node vector factor)
   (declare (ignore node))
   (vector2* vector factor))
+
+(defun test-node-scale-vector3 (node vector factor)
+  (declare (ignore node))
+  (vector3* vector factor))
+
+(defun test-node-looking-at (node target)
+  (declare (ignore node))
+  (basis-looking-at target))
+
+(defun test-node-basis-column (node basis index)
+  (declare (ignore node))
+  (ecase index
+    (0 (basis-x basis))
+    (1 (basis-y basis))
+    (2 (basis-z basis))))
 
 (defun test-node-echo (node text)
   (declare (ignore node))

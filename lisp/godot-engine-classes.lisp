@@ -13,6 +13,7 @@
 (gdext:define-engine-class "Node")
 (gdext:define-engine-class "CanvasItem")
 (gdext:define-engine-class "Node2D")
+(gdext:define-engine-class "Node3D")
 (gdext:define-engine-class "SceneTree")
 (gdext:define-engine-class "Input")
 (gdext:define-engine-class "Timer")

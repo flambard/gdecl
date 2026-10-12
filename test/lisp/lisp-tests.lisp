@@ -33,6 +33,30 @@
     (canvas-item-hide node)
     (check (not (canvas-item-is-visible node)))))
 
+(deftest engine-method-values-3d
+  (let ((node (new-node "Node3D")))
+    (node-3d-set-position node (vector3 1.0 2.0 3.0))
+    (check (equalp (vector3 1.0 2.0 3.0) (node-3d-get-position node)))
+    (let ((basis (basis (vector3 0.0 0.0 -1.0) (vector3 0.0 1.0 0.0) (vector3 1.0 0.0 0.0))))
+      (node-3d-set-basis node basis)
+      (check (equalp basis (node-3d-get-basis node))))
+    ;; The default of up, Vector3(0, 1, 0)
+    (node-3d-look-at node (vector3+ (vector3 1.0 2.0 3.0) (vector3 2.0 -1.0 0.5)))
+    (let ((expected (basis-looking-at (vector3 2.0 -1.0 0.5)))
+          (actual (node-3d-get-basis node)))
+      (flet ((close-p (a b)
+               (< (vector3-length (vector3- a b)) 1e-5)))
+        (check (close-p (basis-x expected) (basis-x actual)))
+        (check (close-p (basis-y expected) (basis-y actual)))
+        (check (close-p (basis-z expected) (basis-z actual)))))))
+
+(deftest vector3-functions
+  (check (equalp (vector3 -3.0 6.0 -3.0) (vector3-cross (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0))))
+  (check (= 32 (vector3-dot (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0))))
+  (check (equalp (vector3 0.0 0.6 0.8) (vector3-normalized (vector3 0.0 3.0 4.0))))
+  (check (equalp (vector3) (vector3-normalized (vector3))))
+  (check (equalp (vector3 -1.0 -2.0 -3.0) (vector3- (vector3 1.0 2.0 3.0)))))
+
 (deftest objects
   (let ((node (new-node "Node2D"))
         (test-node (new-test-node)))
@@ -70,6 +94,9 @@
       (check (equalp (vector2 1.0 2.0) (round-trip (vector2 1.0 2.0))))
       (check (equalp (rect2 (vector2 1.0 2.0) (vector2 3.0 4.0))
                      (round-trip (rect2 (vector2 1.0 2.0) (vector2 3.0 4.0)))))
+      (check (equalp (vector3 1.0 2.0 3.0) (round-trip (vector3 1.0 2.0 3.0))))
+      (let ((basis (basis (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0) (vector3 7.0 8.0 9.0))))
+        (check (equalp basis (round-trip basis))))
       (check (same-object-p *root* (round-trip *root*))))))
 
 (deftest vararg-methods

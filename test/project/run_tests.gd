@@ -70,6 +70,12 @@ func test_methods() -> void:
 	check(node.add(2, 3) == 5, "add(2, 3)")
 	check(node.add(2.9, 3) == 5, "a float for an int argument is truncated")
 	check(node.scale_vector(Vector2(1, 2), 2) == Vector2(2, 4), "Vector2 and float arguments")
+	check(node.scale_vector3(Vector3(1, 2, 3), 2) == Vector3(2, 4, 6), "Vector3 arguments")
+	var basis := Basis(Vector3(1, 2, 3), Vector3(4, 5, 6), Vector3(7, 8, 9))
+	check(node.basis_column(basis, 0) == basis.x and node.basis_column(basis, 2) == basis.z,
+			"a Basis argument has the columns of GDScript")
+	check(node.looking_at(Vector3(1, -2, 3)).is_equal_approx(Basis.looking_at(Vector3(1, -2, 3))),
+			"basis-looking-at as Basis.looking_at()")
 	check(node.echo("åäö") == "åäö", "a String argument and result")
 	check(node.is_null(null), "null for an Object argument")
 	check(not node.is_null(node), "an Object argument")

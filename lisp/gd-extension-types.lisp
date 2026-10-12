@@ -101,6 +101,129 @@ and MAX."
     (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'position) (rect2-position rect))
     (write-vector2 (ffi:get-slot-pointer pointer 'godot-rect2 'size) (rect2-size rect))))
 
+(defstruct (vector3 (:constructor vector3 (&optional (x 0.0) (y 0.0) (z 0.0))))
+  "Godot's Vector3. Make one with (VECTOR3 X Y Z), like Vector3(x, y, z)."
+  (x 0.0 :type single-float)
+  (y 0.0 :type single-float)
+  (z 0.0 :type single-float))
+
+(defun read-vector3 (pointer)
+  (let ((pointer (cast-pointer pointer 'godot-vector3)))
+    (vector3 (ffi:get-slot-value pointer 'godot-vector3 'x)
+             (ffi:get-slot-value pointer 'godot-vector3 'y)
+             (ffi:get-slot-value pointer 'godot-vector3 'z))))
+
+(defun write-vector3 (pointer vector)
+  (let ((pointer (cast-pointer pointer 'godot-vector3)))
+    (setf (ffi:get-slot-value pointer 'godot-vector3 'x) (vector3-x vector)
+          (ffi:get-slot-value pointer 'godot-vector3 'y) (vector3-y vector)
+          (ffi:get-slot-value pointer 'godot-vector3 'z) (vector3-z vector))))
+
+(defun vector3+ (a b)
+  "A + B"
+  (vector3 (+ (vector3-x a) (vector3-x b))
+           (+ (vector3-y a) (vector3-y b))
+           (+ (vector3-z a) (vector3-z b))))
+
+(defun vector3- (a &optional b)
+  "A - B, or -A without B"
+  (if b
+      (vector3 (- (vector3-x a) (vector3-x b))
+               (- (vector3-y a) (vector3-y b))
+               (- (vector3-z a) (vector3-z b)))
+      (vector3 (- (vector3-x a)) (- (vector3-y a)) (- (vector3-z a)))))
+
+(defun vector3* (vector number)
+  "VECTOR * NUMBER"
+  (vector3 (float (* (vector3-x vector) number) 1.0)
+           (float (* (vector3-y vector) number) 1.0)
+           (float (* (vector3-z vector) number) 1.0)))
+
+(defun vector3-length (vector)
+  "Vector3.length()"
+  (sqrt (vector3-dot vector vector)))
+
+(defun vector3-normalized (vector)
+  "Vector3.normalized(): VECTOR scaled to length 1, or (0, 0, 0) if it's (0, 0, 0)"
+  (let ((length (vector3-length vector)))
+    (if (zerop length)
+        (vector3)
+        (vector3 (/ (vector3-x vector) length)
+                 (/ (vector3-y vector) length)
+                 (/ (vector3-z vector) length)))))
+
+(defun vector3-dot (a b)
+  "Vector3.dot()"
+  (+ (* (vector3-x a) (vector3-x b))
+     (* (vector3-y a) (vector3-y b))
+     (* (vector3-z a) (vector3-z b))))
+
+(defun vector3-cross (a b)
+  "Vector3.cross()"
+  (vector3 (- (* (vector3-y a) (vector3-z b)) (* (vector3-z a) (vector3-y b)))
+           (- (* (vector3-z a) (vector3-x b)) (* (vector3-x a) (vector3-z b)))
+           (- (* (vector3-x a) (vector3-y b)) (* (vector3-y a) (vector3-x b)))))
+
+(defun vector3-is-zero-approx (vector)
+  "Vector3.is_zero_approx(): true if each component is within Godot's
+CMP_EPSILON of 0"
+  (and (< (abs (vector3-x vector)) 1e-5)
+       (< (abs (vector3-y vector)) 1e-5)
+       (< (abs (vector3-z vector)) 1e-5)))
+
+(defstruct (basis (:constructor basis (&optional (x (vector3 1.0 0.0 0.0))
+                                                 (y (vector3 0.0 1.0 0.0))
+                                                 (z (vector3 0.0 0.0 1.0)))))
+  "Godot's Basis. Make one with (BASIS X Y Z) from its columns, like Basis(x, y,
+z); (BASIS) is the identity. X, Y and Z are its columns, as in GDScript, though
+Godot stores a Basis as its rows."
+  (x (vector3 1.0 0.0 0.0) :type vector3)
+  (y (vector3 0.0 1.0 0.0) :type vector3)
+  (z (vector3 0.0 0.0 1.0) :type vector3))
+
+(defun read-basis (pointer)
+  (let* ((pointer (cast-pointer pointer 'godot-basis))
+         (row-x (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'x)))
+         (row-y (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'y)))
+         (row-z (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'z))))
+    (basis (vector3 (vector3-x row-x) (vector3-x row-y) (vector3-x row-z))
+           (vector3 (vector3-y row-x) (vector3-y row-y) (vector3-y row-z))
+           (vector3 (vector3-z row-x) (vector3-z row-y) (vector3-z row-z)))))
+
+(defun write-basis (pointer basis)
+  (let ((pointer (cast-pointer pointer 'godot-basis))
+        (x (basis-x basis))
+        (y (basis-y basis))
+        (z (basis-z basis)))
+    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'x)
+                   (vector3 (vector3-x x) (vector3-x y) (vector3-x z)))
+    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'y)
+                   (vector3 (vector3-y x) (vector3-y y) (vector3-y z)))
+    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'z)
+                   (vector3 (vector3-z x) (vector3-z y) (vector3-z z)))))
+
+(defun basis-looking-at (target &optional (up (vector3 0.0 1.0 0.0)) use-model-front)
+  "Basis.looking_at(): the Basis of something that faces TARGET, a direction,
+with its -Z axis (or its +Z axis if USE-MODEL-FRONT), and whose up is as close
+to UP as can be."
+  (when (vector3-is-zero-approx target)
+    (error "The target vector can't be zero."))
+  (when (vector3-is-zero-approx up)
+    (error "The up vector can't be zero."))
+  (let* ((v-z (if use-model-front
+                  (vector3-normalized target)
+                  (vector3- (vector3-normalized target))))
+         (v-x (vector3-cross up v-z)))
+    (when (vector3-is-zero-approx v-x)
+      ;; TARGET and UP are (almost) parallel: Godot warns and uses any vector
+      ;; perpendicular to UP (Vector3.get_any_perpendicular())
+      (setf v-x (vector3-cross up (if (and (<= (abs (vector3-x up)) (abs (vector3-y up)))
+                                           (<= (abs (vector3-x up)) (abs (vector3-z up))))
+                                      (vector3 1.0 0.0 0.0)
+                                      (vector3 0.0 1.0 0.0)))))
+    (setf v-x (vector3-normalized v-x))
+    (basis v-x (vector3-cross v-z v-x) v-z)))
+
 (defun read-godot-string (pointer)
   "The Godot String at POINTER as a Lisp string."
   (let* ((length (string-to-utf8-chars pointer (ffi:make-null-pointer :void) 0))
@@ -154,6 +277,8 @@ Lisp type, or NIL if it can't make one."
     (string +variant-type-string+)
     (vector2 +variant-type-vector2+)
     (rect2 +variant-type-rect2+)
+    (vector3 +variant-type-vector3+)
+    (basis +variant-type-basis+)
     ((or godot-object si:foreign-data) +variant-type-object+)
     (callable +variant-type-callable+)))
 
@@ -164,8 +289,8 @@ Lisp type, or NIL if it can't make one."
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
 by its Lisp type: T or NIL is a bool, an integer an int, a real a float, a
-string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a GODOT-OBJECT or a
-pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
+string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a VECTOR3 a Vector3, a
+BASIS a Basis, a GODOT-OBJECT or a pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
   (let* ((variant-type (or (lisp-variant-type value)
                            (error "Can't make a Variant from ~s" value)))
          (value-type (find-value-type variant-type)))
@@ -207,6 +332,10 @@ pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
                          :reader 'read-vector2 :writer 'write-vector2)
         (make-value-type :variant-type +variant-type-rect2+ :ffi-type 'godot-rect2
                          :reader 'read-rect2 :writer 'write-rect2)
+        (make-value-type :variant-type +variant-type-vector3+ :ffi-type 'godot-vector3
+                         :reader 'read-vector3 :writer 'write-vector3)
+        (make-value-type :variant-type +variant-type-basis+ :ffi-type 'godot-basis
+                         :reader 'read-basis :writer 'write-basis)
         (make-value-type :variant-type +variant-type-object+ :ffi-type :pointer-void
                          :reader 'read-object :writer 'write-object)
         (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
