@@ -71,7 +71,7 @@ src/gdecl.c."
                (report-error "initialize" e))))
   (setf *initialize-cells* '())
   (dolist (hook *initialize-hooks*)
-    (handler-case (funcall hook)
+    (handler-case (with-autorelease-pool (funcall hook))
       (error (e)
         (report-error (format nil "initialize hook ~a" hook) e))))
   t)
@@ -91,7 +91,7 @@ first; adding a hook again doesn't run it twice."
   "Clean up when Godot unloads the extension: run the deinitialize hooks.
 Called from src/gdecl.c, before ECL is shut down."
   (dolist (hook *deinitialize-hooks*)
-    (handler-case (funcall hook)
+    (handler-case (with-autorelease-pool (funcall hook))
       (error (e)
         (report-error (format nil "deinitialize hook ~a" hook) e))))
   t)
@@ -184,6 +184,9 @@ where the raw return value goes."
          (result (apply (bound-method-function method) (instance-object instance)
                         arguments)))
     (when return-type
+      ;; An Object result comes with a reference for Godot, if it's RefCounted
+      (when (eql (value-type-variant-type return-type) +variant-type-object+)
+        (reference-for-caller result))
       (write-value r-ret return-type result))))
 
 (defun call-bound-method (method-userdata instance args argument-count r-return r-error)
@@ -247,7 +250,8 @@ value as Variants, as in call_func."
     ((method-userdata :pointer-void) (instance :pointer-void)
      (args :pointer-void) (r-ret :pointer-void))
   (handler-case
-      (ptrcall-bound-method method-userdata instance args r-ret)
+      (with-autorelease-pool
+        (ptrcall-bound-method method-userdata instance args r-ret))
     (error (e)
       (report-error (bound-method-name (userdata-method method-userdata)) e))))
 
@@ -265,7 +269,8 @@ value as Variants, as in call_func."
   ;; R-ERROR to OK and R-RETURN to Nil, so after an error the method returns
   ;; null, like a GDScript method that fails
   (handler-case
-      (call-bound-method method-userdata instance args argument-count r-return r-error)
+      (with-autorelease-pool
+        (call-bound-method method-userdata instance args argument-count r-return r-error))
     (error (e)
       (report-error (bound-method-name (userdata-method method-userdata)) e))))
 
@@ -434,7 +439,7 @@ object, and return the object pointer."
 (ffi:defcallback create-instance :pointer-void
     ((class-userdata :pointer-void) (notify-postinitialize :unsigned-byte))
   (declare (ignore notify-postinitialize))
-  (handler-case (create-class-instance class-userdata)
+  (handler-case (with-autorelease-pool (create-class-instance class-userdata))
     (error (e)
       (report-error "create instance" e)
       (ffi:make-null-pointer :void))))
@@ -443,7 +448,7 @@ object, and return the object pointer."
 ;;                                      GDExtensionClassInstancePtr p_instance)
 (ffi:defcallback free-instance :void
     ((class-userdata :pointer-void) (instance :pointer-void))
-  (handler-case (free-class-instance class-userdata instance)
+  (handler-case (with-autorelease-pool (free-class-instance class-userdata instance))
     (error (e)
       (report-error "free instance" e))))
 
@@ -470,7 +475,8 @@ object, and return the object pointer."
      (args :pointer-void) (r-ret :pointer-void))
   (declare (ignore name))
   (handler-case
-      (ptrcall-bound-method virtual-call-userdata instance args r-ret)
+      (with-autorelease-pool
+        (ptrcall-bound-method virtual-call-userdata instance args r-ret))
     (error (e)
       (report-error (bound-method-name (userdata-method virtual-call-userdata)) e))))
 
@@ -539,13 +545,15 @@ until the last copy of the Callable is destroyed."
   (handler-case
       (progn
         (set-call-error r-error +call-ok+)
-        (let ((result (apply (userdata-callable-function callable-userdata)
-                             (loop for i below argument-count
-                                   collect (read-variant (foreign-ref args :pointer-void i))))))
-          (when (and result (variant-value-p result))
-            ;; R-RETURN is a Variant already (Nil)
-            (variant-destroy r-return)
-            (write-variant r-return result))))
+        (with-autorelease-pool
+          (let ((result (apply (userdata-callable-function callable-userdata)
+                               (loop for i below argument-count
+                                     collect (read-variant (foreign-ref args :pointer-void i))))))
+            (when (and result (variant-value-p result))
+              ;; R-RETURN is a Variant already (Nil). Written before the pool
+              ;; gives back its references, so an object in it stays alive.
+              (variant-destroy r-return)
+              (write-variant r-return result)))))
     (error (e)
       (report-error "Lisp callable" e))))
 

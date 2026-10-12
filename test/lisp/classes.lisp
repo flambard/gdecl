@@ -133,7 +133,27 @@ arguments and returns how many there were."
   (:method "keep_resource" (lambda (tests resource)
                              (declare (ignore tests))
                              (gdext:setf-reference *kept-resource* resource))
-           :arguments (("resource" :object))))
+           :arguments (("resource" :object)))
+  (:method "new_resource_id" lisp-tests-new-resource-id :return-type :int)
+  (:method "keep_new_resource" lisp-tests-keep-new-resource :return-type :int)
+  (:method "new_resource" lisp-tests-new-resource :return-type :object))
+
+(defun lisp-tests-new-resource-id (tests)
+  "The instance ID of a new TestResource, which is in the autorelease pool, so
+it's freed when this method returns."
+  (declare (ignore tests))
+  (object-get-instance-id (class-db-instantiate "TestResource")))
+
+(defun lisp-tests-keep-new-resource (tests)
+  "Keep a new TestResource in *KEPT-RESOURCE*, and return its instance ID."
+  (declare (ignore tests))
+  (gdext:setf-reference *kept-resource* (class-db-instantiate "TestResource"))
+  (object-get-instance-id *kept-resource*))
+
+(defun lisp-tests-new-resource (tests)
+  "A new TestResource, which is in the autorelease pool when it's returned."
+  (declare (ignore tests))
+  (class-db-instantiate "TestResource"))
 
 (defun lisp-tests-run (tests root)
   "Run the Lisp tests with ROOT as *ROOT*, print the failures, and return how

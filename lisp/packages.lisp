@@ -287,6 +287,13 @@ raw values")
            #:variant-value-p
            #:read-variant
            #:read-variant-result
+           ;; The autorelease pool
+           #:*release-reference-function*
+           #:autorelease-pool-p
+           #:autorelease-reference
+           #:release-autoreleased
+           #:reference-for-caller
+           #:with-autorelease-pool
            #:callable
            #:callable-p
            #:callable-target

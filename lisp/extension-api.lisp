@@ -99,6 +99,12 @@
 or NIL if the class has no singleton."
   (values (gethash class-name (extension-api-singletons (extension-api)))))
 
+(defun api-ref-counted-class-p (type)
+  "True if TYPE, a type name from extension_api.json, is an engine class that's
+RefCounted, such as a Resource."
+  (let ((class (api-class type)))
+    (and class (json-get class "is_refcounted"))))
+
 (defun api-utility-functions ()
   "The utility functions of @GlobalScope, such as randf_range, as JSON objects."
   (extension-api-utility-functions (extension-api)))

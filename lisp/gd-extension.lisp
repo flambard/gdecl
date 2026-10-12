@@ -419,6 +419,11 @@ signature from extension_api.json."
                class-name method-name))
       (let* ((vararg (json-get method "is_vararg"))
              (static (json-get method "is_static"))
+             ;; The result comes with a reference (a Ref<T>), which goes into
+             ;; the autorelease pool
+             (ref-counted-result (let ((return-value (json-get method "return_value")))
+                                   (and return-value
+                                        (api-ref-counted-class-p (json-get return-value "type")))))
              ;; A method of a singleton's class is called on the singleton
              (singleton (and (not static) (api-singleton defining-class)))
              (hash (json-get method "hash"))
@@ -480,11 +485,15 @@ signature from extension_api.json."
                                            (lookup-method-bind ,defining-class ,method-name ,hash)))))))
                 (unless ,method-bind
                   (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
-                ,(temporary-names-form
-                  arguments
-                  (if vararg
-                      (variant-call-method-form method-bind object arguments return-type name rest)
-                      (ptrcall-method-form method-bind object arguments return-type)))))
+                ,(let ((call (temporary-names-form
+                              arguments
+                              (if vararg
+                                  (variant-call-method-form method-bind object arguments
+                                                            return-type name rest)
+                                  (ptrcall-method-form method-bind object arguments return-type)))))
+                   (if ref-counted-result
+                       `(autorelease-reference ,call)
+                       call))))
             ,@(when name-positions
                 `((define-compiler-macro ,name (&whole form &rest arguments)
                     (or (wrap-literal-names ',name arguments ',name-positions)
@@ -763,10 +772,14 @@ to Godot's output, also in the editor."
 ;;; References
 ;;;
 ;;; An engine method that returns a RefCounted object, such as a Resource,
-;;; returns it with a reference that the caller owns, like a Ref<T> in C++.
-;;; Give it back with RELEASE-REFERENCE, or use WITH-REFERENCE. To keep a
-;;; RefCounted object that Lisp didn't get from an engine method, e.g. one passed
-;;; to a bound method, take a reference with ADD-REFERENCE.
+;;; returns it with a reference, like a Ref<T> in C++. During a call from Godot
+;;; into Lisp, the reference goes into the autorelease pool, and is given back
+;;; when the call returns (see GD-EXTENSION-TYPES:WITH-AUTORELEASE-POOL);
+;;; WITH-REFERENCE gives it back earlier. To keep the object longer, e.g. in a
+;;; slot, take a reference of its own with SETF-REFERENCE (or ADD-REFERENCE and
+;;; RELEASE-REFERENCE). Outside a call from Godot, e.g. at a REPL, there's no
+;;; pool, and the caller gives the reference back with RELEASE-REFERENCE or
+;;; WITH-REFERENCE.
 ;;;
 
 (define-engine-method ref-counted-reference ("RefCounted" "reference"))
@@ -790,13 +803,19 @@ destructor of Ref<T>."
       (when (ref-counted-unreference pointer)
         (object-destroy pointer)))))
 
+;; The autorelease pool gives back references with it
+(setf *release-reference-function* 'release-reference)
+
 (defmacro with-reference ((var form) &body body)
   "Evaluate BODY with VAR bound to the RefCounted object (a Godot object pointer)
 returned by FORM, a call of an engine method, and give the reference back when
-BODY exits, also on a non-local exit."
+BODY exits, also on a non-local exit: from the autorelease pool, during a call
+from Godot, so it's given back earlier than when the call returns, or else the
+caller's."
   `(let ((,var ,form))
      (unwind-protect (progn ,@body)
-       (release-reference ,var))))
+       (unless (release-autoreleased ,var)
+         (release-reference ,var)))))
 
 (defmacro setf-reference (place value)
   "Set PLACE, where Lisp keeps a RefCounted object, to the RefCounted VALUE (or

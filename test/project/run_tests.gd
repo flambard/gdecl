@@ -150,3 +150,33 @@ func test_references() -> void:
 	resource = null
 	check(tests.resources_destroyed() == destroyed + 1, "the :destructor runs when Godot frees it")
 	tests.free()
+
+
+func test_autorelease_pool() -> void:
+	var tests := LispTests.new()
+	var id: int = tests.new_resource_id()
+	check(instance_from_id(id) == null, "a result is freed when the call from Godot returns")
+	id = tests.keep_new_resource()
+	check(instance_from_id(id) != null, "a result kept with setf-reference stays")
+	tests.keep_resource(null)
+	check(instance_from_id(id) == null, "and is freed when it's given back")
+	# A typed call is a ptrcall, which gets the result as an object pointer
+	var resource: TestResource = tests.new_resource()
+	check(resource != null and resource.get_reference_count() == 1,
+			"a result returned to Godot with ptrcall stays, with Godot's reference")
+	resource = tests.call("new_resource")
+	check(resource != null and resource.get_reference_count() == 1,
+			"a result returned to Godot with a Variant call stays, with Godot's reference")
+	resource = null
+	# A RefCounted object that Lisp keeps, returned to Godot
+	var holder := TestNode.new()
+	var kept := TestResource.new()
+	holder.resource = kept
+	var got: TestResource = holder.get_resource()
+	check(kept.get_reference_count() == 3, "a kept object returned with ptrcall gets Godot's reference")
+	got = holder.call("get_resource")
+	check(kept.get_reference_count() == 3, "a kept object returned with a Variant call gets Godot's reference")
+	got = null
+	holder.free()
+	check(kept.get_reference_count() == 1, "and they're all given back")
+	tests.free()
