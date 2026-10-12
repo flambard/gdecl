@@ -73,6 +73,11 @@ static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializatio
 
     printf("gdecl module deinitialize\n");
 
+    // Let the Lisp side clean up while Godot can still be called:
+    // (gd-extension:deinitialize)
+    cl_object deinitialize = cl_list(1, ecl_read_from_cstring("gd-extension:deinitialize"));
+    si_safe_eval(2, deinitialize, ECL_NIL);
+
     cl_shutdown();
     printf("ECL shut down\n");
 }

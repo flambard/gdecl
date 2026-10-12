@@ -327,6 +327,8 @@ tables and dispatchers behind them")
                 #:lisp-object)
   (:export #:initialize
            #:add-initialize-hook
+           #:deinitialize
+           #:add-deinitialize-hook
            ;; Helpers
            #:with-string-name
            #:with-string

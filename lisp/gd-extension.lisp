@@ -44,6 +44,26 @@ src/gdecl.c."
         (report-error (format nil "initialize hook ~a" hook) e))))
   t)
 
+;; Functions called by DEINITIALIZE, see ADD-DEINITIALIZE-HOOK
+(defvar *deinitialize-hooks* '())
+
+(defun add-deinitialize-hook (function)
+  "Call FUNCTION, a function designator taking no arguments, in DEINITIALIZE,
+when Godot unloads the extension, while Godot can still be called. Hooks run in
+the reverse order they were added, so that what was set up last is cleaned up
+first; adding a hook again doesn't run it twice."
+  (setf *deinitialize-hooks*
+        (cons function (remove function *deinitialize-hooks*))))
+
+(defun deinitialize ()
+  "Clean up when Godot unloads the extension: run the deinitialize hooks.
+Called from src/gdecl.c, before ECL is shut down."
+  (dolist (hook *deinitialize-hooks*)
+    (handler-case (funcall hook)
+      (error (e)
+        (report-error (format nil "deinitialize hook ~a" hook) e))))
+  t)
+
 ;;;
 ;;; Helpers
 ;;;

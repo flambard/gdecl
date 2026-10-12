@@ -84,7 +84,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 ## Packages
 
 - **`gd-extension`** (nickname `gdext`): the Lisp-style API.
-  - `add-initialize-hook` registers your entry point.
+  - `add-initialize-hook` registers your entry point, and `add-deinitialize-hook` a function to run when Godot unloads the extension.
   - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
   - `vector2` and `rect2` (re-exported from `gd-extension-types`) are Lisp versions of Godot's Vector2 and Rect2: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`, with `vector2+`, `vector2*`, `vector2-length`, `vector2-normalized`, `vector2-rotated` and `vector2-clamp`.
   - `define-engine-method` defines a Lisp function that calls a Godot method, with the hash from `extension_api.json`:

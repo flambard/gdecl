@@ -70,7 +70,7 @@ Lisp can also offer what GDScript and C# can't easily: redefining functions and 
    - calls `cl_boot`, then `ecl_init_module(NULL, init_lib_APPLICATION)`. This loads the Lisp code, and the application's top-level forms register its entry point with `gd-extension:add-initialize-hook`,
    - evaluates `(gd-extension:initialize get-proc-address class-library)` with `si_safe_eval`, passing the pointers as foreign-pointer objects (`ecl_make_pointer`). This is the only Lisp function the C side calls; it knows nothing about the application.
 3. `gd-extension:initialize` calls `gd-extension-ffi:load-interface`, which stores `*get-proc-address*` and `*class-library*` and looks up the interface functions. It then caches the Variant constructors and runs the initialize hooks.
-4. Deinit calls `cl_shutdown`.
+4. At `GDEXTENSION_INITIALIZATION_SCENE` deinit, `deinitialize_gdecl_module` evaluates `(gd-extension:deinitialize)`, which runs the deinitialize hooks (`add-deinitialize-hook`, in reverse order) while Godot can still be called, then calls `cl_shutdown`.
 
 ## The four layers
 
