@@ -461,17 +461,22 @@ BODY exits, also on a non-local exit."
 (define-engine-method object-connect ("Object" "connect"))
 
 (defun connect-signal (object signal-name function &key (target object) (flags 0))
-  "Connect the signal SIGNAL-NAME (a StringName, see SNAME) of OBJECT to the Lisp
-FUNCTION, which is called with the signal's arguments as Lisp values, like
+  "Connect the signal SIGNAL-NAME (a StringName, see SNAME, or a literal string)
+of OBJECT to the Lisp FUNCTION, which is called with the signal's arguments as Lisp values, like
 signal.connect(callable, flags) in GDScript. The connection is bound to TARGET
 (a Godot object pointer, by default OBJECT): it's removed when TARGET is freed.
 FLAGS are Object.ConnectFlags, such as +CONNECT-ONE-SHOT+. Returns Godot's
 error code."
   (object-connect object signal-name (callable target function) flags))
 
+;; A literal string as SIGNAL-NAME becomes (SNAME string), as for engine methods
+(define-compiler-macro connect-signal (&whole form &rest arguments)
+  (or (wrap-literal-names 'connect-signal arguments '((1 . sname)))
+      form))
+
 (defmacro after-signal ((object signal-name &key target) &body body)
   "Evaluate BODY once, the next time OBJECT emits the signal SIGNAL-NAME (a
-StringName, see SNAME), like the code after await object.signal_name in GDScript.
+StringName, see SNAME, or a literal string), like the code after await object.signal_name in GDScript.
 Returns right away. TARGET is as in CONNECT-SIGNAL; with TARGET the object that
 the code belongs to, BODY isn't run if that object has been freed by then."
   (let ((object-var (gensym "OBJECT")))

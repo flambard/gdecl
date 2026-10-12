@@ -97,7 +97,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
   - An engine method that returns a RefCounted object, such as a Resource, returns it with a reference you own, like a `Ref<T>` in C++. Give it back with `release-reference`, or use `(with-reference (frames (get-sprite-frames sprite)) ...)`. To keep a RefCounted object you got another way, e.g. as a bound method's argument, take a reference with `add-reference`.
   - `connect-signal` connects a signal to a Lisp function, through a Godot Callable that calls it. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
     ```lisp
-    (after-signal ((get-node hud "MessageTimer") (sname "timeout") :target hud)
+    (after-signal ((get-node hud "MessageTimer") "timeout" :target hud)
       (show (get-node hud "StartButton")))
     ```
     The connection is bound to a target object (by default the one emitting the signal), and goes away when that object is freed.
