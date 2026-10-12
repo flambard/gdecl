@@ -154,6 +154,7 @@
 (defvar *get-godot-version* nil)
 (defvar *variant-get-ptr-destructor* nil)
 (defvar *string-name-new-with-latin1-chars* nil)
+(defvar *string-name-new-with-utf8-chars* nil)
 (defvar *classdb-construct-object* nil)
 (defvar *classdb-register-extension-class2* nil)
 (defvar *classdb-register-extension-class4* nil)
@@ -221,6 +222,17 @@
                   :void
                   '(:pointer-void :cstring :uint8-t)
                   (list dest c-contents (if is-static 1 0)))))
+
+;; void string_name_new_with_utf8_chars(GDExtensionUninitializedStringNamePtr r_dest,
+;;                                      const char *p_contents)
+(defun string-name-new-with-utf8-chars (dest contents)
+  ;; FFI:WITH-CSTRING only handles base characters, so encode explicitly
+  (let ((octets (ext:string-to-octets contents :external-format :utf-8
+                                               :null-terminate t)))
+    (si:call-cfun *string-name-new-with-utf8-chars*
+                  :void
+                  '(:pointer-void :pointer-void)
+                  (list dest (si:make-foreign-data-from-array octets)))))
 
 ;; void string_name_destructor(GDExtensionTypePtr p_base)
 (defun string-name-destructor (string-name)
@@ -507,6 +519,7 @@ that Godot gave the extension, and look up the interface functions."
   (setf *get-godot-version* (get-proc-address "get_godot_version")
         *variant-get-ptr-destructor* (get-proc-address "variant_get_ptr_destructor")
         *string-name-new-with-latin1-chars* (get-proc-address "string_name_new_with_latin1_chars")
+        *string-name-new-with-utf8-chars* (get-proc-address "string_name_new_with_utf8_chars")
         *classdb-construct-object* (get-proc-address "classdb_construct_object")
         *classdb-register-extension-class2* (get-proc-address "classdb_register_extension_class2")
         *classdb-register-extension-class4* (get-proc-address "classdb_register_extension_class4")

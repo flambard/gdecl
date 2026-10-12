@@ -87,18 +87,45 @@ created once, like SNAME() in Godot's C++ code, and kept until Godot unloads the
 extension."
   `(car (load-time-value (make-initialize-cell (lambda () (new-string-name ,string))))))
 
+(defun construct-node-path (pointer path)
+  "Construct a NodePath at POINTER, uninitialized memory, from the string PATH.
+Destroy it with NODE-PATH-DESTRUCTOR."
+  (with-string (string path)
+    (ffi:with-foreign-object (args '(:array :pointer-void 1))
+      (setf (foreign-ref args :pointer-void 0) string)
+      ;; Constructor 2 of NodePath takes a String
+      (call-ptr-constructor (car (load-time-value
+                                  (make-initialize-cell
+                                   (lambda ()
+                                     (variant-get-ptr-constructor +variant-type-node-path+ 2)))))
+                            pointer args))))
+
 (defun new-node-path (path)
   "A NodePath created from the string PATH, in memory from MEM-ALLOC. Kept until
 Godot unloads the extension."
   (let ((node-path (mem-alloc +node-path-size+)))
-    (with-string (string path)
-      (ffi:with-foreign-object (args '(:array :pointer-void 1))
-        (setf (foreign-ref args :pointer-void 0) string)
-        ;; Constructor 2 of NodePath takes a String
-        (call-ptr-constructor (variant-get-ptr-constructor +variant-type-node-path+ 2)
-                              node-path args)))
+    (construct-node-path node-path path)
     (push node-path *permanent-node-paths*)
     node-path))
+
+(defun make-temporary-name (variant-type string)
+  "A StringName or NodePath (by VARIANT-TYPE) created from the Lisp STRING, in
+memory from MEM-ALLOC, for a call of an engine method with a string that's only
+known at runtime. Destroy it with DESTROY-TEMPORARY-NAME."
+  (if (= variant-type +variant-type-string-name+)
+      (let ((string-name (mem-alloc +string-name-size+)))
+        (string-name-new-with-utf8-chars string-name string)
+        string-name)
+      (let ((node-path (mem-alloc +node-path-size+)))
+        (construct-node-path node-path string)
+        node-path)))
+
+(defun destroy-temporary-name (variant-type name)
+  "Destroy NAME, made by MAKE-TEMPORARY-NAME, and free its memory."
+  (if (= variant-type +variant-type-string-name+)
+      (string-name-destructor name)
+      (node-path-destructor name))
+  (mem-free name))
 
 (defun destroy-permanent-values ()
   "Destroy the StringNames and NodePaths made by NEW-STRING-NAME and
@@ -266,6 +293,23 @@ with object_method_bind_call, with the arguments and the result as Variants."
              (variant-destroy (element-pointer ,variants 'variant i)))
            (variant-destroy ,r-return)))))
 
+  (defun temporary-names-form (arguments form)
+    "FORM, the call of an engine method with ARGUMENTS (as in
+ENGINE-METHOD-DEFUN), wrapped in code that turns each StringName or NodePath
+argument that's a Lisp string at runtime into a temporary one, destroyed after
+the call."
+    (loop for (arg-name type) in (reverse arguments)
+          when (or (eql type +variant-type-string-name+) (eql type +variant-type-node-path+))
+            do (let ((temporary (gensym "TEMPORARY")))
+                 (setf form
+                       `(let* ((,temporary (and (stringp ,arg-name)
+                                                (make-temporary-name ,type ,arg-name)))
+                               (,arg-name (or ,temporary ,arg-name)))
+                          (unwind-protect ,form
+                            (when ,temporary
+                              (destroy-temporary-name ,type ,temporary)))))))
+    form)
+
   (defun wrap-literal-names (name arguments positions)
     "The call of the engine method NAME with ARGUMENTS (forms), for its compiler
 macro: each literal string at one of POSITIONS, a list of (index . macro), is
@@ -387,9 +431,11 @@ signature from extension_api.json."
                                            (lookup-method-bind ,defining-class ,method-name ,hash)))))))
                 (unless ,method-bind
                   (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
-                ,(if vararg
-                     (variant-call-method-form method-bind object arguments return-type name)
-                     (ptrcall-method-form method-bind object arguments return-type))))
+                ,(temporary-names-form
+                  arguments
+                  (if vararg
+                      (variant-call-method-form method-bind object arguments return-type name)
+                      (ptrcall-method-form method-bind object arguments return-type)))))
             ,@(when name-positions
                 `((define-compiler-macro ,name (&whole form &rest arguments)
                     (or (wrap-literal-names ',name arguments ',name-positions)
@@ -427,7 +473,8 @@ class (see LISP-OBJECT), and otherwise the Godot object pointer.
 
 A StringName or NodePath argument can also be given as a literal string in a
 call, e.g. (EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in SNAME or
-NPATH, so it's created once, not at every call.
+NPATH, so it's created once, not at every call. Any other Lisp string is turned
+into a temporary StringName or NodePath for the call.
 
 The method is called with ptrcall, except for vararg methods (such as
 emit_signal), which are called with Variants; a failed call signals an error.

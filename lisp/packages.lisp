@@ -9,6 +9,7 @@
            #:get-godot-version
            #:variant-get-ptr-destructor
            #:string-name-new-with-latin1-chars
+           #:string-name-new-with-utf8-chars
            #:string-name-destructor
            #:classdb-construct-object
            #:classdb-register-extension-class2 ; deprecated
