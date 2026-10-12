@@ -1,0 +1,8 @@
+; The Godot project of gdecl's tests, see ../Makefile and run_tests.gd.
+
+config_version=5
+
+[application]
+
+config/name="gdecl tests"
+config/features=PackedStringArray("4.4")

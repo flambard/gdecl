@@ -131,6 +131,14 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 - **`gd-extension-callback`** (nickname `gdext-callback`): what runs when Godot calls into Lisp, such as creating instances of your classes and calling your bound methods. Used by `gd-extension`; applications don't need it.
 - **`gdecl-json`**: a small JSON reader, used to read `extension_api.json` when your code is compiled.
 
+## Testing gdecl
+
+```sh
+make test        # in gdecl: build the test project in test/ and run the tests in Godot, headless
+```
+
+The tests are a small gdecl application in `test/`: Lisp classes that the GDScript script `test/project/run_tests.gd` uses from Godot, and tests written in Lisp that call Godot. The run fails if a test fails, Godot crashes, or Godot reports leaks when it exits; the whole output is in `test/build/test.log`.
+
 ## License
 
 MIT, see `LICENSE`.
