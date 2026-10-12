@@ -395,9 +395,8 @@ tables and dispatchers behind them")
            #:define-engine-method
            #:define-engine-class
            #:define-utility-functions
+           #:define-global-enums
            ;; Signals
-           #:+connect-deferred+
-           #:+connect-one-shot+
            #:connect-signal
            #:after-signal
            ;; References

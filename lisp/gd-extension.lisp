@@ -565,6 +565,36 @@ functions of DEFINE-ENGINE-CLASS: \"Node2D\" becomes \"NODE-2D\",
 \"GET-NODE\"."
     (string-upcase (substitute #\- #\_ method-name))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun constant-defconstant (prefix name value documentation)
+    "The name of the constant NAME (a string from extension_api.json, such as
+\"PROCESS_MODE_ALWAYS\") in Lisp style, with PREFIX (a string such as \"NODE\",
+or NIL), interned in the current package, and the DEFCONSTANT of it."
+    (let ((symbol (intern (format nil "+~@[~a-~]~a+" prefix (lisp-style-method-name name)))))
+      (values symbol `(defconstant ,symbol ,value ,documentation))))
+
+  (defun class-constant-defconstants (class)
+    "The names and DEFCONSTANTs of the enum values and constants of CLASS, a JSON
+object from extension_api.json, as two lists."
+    (let ((class-name (json-get class "name"))
+          (prefix (lisp-style-class-name (json-get class "name")))
+          (names '())
+          (forms '()))
+      (flet ((add (name value documentation)
+               (multiple-value-bind (symbol form)
+                   (constant-defconstant prefix name value documentation)
+                 (push symbol names)
+                 (push form forms))))
+        (dolist (enum (json-get class "enums"))
+          (dolist (value (json-get enum "values"))
+            (add (json-get value "name") (json-get value "value")
+                 (format nil "~a.~a, of the enum ~a." class-name (json-get value "name")
+                         (json-get enum "name")))))
+        (dolist (constant (json-get class "constants"))
+          (add (json-get constant "name") (json-get constant "value")
+               (format nil "The constant ~a.~a." class-name (json-get constant "name")))))
+      (values (reverse names) (reverse forms)))))
+
 (defmacro define-engine-class (class-name)
   "Define a function for each method of the engine class CLASS-NAME (a string)
 that DEFINE-ENGINE-METHOD can call, named after the class and the method in
@@ -572,8 +602,11 @@ Lisp style, and exported from the package GODOT: Node2D.get_position becomes
 GODOT:NODE-2D-GET-POSITION. Only the methods the class itself defines get
 functions, not those it inherits, so call get_position of a Sprite2D with
 NODE-2D-GET-POSITION. Methods with types that aren't supported yet, and
-virtual methods, are skipped. GODOT already has the most used classes; an
-application defines the others it uses, and they're added to GODOT too."
+virtual methods, are skipped. Also define a constant for each value of the
+class's enums and each of its constants, named likewise:
+Node.PROCESS_MODE_ALWAYS becomes GODOT:+NODE-PROCESS-MODE-ALWAYS+. GODOT already
+has the most used classes; an application defines the others it uses, and
+they're added to GODOT too."
   (let* ((class (or (api-class class-name)
                     (error "No engine class ~a in ~a" class-name *extension-api-file*)))
          (prefix (lisp-style-class-name class-name))
@@ -590,11 +623,34 @@ application defines the others it uses, and they're added to GODOT too."
             (when form
               (push name names)
               (push form forms))))))
+    (multiple-value-bind (constant-names constant-forms) (class-constant-defconstants class)
+      `(progn
+         (eval-when (:compile-toplevel :load-toplevel :execute)
+           (export ',(append constant-names (reverse names)) :godot))
+         ,@constant-forms
+         ,@(reverse forms)
+         ',class-name))))
+
+(defmacro define-global-enums ()
+  "Define a constant for each value of Godot's global enums (such as Error, Key
+and PropertyHint), named in Lisp style and exported from the package GODOT: OK
+becomes GODOT:+OK+ and KEY_ESCAPE GODOT:+KEY-ESCAPE+."
+  (let ((*package* (find-package :godot))
+        (names '())
+        (forms '()))
+    (dolist (enum (api-global-enums))
+      (dolist (value (json-get enum "values"))
+        (multiple-value-bind (symbol form)
+            (constant-defconstant nil (json-get value "name") (json-get value "value")
+                                  (format nil "~a, of the global enum ~a."
+                                          (json-get value "name") (json-get enum "name")))
+          (push symbol names)
+          (push form forms))))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
          (export ',(reverse names) :godot))
        ,@(reverse forms)
-       ',class-name)))
+       nil)))
 
 ;;;
 ;;; Utility functions
@@ -766,8 +822,9 @@ PLACE, like assigning a Ref<T>. Returns VALUE."
 ;;; what GDScript does with await.
 ;;;
 
-;; Object.ConnectFlags
-(defconstant +connect-deferred+ 1)
+;; Object.ConnectFlags.CONNECT_ONE_SHOT, for AFTER-SIGNAL. Applications use
+;; GODOT:+OBJECT-CONNECT-ONE-SHOT+, generated from extension_api.json, which
+;; GD-EXTENSION can't depend on.
 (defconstant +connect-one-shot+ 4)
 
 (define-engine-method object-connect ("Object" "connect"))
@@ -778,7 +835,7 @@ of OBJECT to the Lisp FUNCTION, which is called with the signal's arguments as
 Lisp values, like signal.connect(callable, flags) in GDScript. The connection
 is bound to TARGET (a Godot object or its Lisp object, by default OBJECT): it's
 removed when TARGET is freed. FLAGS are Object.ConnectFlags, such as
-+CONNECT-ONE-SHOT+. Returns Godot's error code."
+GODOT:+OBJECT-CONNECT-DEFERRED+. Returns Godot's error code, such as GODOT:+OK+."
   (object-connect object signal-name (callable target function) flags))
 
 ;; A literal string as SIGNAL-NAME becomes (SNAME string), as for engine methods

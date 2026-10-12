@@ -5,6 +5,8 @@
 
 (in-package :godot)
 
+(gdext:define-global-enums)
+
 (gdext:define-engine-class "Object")
 (gdext:define-engine-class "RefCounted")
 (gdext:define-engine-class "Resource")
