@@ -16,7 +16,7 @@
 ;;; A Godot object is a pointer in Lisp, but an instance of an extension class
 ;;; has a Lisp object too (see GD-EXTENSION:REGISTER-CLASS), a GODOT-OBJECT:
 ;;; applications include GODOT-OBJECT in their structs. Wherever an Object is
-;;; passed to Godot, either one will do.
+;;; passed to Godot, either one will do, and NIL is null.
 ;;;
 
 (defstruct godot-object
@@ -27,11 +27,11 @@ struct of a class's Lisp objects."
 
 (declaim (inline object-pointer))
 (defun object-pointer (object)
-  "The Godot object pointer of OBJECT: a GODOT-OBJECT, or a Godot object
-pointer, which is returned as it is."
-  (if (godot-object-p object)
-      (godot-object-pointer object)
-      object))
+  "The Godot object pointer of OBJECT: a GODOT-OBJECT, NIL for null (a NULL
+pointer), or a Godot object pointer, which is returned as it is."
+  (cond ((godot-object-p object) (godot-object-pointer object))
+        ((null object) (load-time-value (ffi:make-null-pointer :void)))
+        (t object)))
 
 (defstruct (vector2 (:constructor vector2 (&optional (x 0.0) (y 0.0))))
   "Godot's Vector2. Make one with (VECTOR2 X Y), like Vector2(x, y)."

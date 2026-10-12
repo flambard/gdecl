@@ -213,7 +213,7 @@ value as Variants, as in call_func."
                             ;; null for an Object
                             ((and (= type +variant-type-object+)
                                   (= variant-type +variant-type-nil+))
-                             (push (ffi:make-null-pointer :void) arguments))
+                             (push nil arguments))
                             (t
                              (set-call-error r-error +call-error-invalid-argument+
                                              :argument i :expected type)
@@ -380,10 +380,12 @@ GD-EXTENSION:REGISTER-CLASS, else NIL."
   (values (gethash (ffi:pointer-address (object-pointer godot-object)) *lisp-objects*)))
 
 (defun read-lisp-object (pointer)
-  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: the Lisp object of
-an instance of an extension class, else the Godot object pointer."
+  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: NIL for null, the
+Lisp object of an instance of an extension class, else the Godot object
+pointer."
   (let ((object (read-object pointer)))
-    (or (lisp-object object) object)))
+    (and (not (ffi:null-pointer-p object))
+         (or (lisp-object object) object))))
 
 ;; Objects that Godot gives Lisp (results of engine methods, arguments of
 ;; bound methods and Callables) are instances' Lisp objects where there are

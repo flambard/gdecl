@@ -153,7 +153,7 @@ it's not supported (yet)."
            (let ((number (number-or-nil default)))
              (and number (list (float number 1d0)))))
           ((= variant-type +variant-type-object+)
-           (and (string= default "null") (list '(ffi:make-null-pointer :void))))
+           (and (string= default "null") (list nil)))
           ((= variant-type +variant-type-string+)
            (let ((contents (string-literal default 0)))
              (and contents (list contents))))

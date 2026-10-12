@@ -444,17 +444,17 @@ emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
 (define-engine-method ref-counted-unreference ("RefCounted" "unreference"))
 
 (defun add-reference (object)
-  "Take a reference to the RefCounted OBJECT (a Godot object pointer, or NULL), to
-keep it alive while Lisp holds on to it. Give it back with RELEASE-REFERENCE.
-Returns OBJECT."
+  "Take a reference to the RefCounted OBJECT (a Godot object pointer, a
+GODOT-OBJECT, or NIL), to keep it alive while Lisp holds on to it. Give it back
+with RELEASE-REFERENCE. Returns OBJECT."
   (unless (ffi:null-pointer-p (object-pointer object))
     (ref-counted-reference object))
   object)
 
 (defun release-reference (object)
-  "Give back a reference to the RefCounted OBJECT (a Godot object pointer, or
-NULL), and destroy the object if it was the last one, like the destructor of
-Ref<T>."
+  "Give back a reference to the RefCounted OBJECT (a Godot object pointer, a
+GODOT-OBJECT, or NIL), and destroy the object if it was the last one, like the
+destructor of Ref<T>."
   (let ((pointer (object-pointer object)))
     (unless (ffi:null-pointer-p pointer)
       (when (ref-counted-unreference pointer)
@@ -778,3 +778,153 @@ creates any instances of the class."
     (unless signatures
       (error "No engine class has a virtual method ~a (~a)" virtual-name *extension-api-file*))
     `(bind-virtual-with-signatures ,class-name ,virtual-name ,function ',signatures)))
+;;;
+;;; Defining classes
+;;;
+;;; DEFINE-CLASS defines an extension class in one form: the struct of its
+;;; instances' Lisp objects (which includes GODOT-OBJECT), and the registration
+;;; of the class, its properties, signals, methods and virtual methods. The
+;;; classes are registered when Godot initializes the extension, in the order
+;;; they were defined, by an initialize hook that GD-EXTENSION adds when it's
+;;; loaded, so it runs before the application's hooks.
+;;;
+
+;; The registration functions of the classes defined with DEFINE-CLASS: a list
+;; of (class-name . function), in the order they were defined
+(defvar *class-definitions* '())
+
+(defun add-class-definition (class-name function)
+  "Make FUNCTION, which registers the class CLASS-NAME, run when Godot initializes
+the extension, or now if it has (e.g. at a REPL). Defining the class again
+replaces the function, keeping its place in the order."
+  (let ((definition (assoc class-name *class-definitions* :test #'string=)))
+    (if definition
+        (setf (cdr definition) function)
+        (setf *class-definitions*
+              (append *class-definitions* (list (cons class-name function))))))
+  (when *class-library*
+    (funcall function))
+  class-name)
+
+(defun register-defined-classes ()
+  "Register the classes defined with DEFINE-CLASS. An initialize hook. A class
+that fails to register is reported, and the others are still registered."
+  (loop for (class-name . function) in *class-definitions*
+        do (handler-case (funcall function)
+             (error (e)
+               (report-error (format nil "registering the class ~a" class-name) e)))))
+
+(add-initialize-hook 'register-defined-classes)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun function-form (designator)
+    "A form for the function DESIGNATOR in DEFINE-CLASS: a symbol, called by name
+so that redefining the function takes effect, or a form such as (LAMBDA ...)."
+    (if (symbolp designator)
+        `',designator
+        designator))
+
+  (defun arguments-form (arguments)
+    "A form for the list of (name type) ARGUMENTS of DEFINE-CLASS, with the types
+evaluated, so they can be keywords or variant type constants."
+    `(list ,@(loop for (name type) in arguments
+                   collect `(list ,name ,type))))
+
+  (defun godot-property-name (slot-name)
+    "The name of the property of the slot SLOT-NAME, a symbol, in Godot style:
+mob-scene becomes \"mob_scene\"."
+    (substitute #\_ #\- (string-downcase (symbol-name slot-name))))
+
+  (defun define-class-property-forms (class-name accessor slot-name type class setter)
+    "The forms that bind the property of the slot SLOT-NAME, with its getter and
+setter methods, get_<name> and set_<name>."
+    (let* ((property-name (godot-property-name slot-name))
+           (getter-name (format nil "get_~a" property-name))
+           (setter-name (format nil "set_~a" property-name)))
+      `((bind-method ,class-name ,getter-name
+                     (lambda (object) (,accessor object))
+                     :return-type ,type)
+        (bind-method ,class-name ,setter-name
+                     ,(if setter
+                          (function-form setter)
+                          `(lambda (object value) (setf (,accessor object) value)))
+                     :arguments (list (list "value" ,type)))
+        (bind-property ,class-name ,property-name ,type ,getter-name ,setter-name
+                       ,@(when class `(:class ,class))))))
+
+  (defun define-class-option-forms (class-name option)
+    "The forms that bind what the class option OPTION of DEFINE-CLASS defines."
+    (destructuring-bind (kind &rest arguments) option
+      (ecase kind
+        (:signal
+         (destructuring-bind (signal-name &rest signal-arguments) arguments
+           `((bind-signal ,class-name ,signal-name ,(arguments-form signal-arguments)))))
+        (:method
+         (destructuring-bind (method-name function &key arguments (return-type :nil))
+             arguments
+           `((bind-method ,class-name ,method-name ,(function-form function)
+                          :arguments ,(arguments-form arguments)
+                          :return-type ,return-type))))
+        (:virtual
+         (destructuring-bind (virtual-name function) arguments
+           `((bind-virtual ,class-name ,virtual-name ,(function-form function)))))
+        ((:destructor :tool)
+         ;; Arguments of REGISTER-CLASS
+         '())))))
+
+(defmacro define-class (name (class-name parent-class-name) slots &rest options)
+  "Define the extension class CLASS-NAME, which inherits from the class
+PARENT-CLASS-NAME (both strings), with NAME as the struct of its instances'
+Lisp objects, like extends and the script of a class in GDScript.
+
+The struct includes GODOT-OBJECT, and has the SLOTS, each a symbol or (name
+initform &key export class setter), as in DEFSTRUCT. A slot with EXPORT, a type
+as in VARIANT-TYPE, is a property, like @export var in GDScript: its name in
+Godot style (mob-scene becomes mob_scene), with the getter and setter methods
+get_<name> and set_<name>. CLASS is as in BIND-PROPERTY. SETTER, a function
+called with the Lisp object and the value, replaces the generated setter.
+
+OPTIONS are:
+  (:signal name (argument-name type)...), see BIND-SIGNAL
+  (:method name function &key arguments return-type), see BIND-METHOD
+  (:virtual name function), see BIND-VIRTUAL
+  (:destructor function), called with the Lisp object when Godot frees it
+  (:tool t), see REGISTER-CLASS
+Functions are symbols, called by name, so redefining them takes effect, or
+forms that evaluate to functions. They're called with the Lisp object, like
+self in GDScript.
+
+The class is registered when Godot initializes the extension, before the
+initialize hooks of the application run."
+  (let ((make-name (intern (format nil "MAKE-~a" (symbol-name name))))
+        (struct-slots '())
+        (property-forms '()))
+    (dolist (slot slots)
+      (destructuring-bind (slot-name &optional initform &key export class setter)
+          (if (listp slot) slot (list slot))
+        (push `(,slot-name ,initform) struct-slots)
+        (cond (export
+               (setf property-forms
+                     (append property-forms
+                             (define-class-property-forms
+                              class-name
+                              (intern (format nil "~a-~a" (symbol-name name) (symbol-name slot-name)))
+                              slot-name export class setter))))
+              ((or class setter)
+               (error "The slot ~s of ~s has :CLASS or :SETTER, but no :EXPORT" slot-name name)))))
+    (let ((destructor (second (assoc :destructor options)))
+          (tool (second (assoc :tool options))))
+      `(progn
+         (defstruct (,name (:include godot-object) (:constructor ,make-name))
+           ,@(reverse struct-slots))
+         (add-class-definition
+          ,class-name
+          (lambda ()
+            (register-class ,class-name ,parent-class-name
+                            :constructor (lambda (pointer) (,make-name :pointer pointer))
+                            ,@(when destructor `(:destructor ,(function-form destructor)))
+                            ,@(when tool `(:tool ,tool)))
+            ,@property-forms
+            ,@(loop for option in options
+                    append (define-class-option-forms class-name option))))
+         ',name))))

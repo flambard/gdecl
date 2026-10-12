@@ -399,6 +399,7 @@ tables and dispatchers behind them")
            #:release-reference
            #:with-reference
            ;; Classes
+           #:define-class
            #:register-class
            #:bind-virtual
            #:instance-object
