@@ -51,21 +51,28 @@ non-local exit."
 ;;; when the code runs.
 ;;;
 
+;; The StringNames and NodePaths made by NEW-STRING-NAME and NEW-NODE-PATH,
+;; destroyed by DESTROY-PERMANENT-VALUES when Godot unloads the extension
+(defvar *permanent-string-names* '())
+(defvar *permanent-node-paths* '())
+
 (defun new-string-name (contents)
-  "A StringName created from the string CONTENTS, in memory from MEM-ALLOC.
-Never destroyed."
+  "A StringName created from the string CONTENTS, in memory from MEM-ALLOC. Kept
+until Godot unloads the extension."
   (let ((string-name (mem-alloc +string-name-size+)))
     (string-name-new-with-latin1-chars string-name contents)
+    (push string-name *permanent-string-names*)
     string-name))
 
 (defmacro sname (string)
   "A pointer to a StringName with STRING, a literal string. The StringName is
-created once, like SNAME() in Godot's C++ code, and never destroyed."
+created once, like SNAME() in Godot's C++ code, and kept until Godot unloads the
+extension."
   `(car (load-time-value (make-initialize-cell (lambda () (new-string-name ,string))))))
 
 (defun new-node-path (path)
-  "A NodePath created from the string PATH, in memory from MEM-ALLOC. Never
-destroyed."
+  "A NodePath created from the string PATH, in memory from MEM-ALLOC. Kept until
+Godot unloads the extension."
   (let ((node-path (mem-alloc +node-path-size+)))
     (with-string (string path)
       (ffi:with-foreign-object (args '(:array :pointer-void 1))
@@ -73,11 +80,29 @@ destroyed."
         ;; Constructor 2 of NodePath takes a String
         (call-ptr-constructor (variant-get-ptr-constructor +variant-type-node-path+ 2)
                               node-path args)))
+    (push node-path *permanent-node-paths*)
     node-path))
+
+(defun destroy-permanent-values ()
+  "Destroy the StringNames and NodePaths made by NEW-STRING-NAME and
+NEW-NODE-PATH, and free their memory, so that Godot doesn't report them as
+leaked. A deinitialize hook: it's added when this file is loaded, before the
+application adds its hooks, so it runs after them. Afterwards, SNAME and NPATH
+values must not be used any more."
+  (dolist (string-name *permanent-string-names*)
+    (string-name-destructor string-name)
+    (mem-free string-name))
+  (dolist (node-path *permanent-node-paths*)
+    (node-path-destructor node-path)
+    (mem-free node-path))
+  (setf *permanent-string-names* '()
+        *permanent-node-paths* '()))
+
+(add-deinitialize-hook 'destroy-permanent-values)
 
 (defmacro npath (path)
   "A pointer to a NodePath with PATH, a literal string, like ^\"path\" in GDScript.
-The NodePath is created once and never destroyed."
+The NodePath is created once and kept until Godot unloads the extension."
   `(car (load-time-value (make-initialize-cell (lambda () (new-node-path ,path))))))
 
 (defmacro singleton (name)
