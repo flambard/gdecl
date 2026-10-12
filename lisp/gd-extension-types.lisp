@@ -143,34 +143,41 @@ exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK."
 (defun write-object (pointer value)
   (setf (foreign-ref pointer :pointer-void) (object-pointer value)))
 
+(defun lisp-variant-type (value)
+  "The variant type of the Variant that WRITE-VARIANT makes from VALUE, by its
+Lisp type, or NIL if it can't make one."
+  (typecase value
+    ;; Before integers, as NIL is also a list
+    (boolean +variant-type-bool+)
+    (integer +variant-type-int+)
+    (real +variant-type-float+)
+    (string +variant-type-string+)
+    (vector2 +variant-type-vector2+)
+    (rect2 +variant-type-rect2+)
+    ((or godot-object si:foreign-data) +variant-type-object+)
+    (callable +variant-type-callable+)))
+
 (defun variant-value-p (value)
   "True if WRITE-VARIANT can make a Variant from VALUE."
-  (typep value '(or boolean integer real vector2)))
+  (and (lisp-variant-type value) t))
 
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
-by its Lisp type: T or NIL is a bool, an integer an int, a real a float and a
-VECTOR2 a Vector2. Destroy it with VARIANT-DESTROY."
-  (flet ((construct (variant-type raw)
+by its Lisp type: T or NIL is a bool, an integer an int, a real a float, a
+string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a GODOT-OBJECT or a
+pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
+  (let* ((variant-type (or (lisp-variant-type value)
+                           (error "Can't make a Variant from ~s" value)))
+         (value-type (find-value-type variant-type)))
+    ;; The raw value, from which the Variant is made with a copy
+    (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+      (funcall (value-type-writer value-type) raw value)
+      (unwind-protect
            (call-variant-from-type-constructor
-            (aref *variant-from-type-constructors* variant-type) variant raw)))
-    (etypecase value
-      (boolean
-       (ffi:with-foreign-object (raw :uint8-t)
-         (setf (foreign-ref raw :uint8-t) (if value 1 0))
-         (construct +variant-type-bool+ raw)))
-      (integer
-       (ffi:with-foreign-object (raw :int64-t)
-         (setf (foreign-ref raw :int64-t) value)
-         (construct +variant-type-int+ raw)))
-      (real
-       (ffi:with-foreign-object (raw :double)
-         (setf (foreign-ref raw :double) (float value 1d0))
-         (construct +variant-type-float+ raw)))
-      (vector2
-       (ffi:with-foreign-object (raw 'godot-vector2)
-         (write-vector2 raw value)
-         (construct +variant-type-vector2+ raw))))))
+            (aref *variant-from-type-constructors* variant-type) variant raw)
+        (let ((destructor (value-type-destructor value-type)))
+          (when destructor
+            (funcall destructor raw)))))))
 
 ;;;
 ;;; Value types
@@ -212,7 +219,8 @@ VECTOR2 a Vector2. Destroy it with VARIANT-DESTROY."
         (make-value-type :variant-type +variant-type-string-name+)
         (make-value-type :variant-type +variant-type-node-path+)
         (make-value-type :variant-type :variant :ffi-type 'variant
-                         :writer 'write-variant :destructor 'variant-destroy))
+                         :reader 'read-variant :writer 'write-variant
+                         :destructor 'variant-destroy))
   "How values of each supported type are converted between raw values and Lisp
 values, see VALUE-TYPE.")
 

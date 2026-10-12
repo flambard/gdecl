@@ -198,7 +198,7 @@ needs no destroying."
   (defun ptrcall-method-form (method-bind object arguments return-type)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
 ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
-    (let ((has-return-value (/= return-type +variant-type-nil+))
+    (let ((has-return-value (not (eql return-type +variant-type-nil+)))
           (args (gensym "ARGS"))
           (r-ret (gensym "R-RET")))
       `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
@@ -237,61 +237,84 @@ ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD."
                 `(unwind-protect ,call ,@destroy-forms)
                 call)))))
 
-  (defun variant-call-method-form (method-bind object arguments return-type name)
-    "The code of a DEFINE-ENGINE-VARARG-METHOD function that calls METHOD-BIND
-with object_method_bind_call, with the arguments and the result as Variants."
-    (let ((has-return-value (/= return-type +variant-type-nil+))
-          (argument-count (length arguments))
+  (defun variant-call-method-form (method-bind object arguments return-type name rest)
+    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a vararg
+method, with object_method_bind_call, with the arguments and the result as
+Variants. REST, if not NIL, is the variable with the list of further arguments,
+converted to Variants by their Lisp types (see WRITE-VARIANT)."
+    (let ((has-return-value (not (eql return-type +variant-type-nil+)))
+          (declared-count (length arguments))
+          (count (gensym "COUNT"))
           (args (gensym "ARGS"))
           (variants (gensym "VARIANTS"))
           (r-return (gensym "R-RETURN"))
           (r-error (gensym "R-ERROR"))
           (r-ret (gensym "R-RET"))
           (call-error (gensym "CALL-ERROR")))
-      `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 argument-count)))
-                                  (,variants '(:array variant ,(max 1 argument-count)))
-                                  ,@(loop for (nil nil nil ffi-type raw) in arguments
-                                          when ffi-type collect `(,raw ',ffi-type))
-                                  (,r-return 'variant)
-                                  (,r-error 'call-error)
-                                  ,@(when has-return-value
-                                      `((,r-ret ',(engine-value-ffi-type return-type)))))
-         ,@(loop for (arg-name type nil ffi-type raw) in arguments
-                 for i from 0
-                 for variant = `(element-pointer ,variants 'variant ,i)
-                 if (eql type :variant)
-                   ;; Already any Variant: constructed right in the array
-                   collect `(write-variant ,variant ,arg-name)
-                 else
-                   when ffi-type
-                     collect (engine-value-write-form type raw arg-name)
-                   end
-                   and collect `(call-variant-from-type-constructor
-                                 (aref *variant-from-type-constructors* ,type)
-                                 ,variant
-                                 ,(if ffi-type raw arg-name))
-                 end
-                 collect `(setf (foreign-ref ,args :pointer-void ,i) ,variant))
-         ;; Godot always initializes r_ret, also when the call fails
-         (unwind-protect
-              (progn
-                (object-method-bind-call ,method-bind ,object ,args ,argument-count
-                                         ,r-return ,r-error)
-                (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
-                  (unless (= ,call-error +call-ok+)
-                    (error "Calling ~a failed with call error ~d" ',name ,call-error)))
-                ,(when has-return-value
-                   `(progn
-                      (call-type-from-variant-constructor
-                       (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
-                      ,(let ((destroy-form (engine-value-destroy-form return-type r-ret)))
-                         (if destroy-form
-                             `(unwind-protect ,(engine-value-read-form return-type r-ret)
-                                ,destroy-form)
-                             (engine-value-read-form return-type r-ret))))))
-           (dotimes (i ,argument-count)
-             (variant-destroy (element-pointer ,variants 'variant i)))
-           (variant-destroy ,r-return)))))
+      (flet ((array-type (element-type)
+               ;; Known when the macro is expanded, unless there are REST
+               ;; arguments
+               (if rest
+                   `(list :array ',element-type (max 1 ,count))
+                   `'(:array ,element-type ,(max 1 declared-count)))))
+        `(let ((,count ,(if rest `(+ ,declared-count (length ,rest)) declared-count)))
+           (ffi:with-foreign-objects ((,args ,(array-type :pointer-void))
+                                      (,variants ,(array-type 'variant))
+                                      ,@(loop for (nil nil nil ffi-type raw) in arguments
+                                              when ffi-type collect `(,raw ',ffi-type))
+                                      (,r-return 'variant)
+                                      (,r-error 'call-error)
+                                      ,@(when (and has-return-value (not (eql return-type :variant)))
+                                          `((,r-ret ',(engine-value-ffi-type return-type)))))
+             ;; All Nil, so they can all be destroyed, also if making one fails
+             (clear-foreign-object ,variants ,(array-type 'variant))
+             ;; Godot always initializes r_ret, also when the call fails
+             (unwind-protect
+                  (progn
+                    ,@(loop for (arg-name type nil ffi-type raw) in arguments
+                            for i from 0
+                            for variant = `(element-pointer ,variants 'variant ,i)
+                            if (eql type :variant)
+                              ;; Already any Variant: constructed right in the array
+                              collect `(write-variant ,variant ,arg-name)
+                            else
+                              collect (let ((construct `(call-variant-from-type-constructor
+                                                         (aref *variant-from-type-constructors* ,type)
+                                                         ,variant
+                                                         ,(if ffi-type raw arg-name)))
+                                            (destroy (and ffi-type (engine-value-destroy-form type raw))))
+                                        (cond ((not ffi-type) construct)
+                                              ;; The Variant gets a copy of the raw value
+                                              (destroy `(progn ,(engine-value-write-form type raw arg-name)
+                                                               (unwind-protect ,construct ,destroy)))
+                                              (t `(progn ,(engine-value-write-form type raw arg-name)
+                                                         ,construct))))
+                            end
+                            collect `(setf (foreign-ref ,args :pointer-void ,i) ,variant))
+                    ,@(when rest
+                        `((loop for value in ,rest
+                                for i from ,declared-count
+                                for variant = (element-pointer ,variants 'variant i)
+                                do (write-variant variant value)
+                                   (setf (foreign-ref ,args :pointer-void i) variant))))
+                    (object-method-bind-call ,method-bind ,object ,args ,count ,r-return ,r-error)
+                    (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
+                      (unless (= ,call-error +call-ok+)
+                        (error "Calling ~a failed with call error ~d" ',name ,call-error)))
+                    ,(cond ((not has-return-value) nil)
+                           ((eql return-type :variant) `(read-variant ,r-return))
+                           (t
+                            `(progn
+                               (call-type-from-variant-constructor
+                                (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
+                               ,(let ((destroy-form (engine-value-destroy-form return-type r-ret)))
+                                  (if destroy-form
+                                      `(unwind-protect ,(engine-value-read-form return-type r-ret)
+                                         ,destroy-form)
+                                      (engine-value-read-form return-type r-ret)))))))
+               (dotimes (i ,count)
+                 (variant-destroy (element-pointer ,variants 'variant i)))
+               (variant-destroy ,r-return)))))))
 
   (defun temporary-names-form (arguments form)
     "FORM, the call of an engine method with ARGUMENTS (as in
@@ -382,8 +405,6 @@ signature from extension_api.json."
                                                           "the result")
                               +variant-type-nil+))
              (arguments (engine-method-arguments method)))
-        (when (eql return-type :variant)
-          (error "Variant results aren't supported yet"))
         (when extra-arguments
           (unless vararg
             (error "~a.~a isn't a vararg method, so it takes no extra arguments"
@@ -398,6 +419,9 @@ signature from extension_api.json."
                                collect (list arg-name variant-type default
                                              (engine-value-ffi-type variant-type)
                                              (gensym (symbol-name arg-name)))))
+              ;; Further arguments of a vararg method, unless they're declared
+              ;; with EXTRA-ARGUMENTS
+              (rest (and vararg (not extra-arguments) (intern "ARGUMENTS")))
               (object (gensym "OBJECT"))
               (method-bind (gensym "METHOD-BIND"))
               ;; The positions in a call of the StringName and NodePath
@@ -414,12 +438,14 @@ signature from extension_api.json."
                                   unless default collect arg-name)
                           ,@(when (some #'third arguments) '(&optional))
                           ,@(loop for (arg-name nil default) in arguments
-                                  when default collect (list arg-name (first default))))
+                                  when default collect (list arg-name (first default)))
+                          ,@(when rest `(&rest ,rest)))
               ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
                             ~@[ on the singleton ~a~]."
                        static defining-class method-name
-                       (mapcar (lambda (argument) (json-get argument "name"))
-                               (json-get method "arguments"))
+                       (append (mapcar (lambda (argument) (json-get argument "name"))
+                                       (json-get method "arguments"))
+                               (and rest '("...")))
                        (and vararg "Variants")
                        singleton)
               (let ((,object ,(cond (static '(ffi:make-null-pointer :void))
@@ -434,7 +460,7 @@ signature from extension_api.json."
                 ,(temporary-names-form
                   arguments
                   (if vararg
-                      (variant-call-method-form method-bind object arguments return-type name)
+                      (variant-call-method-form method-bind object arguments return-type name rest)
                       (ptrcall-method-form method-bind object arguments return-type)))))
             ,@(when name-positions
                 `((define-compiler-macro ,name (&whole form &rest arguments)
@@ -458,28 +484,32 @@ CLASS-NAME (or a class it inherits from). The method's hash, arguments and
 return type are looked up in extension_api.json when the macro is expanded.
 The function takes the Godot object (a pointer or a GODOT-OBJECT; none if the
 method is static, or if the class is an engine singleton's, such as Input,
-whose methods are called on the singleton) and then the method's arguments as Lisp values, and returns the result as a Lisp
-value. Arguments with a default value are optional, if the default can be
-expressed in Lisp (bool, int, float, String, StringName, NodePath, Vector2 and
-null). The arguments are named as in extension_api.json, in Lisp style.
+whose methods are called on the singleton) and then the method's arguments as
+Lisp values, and returns the result as a Lisp value. Arguments with a default
+value are optional, if the default can be expressed in Lisp (bool, int, float,
+String, StringName, NodePath, Vector2 and null). The arguments are named as in
+extension_api.json, in Lisp style.
 
 Supported types: bool, int (also enums and bitfields), float, Vector2, String
 (a Lisp string), Callable (a CALLABLE), StringName and NodePath as arguments
-(pointers to them, see SNAME and NPATH), Variant as an argument (converted from
-the Lisp value by its type, see WRITE-VARIANT), Object (a Godot object pointer
-or a GODOT-OBJECT), and Rect2 and PackedStringArray (a list of strings) as
-results. An Object result is the Lisp object of an instance of an extension
-class (see LISP-OBJECT), and otherwise the Godot object pointer.
+(pointers to them, see SNAME and NPATH), Variant (an argument is converted from
+the Lisp value by its type, see WRITE-VARIANT, and a result by its type, see
+READ-VARIANT), Object (a Godot object pointer or a GODOT-OBJECT; NIL is null),
+and Rect2 and PackedStringArray (a list of strings) as results. An Object
+result is the Lisp object of an instance of an extension class (see
+LISP-OBJECT), and otherwise the Godot object pointer.
 
 A StringName or NodePath argument can also be given as a literal string in a
-call, e.g. (EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in SNAME or
-NPATH, so it's created once, not at every call. Any other Lisp string is turned
-into a temporary StringName or NodePath for the call.
+call, e.g. (OBJECT-EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in
+SNAME or NPATH, so it's created once, not at every call. Any other Lisp string
+is turned into a temporary StringName or NodePath for the call.
 
 The method is called with ptrcall, except for vararg methods (such as
 emit_signal), which are called with Variants; a failed call signals an error.
-EXTRA-ARGUMENTS, for a vararg method, is a list of (name type) for
-arguments after the declared ones, e.g. ((position :vector2)) for
+The function of a vararg method takes any number of further arguments,
+converted to Variants by their Lisp types (see WRITE-VARIANT), e.g.
+(OBJECT-EMIT-SIGNAL PLAYER \"hit\" DAMAGE). Or EXTRA-ARGUMENTS declares them
+with their types, as a list of (name type), e.g. ((position :vector2)) for
 emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
   (handler-case (engine-method-defun name class-name method-name extra-arguments)
     (error (e)
