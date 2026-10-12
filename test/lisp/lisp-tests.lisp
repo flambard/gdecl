@@ -129,3 +129,22 @@
         (gdext:setf-reference kept nil)
         (check (null kept))
         (check (= 2 (ref-counted-get-reference-count timer)))))))
+
+(deftest refcounted-variant-results
+  ;; A RefCounted object as a Variant result comes with a reference, like a
+  ;; Ref<T> result, also from a vararg method and a utility function
+  (let ((id nil))
+    (gdext:with-reference (object (class-db-instantiate "RefCounted"))
+      (setf id (object-get-instance-id object))
+      (check (= 1 (ref-counted-get-reference-count object)))
+      (let ((same (type-convert object +type-object+)))
+        (check (= 2 (ref-counted-get-reference-count object)))
+        (gdext:release-reference same))
+      (check (= 1 (ref-counted-get-reference-count object))))
+    ;; Freed when the reference is given back
+    (check (null (instance-from-id id))))
+  (gdext:with-reference (object (object-call (gdext:singleton "ClassDB") "instantiate" "RefCounted"))
+    (check (= 1 (ref-counted-get-reference-count object))))
+  ;; Another object as a Variant result
+  (let ((node (new-node "Node")))
+    (check (same-object-p node (object-call *root* "get_child" (node-get-index node))))))

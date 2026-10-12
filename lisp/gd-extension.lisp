@@ -328,7 +328,7 @@ OBJECT isn't used."
                                     (engine-value-read-form return-type r-ret)))))
                        (cond ((not has-return-value) nil)
                              (utility (read-raw-result))
-                             ((eql return-type :variant) `(read-variant ,r-return))
+                             ((eql return-type :variant) `(read-variant-result ,r-return))
                              (t
                               `(progn
                                  (call-type-from-variant-constructor

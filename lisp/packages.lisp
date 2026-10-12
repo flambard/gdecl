@@ -31,6 +31,7 @@
            #:object-method-bind-call
            #:classdb-register-extension-class-signal
            #:variant-destroy
+           #:variant-new-copy
            #:global-get-singleton
            #:get-variant-from-type-constructor
            #:get-variant-to-type-constructor
@@ -285,6 +286,7 @@ raw values")
            #:write-variant
            #:variant-value-p
            #:read-variant
+           #:read-variant-result
            #:callable
            #:callable-p
            #:callable-target

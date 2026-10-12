@@ -173,6 +173,7 @@
 (defvar *object-method-bind-call* nil)
 (defvar *classdb-register-extension-class-signal* nil)
 (defvar *variant-destroy* nil)
+(defvar *variant-new-copy* nil)
 (defvar *global-get-singleton* nil)
 (defvar *get-variant-from-type-constructor* nil)
 (defvar *get-variant-to-type-constructor* nil)
@@ -399,6 +400,11 @@
 (defun variant-destroy (variant)
   (si:call-cfun *variant-destroy* :void '(:pointer-void) (list variant)))
 
+;; void variant_new_copy(GDExtensionUninitializedVariantPtr r_dest,
+;;                       GDExtensionConstVariantPtr p_src)
+(defun variant-new-copy (dest source)
+  (si:call-cfun *variant-new-copy* :void '(:pointer-void :pointer-void) (list dest source)))
+
 ;; GDExtensionVariantFromTypeConstructorFunc
 ;; get_variant_from_type_constructor(GDExtensionVariantType p_type)
 (defun get-variant-from-type-constructor (variant-type)
@@ -554,6 +560,7 @@ that Godot gave the extension, and look up the interface functions."
         *object-method-bind-call* (get-proc-address "object_method_bind_call")
         *classdb-register-extension-class-signal* (get-proc-address "classdb_register_extension_class_signal")
         *variant-destroy* (get-proc-address "variant_destroy")
+        *variant-new-copy* (get-proc-address "variant_new_copy")
         *global-get-singleton* (get-proc-address "global_get_singleton")
         *get-variant-from-type-constructor* (get-proc-address "get_variant_from_type_constructor")
         *get-variant-to-type-constructor* (get-proc-address "get_variant_to_type_constructor")

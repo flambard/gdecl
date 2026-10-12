@@ -218,8 +218,9 @@ pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
                          :destructor 'packed-string-array-destructor)
         (make-value-type :variant-type +variant-type-string-name+)
         (make-value-type :variant-type +variant-type-node-path+)
+        ;; The reader is for results, see READ-VARIANT-RESULT
         (make-value-type :variant-type :variant :ffi-type 'variant
-                         :reader 'read-variant :writer 'write-variant
+                         :reader 'read-variant-result :writer 'write-variant
                          :destructor 'variant-destroy))
   "How values of each supported type are converted between raw values and Lisp
 values, see VALUE-TYPE.")
@@ -252,3 +253,17 @@ Nil, otherwise as in *VALUE-TYPES*."
               (let ((destructor (value-type-destructor value-type)))
                 (when destructor
                   (funcall destructor raw)))))))))
+
+(defun read-variant-result (variant)
+  "The value of the Variant at VARIANT, the result of a call, as a Lisp value, as
+in READ-VARIANT. If it's an Object, the caller gets the reference the Variant
+has to it, if it's a RefCounted: like the RefCounted result of an engine method
+(a Ref<T>), give it back with GD-EXTENSION:RELEASE-REFERENCE. The caller
+destroys the Variant as usual."
+  (when (= (variant-get-type variant) +variant-type-object+)
+    ;; A copy of the Variant that's never destroyed keeps the reference, without
+    ;; asking Godot whether the object is RefCounted: a Variant with any other
+    ;; object has no reference to give back
+    (ffi:with-foreign-object (copy 'variant)
+      (variant-new-copy copy variant)))
+  (read-variant variant))
