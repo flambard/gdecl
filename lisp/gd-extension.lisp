@@ -329,6 +329,8 @@ signature from extension_api.json."
                class-name method-name))
       (let* ((vararg (json-get method "is_vararg"))
              (static (json-get method "is_static"))
+             ;; A method of a singleton's class is called on the singleton
+             (singleton (and (not static) (api-singleton defining-class)))
              (hash (json-get method "hash"))
              (return-value (json-get method "return_value"))
              (return-type (if return-value
@@ -357,26 +359,28 @@ signature from extension_api.json."
               ;; The positions in a call of the StringName and NodePath
               ;; arguments, which can be given as literal strings
               (name-positions (loop for (nil variant-type) in arguments
-                                    for i from (if static 0 1)
+                                    for i from (if (or static singleton) 0 1)
                                     when (eql variant-type +variant-type-string-name+)
                                       collect (cons i 'sname)
                                     when (eql variant-type +variant-type-node-path+)
                                       collect (cons i 'npath))))
           `(progn
-            (defun ,name (,@(unless static (list object))
+            (defun ,name (,@(unless (or static singleton) (list object))
                           ,@(loop for (arg-name nil default) in arguments
                                   unless default collect arg-name)
                           ,@(when (some #'third arguments) '(&optional))
                           ,@(loop for (arg-name nil default) in arguments
                                   when default collect (list arg-name (first default))))
-              ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]."
+              ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
+                            ~@[ on the singleton ~a~]."
                        static defining-class method-name
                        (mapcar (lambda (argument) (json-get argument "name"))
                                (json-get method "arguments"))
-                       (and vararg "Variants"))
-              (let ((,object ,(if static
-                                 '(ffi:make-null-pointer :void)
-                                 `(object-pointer ,object)))
+                       (and vararg "Variants")
+                       singleton)
+              (let ((,object ,(cond (static '(ffi:make-null-pointer :void))
+                                    (singleton `(singleton ,singleton))
+                                    (t `(object-pointer ,object))))
                     (,method-bind (car (load-time-value
                                         (make-initialize-cell
                                          (lambda ()
@@ -407,7 +411,8 @@ dumped from another version of Godot? Run make godot-api."
 CLASS-NAME (or a class it inherits from). The method's hash, arguments and
 return type are looked up in extension_api.json when the macro is expanded.
 The function takes the Godot object (a pointer or a GODOT-OBJECT; none if the
-method is static) and then the method's arguments as Lisp values, and returns the result as a Lisp
+method is static, or if the class is an engine singleton's, such as Input,
+whose methods are called on the singleton) and then the method's arguments as Lisp values, and returns the result as a Lisp
 value. Arguments with a default value are optional, if the default can be
 expressed in Lisp (bool, int, float, String, StringName, NodePath, Vector2 and
 null). The arguments are named as in extension_api.json, in Lisp style.
@@ -686,7 +691,7 @@ REGISTER-CLASS) and the arguments as Lisp values."
 strings)."
   (with-string-name (class-string-name class-name)
     (with-string-name (parent-string-name parent-class-name)
-      (class-db-is-parent-class (singleton "ClassDB") class-string-name parent-string-name))))
+      (class-db-is-parent-class class-string-name parent-string-name))))
 
 (defun bind-property (class-name name type getter setter
                       &key class (hint +property-hint-none+) (hint-string ""))

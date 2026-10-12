@@ -24,7 +24,9 @@
 
 (defstruct extension-api
   ;; The classes (JSON objects) by name
-  (classes (make-hash-table :test #'equal)))
+  (classes (make-hash-table :test #'equal))
+  ;; The names of the engine singletons by the names of their classes
+  (singletons (make-hash-table :test #'equal)))
 
 (defparameter *variant-type-names*
   `(("Nil" . ,+variant-type-nil+)
@@ -77,11 +79,19 @@
             (api (make-extension-api)))
         (dolist (class (json-get json "classes"))
           (setf (gethash (json-get class "name") (extension-api-classes api)) class))
+        (dolist (singleton (json-get json "singletons"))
+          (setf (gethash (json-get singleton "type") (extension-api-singletons api))
+                (json-get singleton "name")))
         (setf *extension-api* api))))
 
 (defun api-class (class-name)
   "The engine class CLASS-NAME (a string) as a JSON object, or NIL."
   (values (gethash class-name (extension-api-classes (extension-api)))))
+
+(defun api-singleton (class-name)
+  "The name of the engine singleton whose class is CLASS-NAME, such as \"Input\",
+or NIL if the class has no singleton."
+  (values (gethash class-name (extension-api-singletons (extension-api)))))
 
 (defun api-method (class-name method-name)
   "The method METHOD-NAME of the engine class CLASS-NAME (both strings) as a JSON
