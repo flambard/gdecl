@@ -398,6 +398,7 @@ tables and dispatchers behind them")
            #:add-reference
            #:release-reference
            #:with-reference
+           #:setf-reference
            ;; Classes
            #:define-class
            #:register-class

@@ -468,6 +468,22 @@ BODY exits, also on a non-local exit."
      (unwind-protect (progn ,@body)
        (release-reference ,var))))
 
+(defmacro setf-reference (place value)
+  "Set PLACE, where Lisp keeps a RefCounted object, to the RefCounted VALUE (or
+NIL): take a reference to VALUE, and give back the one to the old value of
+PLACE, like assigning a Ref<T>. Returns VALUE."
+  (multiple-value-bind (vars vals stores setter getter) (get-setf-expansion place)
+    (let ((new (gensym "NEW"))
+          (old (gensym "OLD")))
+      `(let* (,@(mapcar #'list vars vals)
+              (,new (add-reference ,value))
+              (,old ,getter)
+              (,(first stores) ,new))
+         ,setter
+         ;; After taking the new reference, in case it's the same object
+         (release-reference ,old)
+         ,new))))
+
 ;;;
 ;;; Signals
 ;;;
@@ -835,9 +851,12 @@ evaluated, so they can be keywords or variant type constants."
 mob-scene becomes \"mob_scene\"."
     (substitute #\_ #\- (string-downcase (symbol-name slot-name))))
 
-  (defun define-class-property-forms (class-name accessor slot-name type class setter)
+  (defun define-class-property-forms (class-name accessor slot-name type class setter
+                                     ref-counted)
     "The forms that bind the property of the slot SLOT-NAME, with its getter and
-setter methods, get_<name> and set_<name>."
+setter methods, get_<name> and set_<name>. REF-COUNTED, if not NIL, is a
+variable that says whether the values are RefCounted, so the generated setter
+takes and gives back references."
     (let* ((property-name (godot-property-name slot-name))
            (getter-name (format nil "get_~a" property-name))
            (setter-name (format nil "set_~a" property-name)))
@@ -845,9 +864,15 @@ setter methods, get_<name> and set_<name>."
                      (lambda (object) (,accessor object))
                      :return-type ,type)
         (bind-method ,class-name ,setter-name
-                     ,(if setter
-                          (function-form setter)
-                          `(lambda (object value) (setf (,accessor object) value)))
+                     ,(cond (setter
+                             (function-form setter))
+                            (ref-counted
+                             `(lambda (object value)
+                                (if ,ref-counted
+                                    (setf-reference (,accessor object) value)
+                                    (setf (,accessor object) value))))
+                            (t
+                             `(lambda (object value) (setf (,accessor object) value))))
                      :arguments (list (list "value" ,type)))
         (bind-property ,class-name ,property-name ,type ,getter-name ,setter-name
                        ,@(when class `(:class ,class))))))
@@ -881,8 +906,12 @@ The struct includes GODOT-OBJECT, and has the SLOTS, each a symbol or (name
 initform &key export class setter), as in DEFSTRUCT. A slot with EXPORT, a type
 as in VARIANT-TYPE, is a property, like @export var in GDScript: its name in
 Godot style (mob-scene becomes mob_scene), with the getter and setter methods
-get_<name> and set_<name>. CLASS is as in BIND-PROPERTY. SETTER, a function
-called with the Lisp object and the value, replaces the generated setter.
+get_<name> and set_<name>. CLASS is as in BIND-PROPERTY. If it's a RefCounted
+class, such as a Resource, the slot keeps a reference to its value, like a
+Ref<T>: the setter takes one (see SETF-REFERENCE) and it's given back when Godot
+frees the instance. SETTER, a function called with the Lisp object and the
+value, replaces the generated setter, and then the slot's references are up to
+it.
 
 OPTIONS are:
   (:signal name (argument-name type)...), see BIND-SIGNAL
@@ -898,33 +927,54 @@ The class is registered when Godot initializes the extension, before the
 initialize hooks of the application run."
   (let ((make-name (intern (format nil "MAKE-~a" (symbol-name name))))
         (struct-slots '())
-        (property-forms '()))
+        (property-forms '())
+        ;; The exported slots with a class whose references are managed here:
+        ;; a list of (accessor class variable), where the variable says
+        ;; whether the class is RefCounted, found out at registration
+        (reference-slots '()))
     (dolist (slot slots)
       (destructuring-bind (slot-name &optional initform &key export class setter)
           (if (listp slot) slot (list slot))
         (push `(,slot-name ,initform) struct-slots)
         (cond (export
-               (setf property-forms
-                     (append property-forms
-                             (define-class-property-forms
-                              class-name
-                              (intern (format nil "~a-~a" (symbol-name name) (symbol-name slot-name)))
-                              slot-name export class setter))))
+               (let ((accessor (intern (format nil "~a-~a" (symbol-name name)
+                                               (symbol-name slot-name))))
+                     (ref-counted (and class (not setter)
+                                       (gensym (format nil "~a-REF-COUNTED"
+                                                       (symbol-name slot-name))))))
+                 (when ref-counted
+                   (push (list accessor class ref-counted) reference-slots))
+                 (setf property-forms
+                       (append property-forms
+                               (define-class-property-forms class-name accessor slot-name
+                                                            export class setter ref-counted)))))
               ((or class setter)
                (error "The slot ~s of ~s has :CLASS or :SETTER, but no :EXPORT" slot-name name)))))
-    (let ((destructor (second (assoc :destructor options)))
-          (tool (second (assoc :tool options))))
+    (let* ((destructor (second (assoc :destructor options)))
+           (tool (second (assoc :tool options)))
+           (release-forms (loop for (accessor nil ref-counted) in (reverse reference-slots)
+                                collect `(when ,ref-counted
+                                           (release-reference (,accessor object)))))
+           (destructor-form
+             (cond ((and destructor release-forms)
+                    `(lambda (object)
+                       (unwind-protect (funcall ,(function-form destructor) object)
+                         ,@release-forms)))
+                   (destructor (function-form destructor))
+                   (release-forms `(lambda (object) ,@release-forms)))))
       `(progn
          (defstruct (,name (:include godot-object) (:constructor ,make-name))
            ,@(reverse struct-slots))
          (add-class-definition
           ,class-name
           (lambda ()
-            (register-class ,class-name ,parent-class-name
-                            :constructor (lambda (pointer) (,make-name :pointer pointer))
-                            ,@(when destructor `(:destructor ,(function-form destructor)))
-                            ,@(when tool `(:tool ,tool)))
-            ,@property-forms
-            ,@(loop for option in options
-                    append (define-class-option-forms class-name option))))
+            (let (,@(loop for (nil class ref-counted) in (reverse reference-slots)
+                          collect `(,ref-counted (inherits-class-p ,class "RefCounted"))))
+              (register-class ,class-name ,parent-class-name
+                              :constructor (lambda (pointer) (,make-name :pointer pointer))
+                              ,@(when destructor-form `(:destructor ,destructor-form))
+                              ,@(when tool `(:tool ,tool)))
+              ,@property-forms
+              ,@(loop for option in options
+                      append (define-class-option-forms class-name option)))))
          ',name))))
