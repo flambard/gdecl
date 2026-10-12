@@ -299,6 +299,12 @@ tables and dispatchers behind them")
            #:free-instance
            #:get-virtual-call-data
            #:call-virtual-with-data
+           ;; Initialization, called from src/gdecl.c
+           #:initialize
+           #:deinitialize
+           #:add-initialize-hook
+           #:add-deinitialize-hook
+           #:make-initialize-cell
            ;; Errors
            #:report-error
            ;; Tables
@@ -319,15 +325,16 @@ tables and dispatchers behind them")
                 #:free-instance
                 #:get-virtual-call-data
                 #:call-virtual-with-data
+                #:add-initialize-hook
+                #:add-deinitialize-hook
+                #:make-initialize-cell
                 #:report-error
                 #:register-method
                 #:add-extension-class
                 #:add-virtual
                 #:instance-object
                 #:lisp-object)
-  (:export #:initialize
-           #:add-initialize-hook
-           #:deinitialize
+  (:export #:add-initialize-hook
            #:add-deinitialize-hook
            ;; Helpers
            #:with-string-name

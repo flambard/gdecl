@@ -10,61 +10,6 @@
 ;;;
 
 ;;;
-;;; Initialization
-;;;
-
-;; Functions called at the end of INITIALIZE, see ADD-INITIALIZE-HOOK
-(defvar *initialize-hooks* '())
-
-(defun add-initialize-hook (function)
-  "Call FUNCTION, a function designator taking no arguments, at the end of
-INITIALIZE, once the framework is set up. Hooks run in the order they were
-added; adding a hook again doesn't run it twice. This is how an application
-registers its entry point: by calling ADD-INITIALIZE-HOOK when it's loaded."
-  (setf *initialize-hooks*
-        (append (remove function *initialize-hooks*) (list function))))
-
-;; Values to compute in INITIALIZE, see MAKE-INITIALIZE-CELL
-(defvar *initialize-cells* '())
-
-(defun initialize (get-proc-address class-library)
-  "Set up the framework with the GDExtensionInterfaceGetProcAddress and
-GDExtensionClassLibraryPtr that Godot gave the extension, fill in the
-initialize cells made so far, then run the initialize hooks. Called from
-src/gdecl.c."
-  (load-interface get-proc-address class-library)
-  (loop for (cell . function) in (reverse *initialize-cells*)
-        do (handler-case (setf (car cell) (funcall function))
-             (error (e)
-               (report-error "initialize" e))))
-  (setf *initialize-cells* '())
-  (dolist (hook *initialize-hooks*)
-    (handler-case (funcall hook)
-      (error (e)
-        (report-error (format nil "initialize hook ~a" hook) e))))
-  t)
-
-;; Functions called by DEINITIALIZE, see ADD-DEINITIALIZE-HOOK
-(defvar *deinitialize-hooks* '())
-
-(defun add-deinitialize-hook (function)
-  "Call FUNCTION, a function designator taking no arguments, in DEINITIALIZE,
-when Godot unloads the extension, while Godot can still be called. Hooks run in
-the reverse order they were added, so that what was set up last is cleaned up
-first; adding a hook again doesn't run it twice."
-  (setf *deinitialize-hooks*
-        (cons function (remove function *deinitialize-hooks*))))
-
-(defun deinitialize ()
-  "Clean up when Godot unloads the extension: run the deinitialize hooks.
-Called from src/gdecl.c, before ECL is shut down."
-  (dolist (hook *deinitialize-hooks*)
-    (handler-case (funcall hook)
-      (error (e)
-        (report-error (format nil "deinitialize hook ~a" hook) e))))
-  t)
-
-;;;
 ;;; Helpers
 ;;;
 
@@ -99,19 +44,12 @@ non-local exit."
 ;;;
 ;;; Things looked up in Godot, such as method binds, StringNames and
 ;;; singletons, should be looked up once and not at every call. But not at load
-;;; time, since there's no Godot then. An initialize cell is a cons whose car is
-;;; computed in INITIALIZE; code gets the cons with LOAD-TIME-VALUE, so it's made
-;;; when the code is loaded, and the car is ready when the code runs.
+;;; time, since there's no Godot then. They're kept in initialize cells (see
+;;; GD-EXTENSION-CALLBACK:MAKE-INITIALIZE-CELL), conses whose car is computed
+;;; when Godot initializes the extension; code gets the cons with
+;;; LOAD-TIME-VALUE, so it's made when the code is loaded, and the car is ready
+;;; when the code runs.
 ;;;
-
-(defun make-initialize-cell (function)
-  "A cons whose car will be the value of FUNCTION, called with no arguments in
-INITIALIZE, or now if INITIALIZE has been called (e.g. at a REPL)."
-  (let ((cell (cons nil nil)))
-    (if *class-library*
-        (setf (car cell) (funcall function))
-        (push (cons cell function) *initialize-cells*))
-    cell))
 
 (defun new-string-name (contents)
   "A StringName created from the string CONTENTS, in memory from MEM-ALLOC.

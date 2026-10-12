@@ -14,7 +14,7 @@
 #endif // ! GDE_EXPORT
 
 // Given to gdecl_library_init, kept until ECL is booted and they can be
-// passed to gd-extension:initialize.
+// passed to gd-extension-callback:initialize.
 static GDExtensionInterfaceGetProcAddress get_proc_address = NULL;
 static GDExtensionClassLibraryPtr class_library = NULL;
 
@@ -56,8 +56,8 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
     printf("MODULE INITIATED\n");
 
     // Set up the Lisp side, which then runs the application's initialize hooks:
-    // (gd-extension:initialize get-proc-address class-library)
-    cl_object initialize = cl_list(3, ecl_read_from_cstring("gd-extension:initialize"),
+    // (gd-extension-callback:initialize get-proc-address class-library)
+    cl_object initialize = cl_list(3, ecl_read_from_cstring("gd-extension-callback:initialize"),
                                    ecl_make_pointer((void *)get_proc_address),
                                    ecl_make_pointer(class_library));
     si_safe_eval(2, initialize, ECL_NIL);
@@ -74,8 +74,8 @@ static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializatio
     printf("gdecl module deinitialize\n");
 
     // Let the Lisp side clean up while Godot can still be called:
-    // (gd-extension:deinitialize)
-    cl_object deinitialize = cl_list(1, ecl_read_from_cstring("gd-extension:deinitialize"));
+    // (gd-extension-callback:deinitialize)
+    cl_object deinitialize = cl_list(1, ecl_read_from_cstring("gd-extension-callback:deinitialize"));
     si_safe_eval(2, deinitialize, ECL_NIL);
 
     cl_shutdown();
