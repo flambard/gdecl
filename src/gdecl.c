@@ -25,8 +25,6 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
         return;
     }
 
-    printf("gdecl module initialize\n");
-
     // Perhaps we don't have to disable all of them?
     ecl_set_option(ECL_OPT_TRAP_SIGSEGV, ecl_fixnum(0));
     ecl_set_option(ECL_OPT_TRAP_SIGFPE, ecl_fixnum(0));
@@ -59,6 +57,7 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
                                    ecl_make_pointer((void *)get_proc_address),
                                    ecl_make_pointer(class_library));
     si_safe_eval(2, initialize, ECL_NIL);
+    printf("gdecl initialized\n");
 }
 
 static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializationLevel p_level)
@@ -69,12 +68,11 @@ static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializatio
         return;
     }
 
-    printf("gdecl module deinitialize\n");
-
     // Let the Lisp side clean up while Godot can still be called:
     // (gd-extension-callback:deinitialize)
     cl_object deinitialize = cl_list(1, ecl_read_from_cstring("gd-extension-callback:deinitialize"));
     si_safe_eval(2, deinitialize, ECL_NIL);
+    printf("gdecl deinitialized\n");
 
     cl_shutdown();
     printf("ECL shut down\n");
