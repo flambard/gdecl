@@ -10,7 +10,7 @@ GDExtension is a low-level C interface, not meant to be used directly by applica
 
 The lower layers stay available, so you can drop down to them for what the higher ones don't cover yet, or for performance-critical code.
 
-The long-term idea is to integrate Godot's classes with CLOS: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and use generated Lisp classes for Godot's own classes. This would probably be a third package, built on `gd-extension`.
+The long-term idea is to integrate Godot's classes with CLOS: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and use generated Lisp classes for Godot's own classes.
 
 ## Requirements
 
@@ -40,28 +40,11 @@ my-app/
                (:file "my-app" :depends-on ("packages"))))
 ```
 
-**Classes.** Define your classes with `define-class`, which registers them when Godot loads the extension:
+**The package** uses Godot's API, and refers to gdecl's own macros with the prefix `gdext:`:
 
 ```lisp
-(gdext:define-class player ("Player" "Area2D")
-  ((speed 400 :export :int)            ; @export var speed = 400
-   screen-size                         ; var screen_size
-   (sprite nil :onready "Sprite"))     ; @onready var sprite = $Sprite
-  (:signal "hit")
-  (:method "start" player-start :arguments (("pos" :vector2)))
-  (:virtual "_process" player-process))
-
-(defun player-process (player delta)
-  ...)
-```
-
-**The entry point.** Your code is loaded when Godot loads the extension, but it can't call Godot yet at that point. If you need to run something once gdecl is set up and your classes are registered, register a function for it:
-
-```lisp
-(defun start ()
-  ...)
-
-(gdext:add-initialize-hook 'start)
+(defpackage #:my-app
+  (:use #:cl #:godot #:godot-utility))
 ```
 
 **The Makefile** names your ASDF system and the GDExtension library to build into your Godot project, and includes gdecl's make rules:
@@ -98,39 +81,152 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 
 ## Packages
 
-- **`gd-extension`** (nickname `gdext`): the Lisp-style API.
-  - `add-initialize-hook` registers your entry point, and `add-deinitialize-hook` a function to run when Godot unloads the extension.
-  - `with-string-name` and `with-string` create Godot StringNames and Strings, and destroy them again.
-  - `vector2`, `rect2`, `vector3` and `basis` (re-exported from `gd-extension-builtins`) are Lisp versions of Godot's Vector2, Rect2, Vector3 and Basis: `(vector2 1.0 2.0)`, `(vector2-x v)`, `(rect2-size r)`, `(vector3 1.0 2.0 3.0)`, with `vector2+`, `vector2*`, `vector2-length`, `vector2-normalized`, `vector2-rotated`, `vector2-clamp`, `vector3+`, `vector3-`, `vector3*`, `vector3-length`, `vector3-normalized`, `vector3-dot`, `vector3-cross`, `vector3-rotated`, `vector3-is-zero-approx` and `basis-looking-at`. A `basis` is made from its columns, `(basis x y z)`, and `basis-x`, `basis-y` and `basis-z` are its columns, as `basis.x` in GDScript; `(basis)` is the identity.
-  - `define-engine-class` defines a function for each method of an engine class, named `<class>-<method>` in Lisp style, in the package `godot` (see below): `(define-engine-class "AnimatedSprite2D")` defines `godot:animated-sprite-2d-play`, `animated-sprite-2d-set-animation`, and so on. Only the methods the class itself defines get functions, so a Sprite2D's position is `node-2d-get-position`, as Node2D defines `get_position`. Methods with types that aren't supported yet are skipped (see `define-engine-method`). It also defines the class's enum values and constants as Lisp constants, named likewise: `Node.PROCESS_MODE_ALWAYS` is `+node-process-mode-always+`, `Object.CONNECT_ONE_SHOT` `+object-connect-one-shot+`. The most used classes are already defined; define the others your application uses, and they're added to `godot`. Each class adds to the build time and the size of the library (about 70 ms and 15 KB per method), so define those you use.
-  - `define-engine-method` defines a Lisp function that calls a Godot method. Its hash and signature are looked up in `extension_api.json` when your code is compiled:
-    ```lisp
-    (define-engine-method is-action-pressed ("Input" "is_action_pressed"))
+| Package | Nickname | What it is |
+|---|---|---|
+| `godot` | `gd` | Godot's API: engine methods, enums and constants, and the builtin types such as `vector2` |
+| `godot-utility` | `gd-util` | Godot's utility functions, the global functions of GDScript, such as `randf-range` |
+| `gd-extension` | `gdext` | gdecl itself: defining classes, signals, references, and the macros that generate Godot's API |
+| `gd-extension-ffi` | `gdext-ffi` | The GDExtension C interface, one-to-one, for what the others don't cover yet |
 
-    (is-action-pressed "ui_up")
-    ```
-    The function takes the Godot object, as a pointer or the Lisp object of an instance, and then the method's arguments, named as in Godot. A static method has no object argument, and neither has a method of an engine singleton's class, such as Input above: it's called on the singleton. A StringName or NodePath argument can be a literal string, as `"ui_up"` above: it's turned into `(sname "ui_up")` when the code is compiled, so it's created once. A string that's only known at runtime, e.g. an animation name you picked, is turned into a temporary StringName or NodePath for that call. Otherwise, pass StringNames and NodePaths, e.g. from `sname` or `npath`, or ones Godot gave you. Arguments with default values are optional (`exact-match` above), if the default can be written in Lisp. The class can also be one that inherits the method, e.g. `("Sprite2D" "get_position")`. Supported types so far: bool, int (also enums), float, Vector2, Vector3, Basis, String (a Lisp string), Object, StringName, NodePath and Callable (arguments), Rect2 and PackedStringArray (results; a PackedStringArray is a list of strings), and Variant. An Object is a Godot object pointer or the Lisp object of an instance, and `nil` is null. A Variant argument is made from the Lisp value by its type: `t`/`nil` (bool), integer, real, string, `vector2`, `rect2`, `vector3`, `basis`, an object, or a `callable`; a Variant result is converted by its type. Other types give an error when the code is compiled. Vararg methods such as `emit_signal` and `call_group` are called with Variants, and their functions take any number of further arguments, converted the same way: `(object-emit-signal player "hit" damage)`. To give them fixed types instead, declare them with `:extra-arguments`, e.g. `(define-engine-method emit-hit ("Object" "emit_signal") :extra-arguments ((damage :int)))`.
-  - An engine method that returns a RefCounted object, such as a Resource, returns it with a reference, like a `Ref<T>` in C++, also as a Variant result (e.g. from `class-db-instantiate` or `object-call`). In your methods, virtual methods and signal handlers, which Godot calls, you needn't care: the reference goes into an autorelease pool, and is given back when the call returns. To keep the object longer, e.g. in a slot, take a reference of your own: `(setf-reference (main-mob-scene main) scene)` sets a place that keeps a reference, like assigning a `Ref<T>`, and an exported slot with a RefCounted `:class` does that by itself. `(with-reference (frames (get-sprite-frames sprite)) ...)` gives the reference back at the end of its body instead. Outside a call from Godot, e.g. at a REPL, there's no pool: give the reference back with `release-reference` or `with-reference`. A RefCounted object your method returns to Godot gets a reference for Godot.
-  - `connect-signal` connects a signal to a Lisp function, through a Godot Callable that calls it. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
-    ```lisp
-    (after-signal ((node-get-node hud "MessageTimer") "timeout" :target hud)
-      (canvas-item-show (node-get-node hud "StartButton")))
-    ```
-    The connection is bound to a target object (by default the one emitting the signal), and goes away when that object is freed.
-  - `(sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, `(npath "AnimatedSprite2D")` a NodePath created once, and `(singleton "Input")` an engine singleton, looked up once, e.g. for the methods it inherits from Object.
-  - `get-method-bind` looks up a Godot method, so you can call it with `object-method-bind-ptrcall`.
-  - `define-class` defines a class in one form: `(define-class player ("Player" "Area2D") slots options...)` is the class `Player`, which inherits from `Area2D`, and `player` the struct of its instances' Lisp objects (see `register-class`), with the slots, as in `defstruct`. A slot `(speed 400 :export :int)` is also a property, like `@export var speed = 400`, with the methods `get_speed` and `set_speed`; `:class` is as in `bind-property`; if it's a RefCounted class, such as `"PackedScene"`, the slot keeps a reference to its value, like a `Ref<T>`, given back when the instance is freed. `:setter` is a function of your own for setting it, which then handles references itself. A slot `(sprite nil :onready "AnimatedSprite2D")` is set to that child node when the instance is ready, before your `_ready` runs, like `@onready var sprite = $AnimatedSprite2D`; `:onready` can also be a function, called with the instance, for `@onready var x = <expression>`. The options are `(:signal name (argument type)...)`, `(:method name function :arguments ((name type)...) :return-type type)`, `(:virtual name function)`, `(:destructor function)` and `(:tool t)`, as in the functions below. Functions are given by name, and called with the instance's Lisp object; redefining one takes effect right away. The classes are registered when Godot loads the extension, in the order they're defined, before your initialize hooks run.
-  - `register-class` registers a class that inherits from a Godot class, e.g. `(register-class "Player" "Area2D")`. Like a GDScript script without `@tool`, its code doesn't run in the editor, unless you pass `:tool t`. Each instance gets a Lisp object, a `godot-object`, made by the class's constructor: usually a struct of your own that includes it, e.g. `(defstruct (player (:include godot-object)) speed)` and `:constructor (lambda (pointer) (make-player :pointer pointer))`; without a constructor, a plain `godot-object`. Bound methods get it as their first argument, like `self`, and Godot gives you it instead of the object pointer wherever an instance of your class comes back, e.g. from `get_node`, so you can call another class's Lisp functions on it directly. Engine methods and anything else that takes a Godot object take either a `godot-object` or a pointer (`object-pointer` gives the pointer), so you can write `(hide player)`. `lisp-object` gives the Lisp object of a pointer, and `instance-object` that of an instance pointer.
-  - `bind-virtual` implements a virtual method such as `_ready` or `_process` for your class: `(bind-virtual "Player" "_process" #'player-process)`. Its signature is looked up in `extension_api.json` when your code is compiled, in the engine class your class inherits from, so `player-process` gets `delta` as a float.
-  - `bind-method`, `bind-property` and `bind-signal` register your class's methods, properties and signals, e.g. `(bind-signal "Player" "hit")` for a signal without arguments, or `(bind-method "Player" "start" #'player-start :arguments '(("pos" :vector2)))`. Types are keywords named like Godot's variant types (`:int`, `:float`, `:vector2`, `:string-name`, `:object`, …, see `variant-type`). Bound methods can take and return `bool`, `int`, `float`, `vector2`, `vector3`, `basis`, strings (Godot's String) and Objects (as Godot object pointers, or the Lisp objects of your classes' instances; `null` is `nil`). For an Object property, `bind-property` takes the class of its value, e.g. `(bind-property "Main" "mob_scene" :object "get_mob_scene" "set_mob_scene" :class "PackedScene")` for a property like `@export var mob_scene: PackedScene`; the editor then lets you pick a resource of that class, or a node if it's a Node class. For other hints, it takes `:hint` and `:hint-string`, as in Godot's PropertyHint.
-  - `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory (re-exported from `gd-extension-ffi`).
-- **`godot`** (nickname `gd`): Godot's API in Lisp: the builtin types `vector2`, `rect2`, `vector3` and `basis` with their functions (the same as in `gd-extension`), functions and constants for the methods, enums and constants of engine classes, made with `define-engine-class`, and the values of Godot's global enums, such as `+ok+`, `+err-file-not-found+`, `+key-escape+` and `+property-hint-resource-type+` (`define-global-enums`). gdecl defines the classes most applications use: Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene; the classes your application defines are added to it. E.g. `(node-get-node main "HUD")`, `(canvas-item-hide player)`, `(object-emit-signal player "hit")`, `(timer-start timer)`. Use it in your package: `(defpackage #:my-app (:use #:cl #:godot))`, or write `gd:node-get-node`.
-- **`godot-utility`** (nickname `gd-util`): Godot's utility functions, the global functions of GDScript, made with `define-utility-functions`: `(randf-range 150.0 250.0)`, `(push-error "no mob scene")`, `(is-instance-valid node)`, `(godot-print "score: " score)`. Those named like a Common Lisp function (`sin`, `abs`, `floor`, `min`, `max`, …) are left out, as Lisp has them too, except `print`, which is `godot-print`: it prints to Godot's output, also in the editor, as GDScript's `print` does. Use it in your package along with `godot`: `(:use #:cl #:godot #:godot-utility)`.
-- **`gd-extension-ffi`** (nickname `gdext-ffi`): the GDExtension C interface, mapped one-to-one. It contains the interface functions (`classdb-register-extension-class2`, `object-method-bind-ptrcall`, …), the enums (`+variant-type-float+`, …) and Lisp mirrors of the C structs. Use it for anything the `gd-extension` package doesn't cover yet.
-- **`gd-extension-builtins`** (nickname `gdext-builtins`): Godot's builtin types in Lisp, such as `vector2` and `basis`, with their functions. `gd-extension` and `godot` re-export all of it.
-- **`gd-extension-types`** (nickname `gdext-types`): converting Godot's types to and from raw values. `gd-extension` re-exports the parts applications use.
-- **`gd-extension-callback`** (nickname `gdext-callback`): what runs when Godot calls into Lisp, such as creating instances of your classes and calling your bound methods. Used by `gd-extension`; applications don't need it.
-- **`gdecl-json`**: a small JSON reader, used to read `extension_api.json` when your code is compiled.
+`gd-extension-builtins`, `gd-extension-types` and `gd-extension-callback` are gdecl's internal layers; applications don't need them. `gdecl-json` reads `extension_api.json` when your code is compiled.
+
+## Defining classes
+
+`define-class` defines a class in one form, like a GDScript script:
+
+```lisp
+(gdext:define-class player ("Player" "Area2D")      ; class_name Player extends Area2D
+  ((speed 400 :export :int)                          ; @export var speed = 400
+   screen-size                                       ; var screen_size
+   (sprite nil :onready "AnimatedSprite2D"))         ; @onready var sprite = $AnimatedSprite2D
+  (:signal "hit")
+  (:method "start" player-start :arguments (("pos" :vector2)))
+  (:virtual "_ready" player-ready)
+  (:virtual "_process" player-process))
+
+(defun player-process (player delta)
+  (when (input-is-action-pressed "move_right")
+    ...))
+```
+
+`player` is a struct of the instance's Lisp object, with your slots, as in `defstruct`: `(player-speed player)`. Each function is called with it as its first argument, like `self`. Functions are given by name, so redefining one takes effect right away. The classes are registered when Godot loads the extension, in the order they're defined.
+
+Slot options:
+
+| Option | Like in GDScript | |
+|---|---|---|
+| `:export type` | `@export var` | A property, with the methods `get_<name>` and `set_<name>` (`mob-scene` is `mob_scene`) |
+| `:class "PackedScene"` | `@export var x: PackedScene` | With `:export :object`: the class of the value, picked in the editor as a resource or a node. A RefCounted value is kept with a reference, given back when the instance is freed |
+| `:setter function` | `set(value):` | Your own setter, called with the instance and the value. It then handles references itself |
+| `:onready "Path"` | `@onready var x = $Path` | Set to that node when the instance is ready, before your `_ready` runs |
+| `:onready function` | `@onready var x = …` | Set to the result of calling the function with the instance |
+
+Class options:
+
+| Option | |
+|---|---|
+| `(:signal name (argument type)...)` | A signal, like `signal hit(damage: int)` |
+| `(:method name function :arguments ((name type)...) :return-type type)` | A method Godot can call |
+| `(:virtual name function)` | A virtual method such as `"_ready"`, `"_process"` or `"_input"`. Its signature comes from the engine class you inherit from, so `_process` gets `delta` as a float |
+| `(:destructor function)` | Called with the instance when Godot frees it |
+| `(:tool t)` | Run the class's code in the editor too, like `@tool`. Otherwise instances in the editor are placeholders |
+
+Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, `:string`, `:vector2`, `:rect2`, `:vector3`, `:basis` and `:object` can be arguments and results of methods.
+
+**The entry point.** Your code is loaded when Godot loads the extension, but it can't call Godot yet at that point. To run something once gdecl is set up and your classes are registered, add an initialize hook. `add-deinitialize-hook` adds one for when Godot unloads the extension.
+
+```lisp
+(gdext:add-initialize-hook 'start)
+```
+
+## Calling Godot
+
+Engine methods are functions in `godot`, named `<class>-<method>` in Lisp style, with the object first:
+
+```lisp
+(node-get-node main "HUD")
+(canvas-item-hide player)
+(node-2d-set-position player (vector2 100.0 200.0))
+(timer-start timer)
+(input-is-action-pressed "ui_up")        ; Input is a singleton: no object argument
+```
+
+- **Which class.** A method belongs to the class that defines it, not the ones that inherit it: a Sprite2D's position is `node-2d-get-position`.
+- **Which classes are there.** gdecl defines Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene. Add the others you use with `(gdext:define-engine-class "AnimatedSprite2D")`; they're added to `godot` too. Each method costs about 70 ms of build time and 15 KB of library, so add only the classes you use.
+- **Enums and constants** are Lisp constants in `godot`: `Node.PROCESS_MODE_ALWAYS` is `+node-process-mode-always+`, and the global ones like `OK` and `KEY_ESCAPE` are `+ok+` and `+key-escape+`.
+- **Arguments** are named as in Godot. Those with a default value are optional, when the default can be written in Lisp. Static methods and methods of singletons, such as Input, take no object.
+- **Vararg methods**, such as `emit_signal` and `call_group`, take any number of further arguments, converted to Variants by their Lisp types: `(object-emit-signal player "hit" damage)`.
+- **Utility functions**, the global functions of GDScript, are in `godot-utility`: `(randf-range 150.0 250.0)`, `(push-error "no mob scene")`, `(is-instance-valid node)`. Those named like a Common Lisp function (`sin`, `abs`, `min`, …) are left out, since Lisp has them, except `print`, which is `godot-print`, as it prints to Godot's output.
+
+Supported types, converted between Godot and Lisp:
+
+| Godot | Lisp |
+|---|---|
+| bool, int (also enums), float | `t`/`nil`, integers, floats |
+| String | strings |
+| Vector2, Rect2, Vector3, Basis | `vector2`, `rect2`, `vector3`, `basis` |
+| Object | the Lisp object of your class's instance, or a Godot object pointer; `nil` is null |
+| StringName, NodePath (arguments only) | a string, or `(gdext:sname "x")` and `(gdext:npath "a/b")` (see below) |
+| Callable (arguments only) | a `callable` from `gd-extension-types`: a target object and a Lisp function |
+| PackedStringArray (results only) | a list of strings |
+| Variant | converted by its type, as above |
+
+Methods with other types are skipped for now, and give an error when your code is compiled if you ask for them with `define-engine-method`.
+
+`define-engine-method` defines a function for one method, under a name you choose. Its hash and signature are looked up in `extension_api.json` when your code is compiled. It can also give a vararg method's extra arguments fixed types:
+
+```lisp
+(gdext:define-engine-method emit-hit ("Object" "emit_signal")
+  :extra-arguments ((damage :int)))
+```
+
+## Objects
+
+An instance of one of your classes has a Lisp object (`player` above), a struct that includes `gdext:godot-object`. Godot gives you that Lisp object wherever an instance of your class comes back, e.g. from `get_node`, so you can call your own functions on it. Other objects are Godot object pointers. Anything that takes an object takes either one, and `nil` is null. `gdext:object-pointer` gives the pointer of either, and `gdext:lisp-object` the Lisp object of a pointer.
+
+## Builtin types
+
+`vector2`, `rect2`, `vector3` and `basis` are Lisp structs, with functions named like Godot's methods, computed in Lisp without calls into Godot:
+
+```lisp
+(vector2 1.0 2.0)                        ; Vector2(1.0, 2.0)
+(vector2-x v)                            ; v.x
+(vector2* (vector2-normalized v) speed)  ; v.normalized() * speed
+(vector3-cross a b)                      ; a.cross(b)
+(basis-looking-at direction)             ; Basis.looking_at(direction)
+```
+
+A `basis` is made from its columns, `(basis x y z)`, and `basis-x` etc. are its columns, as `basis.x` in GDScript. `(basis)` is the identity. See the package `gd-extension-builtins` for all the functions.
+
+## StringNames and NodePaths
+
+A literal string given for a StringName or NodePath argument, as in `(input-is-action-pressed "ui_up")`, becomes a StringName created once, when the code is compiled. A string that's only known at runtime becomes a temporary one for the call. To make your own, `(gdext:sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(gdext:npath "AnimatedSprite2D")` a NodePath created once. `(gdext:singleton "Input")` is an engine singleton, looked up once.
+
+## Signals
+
+`connect-signal` connects a signal to a Lisp function. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
+
+```lisp
+(gdext:connect-signal button "pressed" (lambda () (start-game main)))
+
+(gdext:after-signal ((node-get-node hud "MessageTimer") "timeout" :target hud)
+  (canvas-item-show (node-get-node hud "StartButton")))
+```
+
+The connection is bound to a target object, by default the one emitting the signal, and goes away when that object is freed.
+
+## References
+
+An engine method that returns a RefCounted object, such as a Resource, returns it with a reference, like a `Ref<T>` in C++.
+
+- In code that Godot calls (your methods, virtual methods, signal handlers and initialize hooks) you needn't care: the reference goes into an autorelease pool and is given back when the call returns.
+- To keep the object longer, e.g. in a slot, take a reference of your own with `setf-reference`, which works like assigning a `Ref<T>`: `(gdext:setf-reference (main-mob-scene main) scene)`. An exported slot with a RefCounted `:class` does that by itself.
+- `(gdext:with-reference (frames (animated-sprite-2d-get-sprite-frames sprite)) ...)` gives the reference back at the end of its body.
+- Outside a call from Godot, e.g. at a REPL, there's no pool: give the reference back with `release-reference` or `with-reference`.
+
+## The lower level
+
+`define-class` is built on functions you can also call yourself, e.g. for classes defined at runtime: `register-class`, `bind-method`, `bind-property`, `bind-signal` and `bind-virtual`. Types are given as in `define-class` (see `variant-type`). `with-string-name` and `with-string` create and destroy Godot StringNames and Strings; `get-method-bind` looks up a method to call with `object-method-bind-ptrcall` from `gd-extension-ffi`; and `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory. See their docstrings.
 
 ## Testing gdecl
 
