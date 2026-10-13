@@ -123,21 +123,6 @@ a raw value that can also be a Variant."
       (error "Unsupported type for a bound method: variant type ~s" variant-type))
     value-type))
 
-(defun read-value (pointer value-type)
-  "The raw value of VALUE-TYPE at POINTER as a Lisp value."
-  (funcall (value-type-reader value-type) pointer))
-
-(defun write-value (pointer value-type value)
-  "Store the Lisp VALUE as a raw value of VALUE-TYPE at POINTER."
-  (funcall (value-type-writer value-type) pointer value))
-
-(defun destroy-value (pointer value-type)
-  "Destroy the raw value of VALUE-TYPE at POINTER, if it needs it (e.g. a
-String)."
-  (let ((destructor (value-type-destructor value-type)))
-    (when destructor
-      (funcall destructor pointer))))
-
 (defstruct bound-method
   ;; For error messages, e.g. "Player.start"
   name
@@ -208,11 +193,7 @@ value as Variants, as in call_func."
                    for variant = (foreign-ref args :pointer-void i)
                    for variant-type = (variant-get-type variant)
                    do (cond ((= variant-type type)
-                             (ffi:with-foreign-object (value (value-type-ffi-type value-type))
-                               (call-type-from-variant-constructor
-                                (aref *type-from-variant-constructors* type) value variant)
-                               (unwind-protect (push (read-value value value-type) arguments)
-                                 (destroy-value value value-type))))
+                             (push (read-variant-as variant value-type) arguments))
                             ;; null for an Object
                             ((and (= type +variant-type-object+)
                                   (= variant-type +variant-type-nil+))
@@ -233,14 +214,7 @@ value as Variants, as in call_func."
              (let ((result (apply (bound-method-function method) (instance-object instance)
                                   (nreverse arguments))))
                (when return-type
-                 (ffi:with-foreign-object (value (value-type-ffi-type return-type))
-                   (write-value value return-type result)
-                   ;; The Variant gets a copy
-                   (unwind-protect
-                        (call-variant-from-type-constructor
-                         (aref *variant-from-type-constructors* (value-type-variant-type return-type))
-                         r-return value)
-                     (destroy-value value return-type))))))))))
+                 (write-variant-as r-return return-type result))))))))
 
 ;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
 ;;                                       GDExtensionClassInstancePtr p_instance,

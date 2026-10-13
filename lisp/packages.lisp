@@ -343,6 +343,11 @@ raw values")
            #:value-type-destructor
            #:find-value-type
            #:add-value-type
+           #:read-value
+           #:write-value
+           #:destroy-value
+           #:write-variant-as
+           #:read-variant-as
            #:make-value-type))
 
 (defpackage #:gd-extension-callback

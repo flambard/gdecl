@@ -159,18 +159,10 @@ Lisp type, or NIL if it can't make one."
 by its Lisp type: T or NIL is a bool, an integer an int, a real a float, a
 string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a VECTOR3 a Vector3, a
 BASIS a Basis, a GODOT-OBJECT or a pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
-  (let* ((variant-type (or (lisp-variant-type value)
-                           (error "Can't make a Variant from ~s" value)))
-         (value-type (find-value-type variant-type)))
-    ;; The raw value, from which the Variant is made with a copy
-    (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
-      (funcall (value-type-writer value-type) raw value)
-      (unwind-protect
-           (call-variant-from-type-constructor
-            (aref *variant-from-type-constructors* variant-type) variant raw)
-        (let ((destructor (value-type-destructor value-type)))
-          (when destructor
-            (funcall destructor raw)))))))
+  (write-variant-as variant
+                    (find-value-type (or (lisp-variant-type value)
+                                         (error "Can't make a Variant from ~s" value)))
+                    value))
 
 ;;;
 ;;; Value types
@@ -234,6 +226,42 @@ types whose conversion needs a higher layer, such as Callable."
         (cons value-type (remove (value-type-variant-type value-type) *value-types*
                                  :key #'value-type-variant-type))))
 
+(defun read-value (pointer value-type)
+  "The raw value of VALUE-TYPE at POINTER as a Lisp value."
+  (funcall (value-type-reader value-type) pointer))
+
+(defun write-value (pointer value-type value)
+  "Store the Lisp VALUE as a raw value of VALUE-TYPE at POINTER."
+  (funcall (value-type-writer value-type) pointer value))
+
+(defun destroy-value (pointer value-type)
+  "Destroy the raw value of VALUE-TYPE at POINTER, if it needs it (e.g. a
+String)."
+  (let ((destructor (value-type-destructor value-type)))
+    (when destructor
+      (funcall destructor pointer))))
+
+(defun write-variant-as (variant value-type value)
+  "Construct a Variant of VALUE-TYPE at VARIANT, uninitialized memory, from the
+Lisp VALUE, through a temporary raw value. Destroy it with VARIANT-DESTROY."
+  ;; The Variant gets a copy of the raw value
+  (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+    (write-value raw value-type value)
+    (unwind-protect
+         (call-variant-from-type-constructor
+          (aref *variant-from-type-constructors* (value-type-variant-type value-type))
+          variant raw)
+      (destroy-value raw value-type))))
+
+(defun read-variant-as (variant value-type)
+  "The value of the Variant at VARIANT, which is of VALUE-TYPE, as a Lisp value,
+through a temporary raw value."
+  (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+    (call-type-from-variant-constructor
+     (aref *type-from-variant-constructors* (value-type-variant-type value-type)) raw variant)
+    (unwind-protect (read-value raw value-type)
+      (destroy-value raw value-type))))
+
 (defun read-variant (variant)
   "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for
 Nil, otherwise as in *VALUE-TYPES*."
@@ -243,13 +271,7 @@ Nil, otherwise as in *VALUE-TYPES*."
         (let ((value-type (find-value-type variant-type)))
           (unless (and (value-type-ffi-type value-type) (value-type-reader value-type))
             (error "Unsupported type for a Variant: variant type ~s" variant-type))
-          (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
-            (call-type-from-variant-constructor
-             (aref *type-from-variant-constructors* variant-type) raw variant)
-            (unwind-protect (funcall (value-type-reader value-type) raw)
-              (let ((destructor (value-type-destructor value-type)))
-                (when destructor
-                  (funcall destructor raw)))))))))
+          (read-variant-as variant value-type)))))
 
 ;;;
 ;;; The autorelease pool
