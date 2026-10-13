@@ -255,17 +255,13 @@
            #:element-pointer
            #:foreign-ref))
 
-(defpackage #:gd-extension-types
-  (:documentation "Godot's builtin types in Lisp, and converting them to and from
-raw values")
-  (:nicknames #:gdext-types)
-  (:use #:cl #:gd-extension-ffi)
-  (:export #:godot-object
-           #:make-godot-object
-           #:godot-object-p
-           #:godot-object-pointer
-           #:object-pointer
-           #:vector2
+(defpackage #:gd-extension-builtins
+  (:documentation "Lisp versions of Godot's builtin types, such as Vector2 and
+Basis, with their functions. Everything exported from here is for applications:
+GD-EXTENSION and GODOT re-export all of it, so a symbol is added here only.")
+  (:nicknames #:gdext-builtins)
+  (:use #:cl)
+  (:export #:vector2
            #:vector2-p
            #:vector2-x
            #:vector2-y
@@ -275,14 +271,10 @@ raw values")
            #:vector2-normalized
            #:vector2-rotated
            #:vector2-clamp
-           #:read-vector2
-           #:write-vector2
            #:rect2
            #:rect2-p
            #:rect2-position
            #:rect2-size
-           #:read-rect2
-           #:write-rect2
            #:vector3
            #:vector3-p
            #:vector3-x
@@ -297,14 +289,29 @@ raw values")
            #:vector3-cross
            #:vector3-rotated
            #:vector3-is-zero-approx
-           #:read-vector3
-           #:write-vector3
            #:basis
            #:basis-p
            #:basis-x
            #:basis-y
            #:basis-z
-           #:basis-looking-at
+           #:basis-looking-at))
+
+(defpackage #:gd-extension-types
+  (:documentation "Godot's builtin types in Lisp, and converting them to and from
+raw values")
+  (:nicknames #:gdext-types)
+  (:use #:cl #:gd-extension-ffi #:gd-extension-builtins)
+  (:export #:godot-object
+           #:make-godot-object
+           #:godot-object-p
+           #:godot-object-pointer
+           #:object-pointer
+           #:read-vector2
+           #:write-vector2
+           #:read-rect2
+           #:write-rect2
+           #:read-vector3
+           #:write-vector3
            #:read-basis
            #:write-basis
            #:read-object
@@ -375,7 +382,7 @@ tables and dispatchers behind them")
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)
-  (:use #:cl #:gd-extension-ffi #:gd-extension-types)
+  (:use #:cl #:gd-extension-ffi #:gd-extension-builtins #:gd-extension-types)
   (:import-from #:gdecl-json
                 #:read-json-file
                 #:json-get)
@@ -411,40 +418,6 @@ tables and dispatchers behind them")
            #:godot-object-p
            #:godot-object-pointer
            #:object-pointer
-           #:vector2
-           #:vector2-p
-           #:vector2-x
-           #:vector2-y
-           #:rect2
-           #:rect2-p
-           #:rect2-position
-           #:rect2-size
-           #:vector2+
-           #:vector2*
-           #:vector2-length
-           #:vector2-normalized
-           #:vector2-rotated
-           #:vector2-clamp
-           #:vector3
-           #:vector3-p
-           #:vector3-x
-           #:vector3-y
-           #:vector3-z
-           #:vector3+
-           #:vector3-
-           #:vector3*
-           #:vector3-length
-           #:vector3-normalized
-           #:vector3-dot
-           #:vector3-cross
-           #:vector3-rotated
-           #:vector3-is-zero-approx
-           #:basis
-           #:basis-p
-           #:basis-x
-           #:basis-y
-           #:basis-z
-           #:basis-looking-at
            ;; Values looked up once
            #:sname
            #:npath
@@ -475,86 +448,24 @@ tables and dispatchers behind them")
            #:destruct-property
            #:bind-method
            #:bind-property
-           #:bind-signal))
+           #:bind-signal)
+  ;; Everything GD-EXTENSION-BUILTINS exports, computed when this is read
+  #.`(:export ,@(let ((names '()))
+                  (do-external-symbols (symbol '#:gd-extension-builtins names)
+                    (push (symbol-name symbol) names)))))
 
 (defpackage #:godot
-  (:documentation "Godot's API in Lisp: the builtin types Vector2, Rect2, Vector3
-and Basis (from GD-EXTENSION-TYPES), and functions that call the methods of
+  (:documentation "Godot's API in Lisp: the builtin types, such as Vector2 and
+Basis (from GD-EXTENSION-BUILTINS), and functions that call the methods of
 engine classes, named <class>-<method>, e.g. NODE-GET-NODE. GD-EXTENSION:
 DEFINE-ENGINE-CLASS defines the functions and exports them from here, both for the
 classes gdecl defines (godot-engine-classes.lisp) and those applications define.")
   (:nicknames #:gd)
-  (:use #:cl)
-  ;; Godot's builtin types in Lisp
-  (:import-from #:gd-extension-types
-                #:vector2
-                #:vector2-p
-                #:vector2-x
-                #:vector2-y
-                #:vector2+
-                #:vector2*
-                #:vector2-length
-                #:vector2-normalized
-                #:vector2-rotated
-                #:vector2-clamp
-                #:rect2
-                #:rect2-p
-                #:rect2-position
-                #:rect2-size
-                #:vector3
-                #:vector3-p
-                #:vector3-x
-                #:vector3-y
-                #:vector3-z
-                #:vector3+
-                #:vector3-
-                #:vector3*
-                #:vector3-length
-                #:vector3-normalized
-                #:vector3-dot
-                #:vector3-cross
-                #:vector3-rotated
-                #:vector3-is-zero-approx
-                #:basis
-                #:basis-p
-                #:basis-x
-                #:basis-y
-                #:basis-z
-                #:basis-looking-at)
-  (:export #:vector2
-           #:vector2-p
-           #:vector2-x
-           #:vector2-y
-           #:vector2+
-           #:vector2*
-           #:vector2-length
-           #:vector2-normalized
-           #:vector2-rotated
-           #:vector2-clamp
-           #:rect2
-           #:rect2-p
-           #:rect2-position
-           #:rect2-size
-           #:vector3
-           #:vector3-p
-           #:vector3-x
-           #:vector3-y
-           #:vector3-z
-           #:vector3+
-           #:vector3-
-           #:vector3*
-           #:vector3-length
-           #:vector3-normalized
-           #:vector3-dot
-           #:vector3-cross
-           #:vector3-rotated
-           #:vector3-is-zero-approx
-           #:basis
-           #:basis-p
-           #:basis-x
-           #:basis-y
-           #:basis-z
-           #:basis-looking-at))
+  (:use #:cl #:gd-extension-builtins)
+  ;; Everything GD-EXTENSION-BUILTINS exports, computed when this is read
+  #.`(:export ,@(let ((names '()))
+                  (do-external-symbols (symbol '#:gd-extension-builtins names)
+                    (push (symbol-name symbol) names)))))
 
 (defpackage #:godot-utility
   (:documentation "Godot's utility functions in Lisp: the global functions of

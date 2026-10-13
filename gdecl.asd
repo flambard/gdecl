@@ -8,7 +8,8 @@
     :pathname "lisp/"
     :components ((:file "packages")
                  (:file "gd-extension-ffi" :depends-on ("packages"))
-                 (:file "gd-extension-types" :depends-on ("gd-extension-ffi"))
+                 (:file "builtin-types" :depends-on ("packages"))
+                 (:file "gd-extension-types" :depends-on ("gd-extension-ffi" "builtin-types"))
                  (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "gd-extension-types"))
                  (:file "json" :depends-on ("packages"))
                  (:file "extension-api" :depends-on ("gd-extension-ffi" "json"))
