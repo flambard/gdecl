@@ -53,8 +53,6 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
     extern void init_lib_APPLICATION(cl_object);
     ecl_init_module(NULL, init_lib_APPLICATION);
 
-    printf("MODULE INITIATED\n");
-
     // Set up the Lisp side, which then runs the application's initialize hooks:
     // (gd-extension-callback:initialize get-proc-address class-library)
     cl_object initialize = cl_list(3, ecl_read_from_cstring("gd-extension-callback:initialize"),
