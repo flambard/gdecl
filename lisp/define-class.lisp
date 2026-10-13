@@ -57,15 +57,54 @@ evaluated, so they can be keywords or variant type constants."
 mob-scene becomes \"mob_scene\"."
     (substitute #\_ #\- (string-downcase (symbol-name slot-name))))
 
-  (defun define-class-property-forms (class-name accessor slot-name type class setter
-                                     ref-counted)
-    "The forms that bind the property of the slot SLOT-NAME, with its getter and
-setter methods, get_<name> and set_<name>. REF-COUNTED, if not NIL, is a
-variable that says whether the values are RefCounted, so the generated setter
-takes and gives back references."
-    (let* ((property-name (godot-property-name slot-name))
+  (defstruct (class-slot (:conc-name class-slot-))
+    "A slot of DEFINE-CLASS, while its expansion is generated (only at
+macroexpansion time). See DEFINE-CLASS for the options."
+    name
+    initform
+    export
+    class
+    setter
+    onready
+    ;; The accessor of the slot in the struct, <struct>-<slot>
+    accessor
+    ;; For an exported slot with a class whose references are managed here: a
+    ;; variable that says whether the class is RefCounted, found out at
+    ;; registration. Otherwise NIL.
+    ref-counted)
+
+  (defun parse-class-slot (struct-name slot)
+    "SLOT, a slot of DEFINE-CLASS (a symbol, or a list of the name, initform and
+options), of the struct STRUCT-NAME, as a CLASS-SLOT."
+    (destructuring-bind (slot-name &optional initform &key export class setter onready)
+        (if (listp slot) slot (list slot))
+      (when (and (not export) (or class setter))
+        (error "The slot ~s of ~s has :CLASS or :SETTER, but no :EXPORT" slot-name struct-name))
+      (make-class-slot :name slot-name
+                       :initform initform
+                       :export export
+                       :class class
+                       :setter setter
+                       :onready onready
+                       :accessor (intern (format nil "~a-~a" (symbol-name struct-name)
+                                                 (symbol-name slot-name)))
+                       :ref-counted (and export class (not setter)
+                                         (gensym (format nil "~a-REF-COUNTED"
+                                                         (symbol-name slot-name)))))))
+
+  (defun define-class-property-forms (class-name slot)
+    "The forms that bind the property of SLOT, an exported CLASS-SLOT, with its
+getter and setter methods, get_<name> and set_<name>. If the slot has a
+REF-COUNTED variable, the generated setter takes and gives back references when
+the values are RefCounted."
+    (let* ((property-name (godot-property-name (class-slot-name slot)))
            (getter-name (format nil "get_~a" property-name))
-           (setter-name (format nil "set_~a" property-name)))
+           (setter-name (format nil "set_~a" property-name))
+           (accessor (class-slot-accessor slot))
+           (type (class-slot-export slot))
+           (class (class-slot-class slot))
+           (setter (class-slot-setter slot))
+           (ref-counted (class-slot-ref-counted slot)))
       `((bind-method ,class-name ,getter-name
                      (lambda (object) (,accessor object))
                      :return-type ,type)
@@ -82,6 +121,47 @@ takes and gives back references."
                      :arguments (list (list "value" ,type)))
         (bind-property ,class-name ,property-name ,type ,getter-name ,setter-name
                        ,@(when class `(:class ,class))))))
+
+  (defun onready-options (slots options)
+    "OPTIONS of DEFINE-CLASS, with a (:VIRTUAL \"_ready\" ...) that sets the
+:ONREADY SLOTS first, and then calls the class's own _ready, if any, which it
+replaces. OPTIONS as they are if no slot has :ONREADY."
+    (let ((onready-forms
+            (loop for slot in slots
+                  for onready = (class-slot-onready slot)
+                  when onready
+                    collect `(setf (,(class-slot-accessor slot) object)
+                                   ,(if (stringp onready)
+                                        `(node-get-node object ,onready)
+                                        `(funcall ,(function-form onready) object))))))
+      (if onready-forms
+          (let ((ready (find-if (lambda (option)
+                                  (and (eq (first option) :virtual)
+                                       (equal (second option) "_ready")))
+                                options)))
+            (cons `(:virtual "_ready"
+                             (lambda (object)
+                               ,@onready-forms
+                               ,@(when ready
+                                   `((funcall ,(function-form (third ready)) object)))))
+                  (remove ready options)))
+          options)))
+
+  (defun define-class-destructor-form (slots destructor)
+    "The form for the destructor of DEFINE-CLASS, a function called with the Lisp
+object: the class's DESTRUCTOR option, then giving back the references of the
+SLOTS that keep them. NIL if there's neither."
+    (let ((release-forms (loop for slot in slots
+                               for ref-counted = (class-slot-ref-counted slot)
+                               when ref-counted
+                                 collect `(when ,ref-counted
+                                            (release-reference (,(class-slot-accessor slot) object))))))
+      (cond ((and destructor release-forms)
+             `(lambda (object)
+                (unwind-protect (funcall ,(function-form destructor) object)
+                  ,@release-forms)))
+            (destructor (function-form destructor))
+            (release-forms `(lambda (object) ,@release-forms)))))
 
   (defun define-class-option-forms (class-name option)
     "The forms that bind what the class option OPTION of DEFINE-CLASS defines."
@@ -136,78 +216,31 @@ self in GDScript.
 
 The class is registered when Godot initializes the extension, before the
 initialize hooks of the application run."
-  (let ((make-name (intern (format nil "MAKE-~a" (symbol-name name))))
-        (struct-slots '())
-        (property-forms '())
-        ;; The forms that set the :ONREADY slots of OBJECT
-        (onready-forms '())
-        ;; The exported slots with a class whose references are managed here:
-        ;; a list of (accessor class variable), where the variable says
-        ;; whether the class is RefCounted, found out at registration
-        (reference-slots '()))
-    (dolist (slot slots)
-      (destructuring-bind (slot-name &optional initform &key export class setter onready)
-          (if (listp slot) slot (list slot))
-        (push `(,slot-name ,initform) struct-slots)
-        (when onready
-          (push `(setf (,(intern (format nil "~a-~a" (symbol-name name) (symbol-name slot-name)))
-                        object)
-                       ,(if (stringp onready)
-                            `(node-get-node object ,onready)
-                            `(funcall ,(function-form onready) object)))
-                onready-forms))
-        (cond (export
-               (let ((accessor (intern (format nil "~a-~a" (symbol-name name)
-                                               (symbol-name slot-name))))
-                     (ref-counted (and class (not setter)
-                                       (gensym (format nil "~a-REF-COUNTED"
-                                                       (symbol-name slot-name))))))
-                 (when ref-counted
-                   (push (list accessor class ref-counted) reference-slots))
-                 (setf property-forms
-                       (append property-forms
-                               (define-class-property-forms class-name accessor slot-name
-                                                            export class setter ref-counted)))))
-              ((or class setter)
-               (error "The slot ~s of ~s has :CLASS or :SETTER, but no :EXPORT" slot-name name)))))
-    (when onready-forms
-      ;; The slots are set in _ready, before the class's own _ready, if any
-      (let ((ready (find-if (lambda (option)
-                              (and (eq (first option) :virtual)
-                                   (equal (second option) "_ready")))
-                            options)))
-        (setf options
-              (cons `(:virtual "_ready"
-                               (lambda (object)
-                                 ,@(reverse onready-forms)
-                                 ,@(when ready
-                                     `((funcall ,(function-form (third ready)) object)))))
-                    (remove ready options)))))
-    (let* ((destructor (second (assoc :destructor options)))
-           (tool (second (assoc :tool options)))
-           (release-forms (loop for (accessor nil ref-counted) in (reverse reference-slots)
-                                collect `(when ,ref-counted
-                                           (release-reference (,accessor object)))))
-           (destructor-form
-             (cond ((and destructor release-forms)
-                    `(lambda (object)
-                       (unwind-protect (funcall ,(function-form destructor) object)
-                         ,@release-forms)))
-                   (destructor (function-form destructor))
-                   (release-forms `(lambda (object) ,@release-forms)))))
-      `(progn
-         (defstruct (,name (:include godot-object) (:constructor ,make-name))
-           ,@(reverse struct-slots))
-         (add-class-definition
-          ,class-name
-          (lambda ()
-            (let (,@(loop for (nil class ref-counted) in (reverse reference-slots)
-                          collect `(,ref-counted (inherits-class-p ,class "RefCounted"))))
-              (register-class ,class-name ,parent-class-name
-                              :constructor (lambda (pointer) (,make-name :pointer pointer))
-                              ,@(when destructor-form `(:destructor ,destructor-form))
-                              ,@(when tool `(:tool ,tool)))
-              ,@property-forms
-              ,@(loop for option in options
-                      append (define-class-option-forms class-name option)))))
-         ',name))))
+  (let* ((make-name (intern (format nil "MAKE-~a" (symbol-name name))))
+         (slots (mapcar (lambda (slot) (parse-class-slot name slot)) slots))
+         (options (onready-options slots options))
+         (destructor-form (define-class-destructor-form slots
+                                                        (second (assoc :destructor options))))
+         (tool (second (assoc :tool options))))
+    `(progn
+       (defstruct (,name (:include godot-object) (:constructor ,make-name))
+         ,@(loop for slot in slots
+                 collect `(,(class-slot-name slot) ,(class-slot-initform slot))))
+       (add-class-definition
+        ,class-name
+        (lambda ()
+          (let (,@(loop for slot in slots
+                        for ref-counted = (class-slot-ref-counted slot)
+                        when ref-counted
+                          collect `(,ref-counted (inherits-class-p ,(class-slot-class slot)
+                                                                   "RefCounted"))))
+            (register-class ,class-name ,parent-class-name
+                            :constructor (lambda (pointer) (,make-name :pointer pointer))
+                            ,@(when destructor-form `(:destructor ,destructor-form))
+                            ,@(when tool `(:tool ,tool)))
+            ,@(loop for slot in slots
+                    when (class-slot-export slot)
+                      append (define-class-property-forms class-name slot))
+            ,@(loop for option in options
+                    append (define-class-option-forms class-name option)))))
+       ',name)))
