@@ -4,7 +4,7 @@
 ;;; What runs when Godot calls into Lisp (C -> Lisp): the callbacks, and the
 ;;; tables and dispatchers behind them. Each callback is a C function made with
 ;;; FFI:DEFCALLBACK, whose address (FFI:CALLBACK 'NAME) the package GD-EXTENSION
-;;; (gd-extension.lisp) gives to Godot when it registers methods and classes.
+;;; (binding.lisp) gives to Godot when it registers methods and classes.
 ;;;
 ;;; A Lisp error must never unwind through Godot's C frames, so every callback
 ;;; body is wrapped in HANDLER-CASE.

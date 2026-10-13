@@ -12,7 +12,16 @@
                  (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "gd-extension-types"))
                  (:file "json" :depends-on ("packages"))
                  (:file "extension-api" :depends-on ("gd-extension-ffi" "json"))
+                 ;; The package GD-EXTENSION. The order matters: each file adds
+                 ;; its deinitialize hooks after those of the files before it,
+                 ;; so they run before them.
                  (:file "gd-extension" :depends-on ("gd-extension-ffi" "gd-extension-types"
                                                     "gd-extension-callback" "extension-api"))
-                 (:file "godot-engine-classes" :depends-on ("gd-extension"))
-                 (:file "godot-utility" :depends-on ("gd-extension"))))
+                 (:file "engine-methods" :depends-on ("gd-extension"))
+                 (:file "engine-api" :depends-on ("engine-methods"))
+                 (:file "references" :depends-on ("engine-methods"))
+                 (:file "signals" :depends-on ("engine-methods"))
+                 (:file "binding" :depends-on ("gd-extension" "engine-methods"))
+                 (:file "define-class" :depends-on ("binding" "references"))
+                 (:file "godot-engine-classes" :depends-on ("engine-api"))
+                 (:file "godot-utility" :depends-on ("engine-api"))))
