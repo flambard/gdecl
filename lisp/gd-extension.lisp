@@ -74,6 +74,12 @@ non-local exit."
 ;;; when the code runs.
 ;;;
 
+(defmacro initialize-cell-value (form)
+  "The value of FORM, computed once, in an initialize cell (see
+GD-EXTENSION-CALLBACK:MAKE-INITIALIZE-CELL): when Godot initializes the
+extension, or when the code is loaded if it already has (e.g. at a REPL)."
+  `(car (load-time-value (make-initialize-cell (lambda () ,form)))))
+
 ;; The StringNames and NodePaths made by NEW-STRING-NAME and NEW-NODE-PATH,
 ;; destroyed by DESTROY-PERMANENT-VALUES when Godot unloads the extension
 (defvar *permanent-string-names* '())
@@ -91,7 +97,7 @@ until Godot unloads the extension."
   "A pointer to a StringName with STRING, a literal string. The StringName is
 created once, like SNAME() in Godot's C++ code, and kept until Godot unloads the
 extension."
-  `(car (load-time-value (make-initialize-cell (lambda () (new-string-name ,string))))))
+  `(initialize-cell-value (new-string-name ,string)))
 
 (defun construct-node-path (pointer path)
   "Construct a NodePath at POINTER, uninitialized memory, from the string PATH.
@@ -100,10 +106,8 @@ Destroy it with NODE-PATH-DESTRUCTOR."
     (ffi:with-foreign-object (args '(:array :pointer-void 1))
       (setf (foreign-ref args :pointer-void 0) string)
       ;; Constructor 2 of NodePath takes a String
-      (call-ptr-constructor (car (load-time-value
-                                  (make-initialize-cell
-                                   (lambda ()
-                                     (variant-get-ptr-constructor +variant-type-node-path+ 2)))))
+      (call-ptr-constructor (initialize-cell-value
+                             (variant-get-ptr-constructor +variant-type-node-path+ 2))
                             pointer args))))
 
 (defun new-node-path (path)
@@ -153,12 +157,11 @@ values must not be used any more."
 (defmacro npath (path)
   "A pointer to a NodePath with PATH, a literal string, like ^\"path\" in GDScript.
 The NodePath is created once and kept until Godot unloads the extension."
-  `(car (load-time-value (make-initialize-cell (lambda () (new-node-path ,path))))))
+  `(initialize-cell-value (new-node-path ,path)))
 
 (defmacro singleton (name)
   "The Godot object pointer of the engine singleton NAME, a literal string such
 as \"Input\". Looked up once."
-  `(car (load-time-value
-         (make-initialize-cell (lambda ()
-                                 (with-string-name (string-name ,name)
-                                   (global-get-singleton string-name)))))))
+  `(initialize-cell-value
+    (with-string-name (string-name ,name)
+      (global-get-singleton string-name))))

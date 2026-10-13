@@ -63,7 +63,17 @@ object from extension_api.json, as two lists."
         (dolist (constant (json-get class "constants"))
           (add (json-get constant "name") (json-get constant "value")
                (format nil "The constant ~a.~a." class-name (json-get constant "name")))))
-      (values (reverse names) (reverse forms)))))
+      (values (reverse names) (reverse forms))))
+
+  (defun exporting-progn (package names forms result)
+    "The expansion of a macro that defines NAMES with FORMS: a PROGN that exports
+NAMES from PACKAGE, also when it's compiled, then has FORMS, and returns
+RESULT, a form."
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (export ',names ,package))
+       ,@forms
+       ,result)))
 
 (defmacro define-engine-class (class-name)
   "Define a function for each method of the engine class CLASS-NAME (a string)
@@ -94,12 +104,9 @@ they're added to GODOT too."
               (push name names)
               (push form forms))))))
     (multiple-value-bind (constant-names constant-forms) (class-constant-defconstants class)
-      `(progn
-         (eval-when (:compile-toplevel :load-toplevel :execute)
-           (export ',(append constant-names (reverse names)) :godot))
-         ,@constant-forms
-         ,@(reverse forms)
-         ',class-name))))
+      (exporting-progn :godot (append constant-names (reverse names))
+                       (append constant-forms (reverse forms))
+                       `',class-name))))
 
 (defmacro define-global-enums ()
   "Define a constant for each value of Godot's global enums (such as Error, Key
@@ -116,11 +123,7 @@ becomes GODOT:+OK+ and KEY_ESCAPE GODOT:+KEY-ESCAPE+."
                                           (json-get value "name") (json-get enum "name")))
           (push symbol names)
           (push form forms))))
-    `(progn
-       (eval-when (:compile-toplevel :load-toplevel :execute)
-         (export ',(reverse names) :godot))
-       ,@(reverse forms)
-       nil)))
+    (exporting-progn :godot (reverse names) (reverse forms) nil)))
 
 ;;;
 ;;; Utility functions
@@ -155,35 +158,17 @@ JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
                           (if type
                               (engine-method-variant-type type "the result")
                               +variant-type-nil+)))
-           (arguments (loop for (arg-name variant-type default) in (engine-method-arguments function)
-                            collect (list arg-name variant-type default
-                                          (engine-value-ffi-type variant-type)
-                                          (gensym (symbol-name arg-name)))))
+           (arguments (raw-arguments (engine-method-arguments function)))
            (rest (and vararg (intern "ARGUMENTS")))
-           (function-pointer (gensym "FUNCTION"))
-           (name-positions (loop for (nil variant-type) in arguments
-                                 for i from 0
-                                 when (eql variant-type +variant-type-string-name+)
-                                   collect (cons i 'sname)
-                                 when (eql variant-type +variant-type-node-path+)
-                                   collect (cons i 'npath))))
+           (function-pointer (gensym "FUNCTION")))
       `(progn
-         (defun ,name (,@(loop for (arg-name nil default) in arguments
-                               unless default collect arg-name)
-                       ,@(when (some #'third arguments) '(&optional))
-                       ,@(loop for (arg-name nil default) in arguments
-                               when default collect (list arg-name (first default)))
-                       ,@(when rest `(&rest ,rest)))
+         (defun ,name ,(engine-function-lambda-list nil arguments rest)
            ,(format nil "Call the utility function ~a(~{~a~^, ~}) of @GlobalScope~@[ with ~a~]."
                     function-name
-                    (append (mapcar (lambda (argument) (json-get argument "name"))
-                                    (json-get function "arguments"))
-                            (and rest '("...")))
+                    (documented-argument-names function rest)
                     (and vararg "Variants"))
-           (let ((,function-pointer (car (load-time-value
-                                          (make-initialize-cell
-                                           (lambda ()
-                                             (lookup-utility-function ,function-name ,hash)))))))
+           (let ((,function-pointer (initialize-cell-value
+                                     (lookup-utility-function ,function-name ,hash))))
              (unless ,function-pointer
                (error "The utility function ~a wasn't found" ,function-name))
              ,(temporary-names-form
@@ -192,10 +177,7 @@ JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
                    (variant-call-method-form function-pointer nil arguments return-type name rest
                                              :utility t)
                    (ptrcall-method-form function-pointer nil arguments return-type :utility t)))))
-         ,@(when name-positions
-             `((define-compiler-macro ,name (&whole form &rest arguments)
-                 (or (wrap-literal-names ',name arguments ',name-positions)
-                     form))))))))
+         ,@(literal-names-compiler-macro name arguments 0)))))
 
 (defmacro define-utility-functions ()
   "Define a function for each of Godot's utility functions (the global functions
@@ -223,8 +205,4 @@ to Godot's output, also in the editor."
         (when form
           (push name names)
           (push form forms))))
-    `(progn
-       (eval-when (:compile-toplevel :load-toplevel :execute)
-         (export ',(reverse names) :godot-utility))
-       ,@(reverse forms)
-       nil)))
+    (exporting-progn :godot-utility (reverse names) (reverse forms) nil)))

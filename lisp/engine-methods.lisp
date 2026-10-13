@@ -253,6 +253,53 @@ supported default values become optional."
                           type
                           (and (>= i first-optional) default)))))
 
+  (defun raw-arguments (arguments)
+    "ARGUMENTS, a list of (symbol variant-type default) as from
+ENGINE-METHOD-ARGUMENTS, with the FFI type of each argument's raw value and a
+variable for it: a list of (symbol variant-type default ffi-type raw), as
+PTRCALL-METHOD-FORM and VARIANT-CALL-METHOD-FORM take them."
+    (loop for (arg-name variant-type default) in arguments
+          collect (list arg-name variant-type default
+                        (engine-value-ffi-type variant-type)
+                        (gensym (symbol-name arg-name)))))
+
+  (defun engine-function-lambda-list (object arguments rest)
+    "The lambda list of the function of an engine method or a utility function:
+OBJECT (a variable, or NIL if it takes no object), then the ARGUMENTS (as from
+RAW-ARGUMENTS) without a default, then those with one as &OPTIONAL, then REST
+(a variable, or NIL) as &REST."
+    `(,@(when object (list object))
+      ,@(loop for (arg-name nil default) in arguments
+              unless default collect arg-name)
+      ,@(when (some #'third arguments) '(&optional))
+      ,@(loop for (arg-name nil default) in arguments
+              when default collect (list arg-name (first default)))
+      ,@(when rest `(&rest ,rest))))
+
+  (defun documented-argument-names (function rest)
+    "The names of the arguments of FUNCTION (a method or utility function from
+extension_api.json) for a docstring, and \"...\" if REST isn't NIL."
+    (append (mapcar (lambda (argument) (json-get argument "name"))
+                    (json-get function "arguments"))
+            (and rest '("..."))))
+
+  (defun literal-names-compiler-macro (name arguments first-position)
+    "A list of the DEFINE-COMPILER-MACRO of NAME, the function of an engine method
+or a utility function, that wraps a literal string given for one of its
+StringName or NodePath ARGUMENTS in SNAME or NPATH (see WRAP-LITERAL-NAMES), or
+NIL if it has none. FIRST-POSITION is the position of the first of ARGUMENTS in
+a call: 1 after an object argument, otherwise 0."
+    (let ((positions (loop for (nil variant-type) in arguments
+                           for i from first-position
+                           when (eql variant-type +variant-type-string-name+)
+                             collect (cons i 'sname)
+                           when (eql variant-type +variant-type-node-path+)
+                             collect (cons i 'npath))))
+      (when positions
+        `((define-compiler-macro ,name (&whole form &rest arguments)
+            (or (wrap-literal-names ',name arguments ',positions)
+                form))))))
+
   (defun engine-method-defun (name class-name method-name extra-arguments)
     "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
 signature from extension_api.json."
@@ -286,46 +333,26 @@ signature from extension_api.json."
                                         collect (list arg-name type nil))
                                   (loop for (arg-name type) in extra-arguments
                                         collect (list arg-name (variant-type (eval type)) nil)))))
-        (let ((arguments (loop for (arg-name variant-type default) in arguments
-                               collect (list arg-name variant-type default
-                                             (engine-value-ffi-type variant-type)
-                                             (gensym (symbol-name arg-name)))))
-              ;; Further arguments of a vararg method, unless they're declared
-              ;; with EXTRA-ARGUMENTS
-              (rest (and vararg (not extra-arguments) (intern "ARGUMENTS")))
-              (object (gensym "OBJECT"))
-              (method-bind (gensym "METHOD-BIND"))
-              ;; The positions in a call of the StringName and NodePath
-              ;; arguments, which can be given as literal strings
-              (name-positions (loop for (nil variant-type) in arguments
-                                    for i from (if (or static singleton) 0 1)
-                                    when (eql variant-type +variant-type-string-name+)
-                                      collect (cons i 'sname)
-                                    when (eql variant-type +variant-type-node-path+)
-                                      collect (cons i 'npath))))
+        (let* ((arguments (raw-arguments arguments))
+               ;; Further arguments of a vararg method, unless they're declared
+               ;; with EXTRA-ARGUMENTS
+               (rest (and vararg (not extra-arguments) (intern "ARGUMENTS")))
+               (object (gensym "OBJECT"))
+               (takes-object (not (or static singleton)))
+               (method-bind (gensym "METHOD-BIND")))
           `(progn
-            (defun ,name (,@(unless (or static singleton) (list object))
-                          ,@(loop for (arg-name nil default) in arguments
-                                  unless default collect arg-name)
-                          ,@(when (some #'third arguments) '(&optional))
-                          ,@(loop for (arg-name nil default) in arguments
-                                  when default collect (list arg-name (first default)))
-                          ,@(when rest `(&rest ,rest)))
+            (defun ,name ,(engine-function-lambda-list (and takes-object object) arguments rest)
               ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
                             ~@[ on the singleton ~a~]."
                        static defining-class method-name
-                       (append (mapcar (lambda (argument) (json-get argument "name"))
-                                       (json-get method "arguments"))
-                               (and rest '("...")))
+                       (documented-argument-names method rest)
                        (and vararg "Variants")
                        singleton)
               (let ((,object ,(cond (static '(ffi:make-null-pointer :void))
                                     (singleton `(singleton ,singleton))
                                     (t `(object-pointer ,object))))
-                    (,method-bind (car (load-time-value
-                                        (make-initialize-cell
-                                         (lambda ()
-                                           (lookup-method-bind ,defining-class ,method-name ,hash)))))))
+                    (,method-bind (initialize-cell-value
+                                   (lookup-method-bind ,defining-class ,method-name ,hash))))
                 (unless ,method-bind
                   (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
                 ,(let ((call (temporary-names-form
@@ -337,10 +364,7 @@ signature from extension_api.json."
                    (if ref-counted-result
                        `(autorelease-reference ,call)
                        call))))
-            ,@(when name-positions
-                `((define-compiler-macro ,name (&whole form &rest arguments)
-                    (or (wrap-literal-names ',name arguments ',name-positions)
-                        form))))))))))
+            ,@(literal-names-compiler-macro name arguments (if takes-object 1 0))))))))
 
 (defun lookup-method-bind (class-name method-name hash)
   "The method bind of CLASS-NAME.METHOD-NAME with HASH, for an initialize cell.
