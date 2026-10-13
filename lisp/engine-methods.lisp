@@ -38,26 +38,68 @@ needs no destroying."
       (when destructor
         `(,destructor ,pointer))))
 
+  (defstruct (engine-argument
+              (:conc-name argument-)
+              (:constructor make-engine-argument
+                  (name variant-type default
+                   &aux (ffi-type (engine-value-ffi-type variant-type))
+                        (raw (gensym (symbol-name name))))))
+    "An argument of an engine method or a utility function, while the code of its
+function is generated (only at macroexpansion time)."
+    ;; The symbol in the function's lambda list
+    name
+    ;; The variant type, or :VARIANT for any Variant
+    variant-type
+    ;; A list of the form for the default value, or NIL if it's required
+    default
+    ;; The FFI type of the raw value, or NIL for a StringName or NodePath, which
+    ;; is passed as the pointer to it
+    ffi-type
+    ;; The variable for the raw value
+    raw)
+
+  (defun raw-value-bindings (arguments)
+    "The bindings of FFI:WITH-FOREIGN-OBJECTS for the raw values of ARGUMENTS."
+    (loop for argument in arguments
+          when (argument-ffi-type argument)
+            collect `(,(argument-raw argument) ',(argument-ffi-type argument))))
+
+  (defun argument-pointer-form (argument)
+    "A form for the pointer to the raw value of ARGUMENT: the variable for it, or
+for a StringName or NodePath, the argument itself."
+    (if (argument-ffi-type argument)
+        (argument-raw argument)
+        (argument-name argument)))
+
+  (defun argument-write-form (argument)
+    "A form that stores the Lisp value of ARGUMENT as its raw value."
+    (engine-value-write-form (argument-variant-type argument) (argument-raw argument)
+                             (argument-name argument)))
+
+  (defun argument-destroy-form (argument)
+    "A form that destroys the raw value of ARGUMENT, or NIL if it has none or it
+needs no destroying."
+    (and (argument-ffi-type argument)
+         (engine-value-destroy-form (argument-variant-type argument) (argument-raw argument))))
+
   (defun ptrcall-method-form (method-bind object arguments return-type &key utility)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
-ptrcall, with ARGUMENTS as in DEFINE-ENGINE-METHOD. If UTILITY is true,
+ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. If UTILITY is true,
 METHOD-BIND is a utility function (see DEFINE-UTILITY-FUNCTIONS) instead, and
 OBJECT isn't used."
     (let ((has-return-value (not (eql return-type +variant-type-nil+)))
           (args (gensym "ARGS"))
           (r-ret (gensym "R-RET")))
       `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
-                                  ,@(loop for (nil nil nil ffi-type raw) in arguments
-                                          when ffi-type collect `(,raw ',ffi-type))
+                                  ,@(raw-value-bindings arguments)
                                   ,@(when has-return-value
                                       `((,r-ret ',(engine-value-ffi-type return-type)))))
-         ,@(loop for (arg-name type nil ffi-type raw) in arguments
+         ,@(loop for argument in arguments
                  for i from 0
-                 if ffi-type
-                   collect (engine-value-write-form type raw arg-name)
-                   and collect `(setf (foreign-ref ,args :pointer-void ,i) ,raw)
-                 else
-                   collect `(setf (foreign-ref ,args :pointer-void ,i) ,arg-name))
+                 when (argument-ffi-type argument)
+                   collect (argument-write-form argument)
+                 collect `(setf (foreign-ref ,args :pointer-void ,i)
+                                ,(argument-pointer-form argument)))
          ,(let ((call `(progn
                          ;; Godot assigns the result, e.g. to a Ref or a
                          ;; PackedStringArray, so the old value must be empty
@@ -73,8 +115,8 @@ OBJECT isn't used."
                 ;; Raw values that need it, such as Variants, are destroyed
                 ;; after the call
                 (destroy-forms (append
-                                (loop for (nil type nil ffi-type raw) in arguments
-                                      for form = (and ffi-type (engine-value-destroy-form type raw))
+                                (loop for argument in arguments
+                                      for form = (argument-destroy-form argument)
                                       when form collect form)
                                 (when has-return-value
                                   (let ((form (engine-value-destroy-form return-type r-ret)))
@@ -86,8 +128,8 @@ OBJECT isn't used."
   (defun variant-call-method-form (method-bind object arguments return-type name rest
                                    &key utility)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a vararg
-method, with object_method_bind_call, with the arguments and the result as
-Variants. REST, if not NIL, is the variable with the list of further arguments,
+method, with object_method_bind_call, with ARGUMENTS (a list of
+ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the variable with the list of further arguments,
 converted to Variants by their Lisp types (see WRITE-VARIANT). If UTILITY is
 true, METHOD-BIND is a vararg utility function (see DEFINE-UTILITY-FUNCTIONS)
 instead, which takes Variants and returns a raw value of its return type, and
@@ -110,8 +152,7 @@ OBJECT isn't used."
         `(let ((,count ,(if rest `(+ ,declared-count (length ,rest)) declared-count)))
            (ffi:with-foreign-objects ((,args ,(array-type :pointer-void))
                                       (,variants ,(array-type 'variant))
-                                      ,@(loop for (nil nil nil ffi-type raw) in arguments
-                                              when ffi-type collect `(,raw ',ffi-type))
+                                      ,@(raw-value-bindings arguments)
                                       ,@(unless utility
                                           `((,r-return 'variant)
                                             (,r-error 'call-error)))
@@ -123,23 +164,24 @@ OBJECT isn't used."
              ;; Godot always initializes r_ret, also when the call fails
              (unwind-protect
                   (progn
-                    ,@(loop for (arg-name type nil ffi-type raw) in arguments
+                    ,@(loop for argument in arguments
+                            for type = (argument-variant-type argument)
                             for i from 0
                             for variant = `(element-pointer ,variants 'variant ,i)
                             if (eql type :variant)
                               ;; Already any Variant: constructed right in the array
-                              collect `(write-variant ,variant ,arg-name)
+                              collect `(write-variant ,variant ,(argument-name argument))
                             else
                               collect (let ((construct `(call-variant-from-type-constructor
                                                          (aref *variant-from-type-constructors* ,type)
                                                          ,variant
-                                                         ,(if ffi-type raw arg-name)))
-                                            (destroy (and ffi-type (engine-value-destroy-form type raw))))
-                                        (cond ((not ffi-type) construct)
+                                                         ,(argument-pointer-form argument)))
+                                            (destroy (argument-destroy-form argument)))
+                                        (cond ((not (argument-ffi-type argument)) construct)
                                               ;; The Variant gets a copy of the raw value
-                                              (destroy `(progn ,(engine-value-write-form type raw arg-name)
+                                              (destroy `(progn ,(argument-write-form argument)
                                                                (unwind-protect ,construct ,destroy)))
-                                              (t `(progn ,(engine-value-write-form type raw arg-name)
+                                              (t `(progn ,(argument-write-form argument)
                                                          ,construct))))
                             end
                             collect `(setf (foreign-ref ,args :pointer-void ,i) ,variant))
@@ -183,11 +225,12 @@ OBJECT isn't used."
                    `((variant-destroy ,r-return)))))))))
 
   (defun temporary-names-form (arguments form)
-    "FORM, the call of an engine method with ARGUMENTS (as in
-ENGINE-METHOD-DEFUN), wrapped in code that turns each StringName or NodePath
+    "FORM, the call of an engine method with ARGUMENTS (ENGINE-ARGUMENTs), wrapped in code that turns each StringName or NodePath
 argument that's a Lisp string at runtime into a temporary one, destroyed after
 the call."
-    (loop for (arg-name type) in (reverse arguments)
+    (loop for argument in (reverse arguments)
+          for arg-name = (argument-name argument)
+          for type = (argument-variant-type argument)
           when (or (eql type +variant-type-string-name+) (eql type +variant-type-node-path+))
             do (let ((temporary (gensym "TEMPORARY")))
                  (setf form
@@ -232,9 +275,8 @@ name of an argument or \"the result\", if engine methods support it."
 
   (defun engine-method-arguments (method)
     "The arguments of METHOD (a method from extension_api.json), as a list of
-(symbol variant-type default), where DEFAULT is a list of the form for the
-default value, or NIL if the argument is required. Only the last arguments with
-supported default values become optional."
+ENGINE-ARGUMENTs. Only the last arguments with supported default values become
+optional."
     (let* ((arguments (json-get method "arguments"))
            (types (mapcar (lambda (argument)
                             (engine-method-variant-type (json-get argument "type")
@@ -249,31 +291,22 @@ supported default values become optional."
             for type in types
             for default in defaults
             for i from 0
-            collect (list (engine-method-argument-symbol (json-get argument "name"))
-                          type
-                          (and (>= i first-optional) default)))))
-
-  (defun raw-arguments (arguments)
-    "ARGUMENTS, a list of (symbol variant-type default) as from
-ENGINE-METHOD-ARGUMENTS, with the FFI type of each argument's raw value and a
-variable for it: a list of (symbol variant-type default ffi-type raw), as
-PTRCALL-METHOD-FORM and VARIANT-CALL-METHOD-FORM take them."
-    (loop for (arg-name variant-type default) in arguments
-          collect (list arg-name variant-type default
-                        (engine-value-ffi-type variant-type)
-                        (gensym (symbol-name arg-name)))))
+            collect (make-engine-argument (engine-method-argument-symbol (json-get argument "name"))
+                                          type
+                                          (and (>= i first-optional) default)))))
 
   (defun engine-function-lambda-list (object arguments rest)
     "The lambda list of the function of an engine method or a utility function:
-OBJECT (a variable, or NIL if it takes no object), then the ARGUMENTS (as from
-RAW-ARGUMENTS) without a default, then those with one as &OPTIONAL, then REST
+OBJECT (a variable, or NIL if it takes no object), then the ARGUMENTS
+(ENGINE-ARGUMENTs) without a default, then those with one as &OPTIONAL, then REST
 (a variable, or NIL) as &REST."
     `(,@(when object (list object))
-      ,@(loop for (arg-name nil default) in arguments
-              unless default collect arg-name)
-      ,@(when (some #'third arguments) '(&optional))
-      ,@(loop for (arg-name nil default) in arguments
-              when default collect (list arg-name (first default)))
+      ,@(loop for argument in arguments
+              unless (argument-default argument) collect (argument-name argument))
+      ,@(when (some #'argument-default arguments) '(&optional))
+      ,@(loop for argument in arguments
+              for default = (argument-default argument)
+              when default collect (list (argument-name argument) (first default)))
       ,@(when rest `(&rest ,rest))))
 
   (defun documented-argument-names (function rest)
@@ -289,7 +322,8 @@ or a utility function, that wraps a literal string given for one of its
 StringName or NodePath ARGUMENTS in SNAME or NPATH (see WRAP-LITERAL-NAMES), or
 NIL if it has none. FIRST-POSITION is the position of the first of ARGUMENTS in
 a call: 1 after an object argument, otherwise 0."
-    (let ((positions (loop for (nil variant-type) in arguments
+    (let ((positions (loop for argument in arguments
+                           for variant-type = (argument-variant-type argument)
                            for i from first-position
                            when (eql variant-type +variant-type-string-name+)
                              collect (cons i 'sname)
@@ -329,12 +363,13 @@ signature from extension_api.json."
                    class-name method-name))
           ;; The extra arguments come after the declared ones, which are then
           ;; all required
-          (setf arguments (append (loop for (arg-name type nil) in arguments
-                                        collect (list arg-name type nil))
+          (dolist (argument arguments)
+            (setf (argument-default argument) nil))
+          (setf arguments (append arguments
                                   (loop for (arg-name type) in extra-arguments
-                                        collect (list arg-name (variant-type (eval type)) nil)))))
-        (let* ((arguments (raw-arguments arguments))
-               ;; Further arguments of a vararg method, unless they're declared
+                                        collect (make-engine-argument
+                                                 arg-name (variant-type (eval type)) nil)))))
+        (let* (;; Further arguments of a vararg method, unless they're declared
                ;; with EXTRA-ARGUMENTS
                (rest (and vararg (not extra-arguments) (intern "ARGUMENTS")))
                (object (gensym "OBJECT"))

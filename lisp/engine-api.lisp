@@ -158,7 +158,7 @@ JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
                           (if type
                               (engine-method-variant-type type "the result")
                               +variant-type-nil+)))
-           (arguments (raw-arguments (engine-method-arguments function)))
+           (arguments (engine-method-arguments function))
            (rest (and vararg (intern "ARGUMENTS")))
            (function-pointer (gensym "FUNCTION")))
       `(progn
