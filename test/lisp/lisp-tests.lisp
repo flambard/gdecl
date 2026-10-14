@@ -101,6 +101,16 @@
     (check (eq :error (handler-case (node-get-name node)
                         (error () :error))))))
 
+(deftest raw-pointers-in-variants
+  ;; Only Lisp objects of Godot objects become Object Variants, not raw
+  ;; pointers, which might point to something else, such as a StringName
+  (check (gd-extension-types:variant-value-p *root*))
+  (check (not (gd-extension-types:variant-value-p (gdext:sname "pinged"))))
+  ;; So passing one where a Variant is made from it is an error, before Godot
+  ;; gets it
+  (check (eq :error (handler-case (object-emit-signal *root* "ready" (gdext:sname "x"))
+                      (error () :error)))))
+
 (deftest strings-for-names
   (let ((node (new-node "Node")))
     (node-set-name node "Named")

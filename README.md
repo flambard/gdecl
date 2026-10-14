@@ -186,7 +186,7 @@ Every Godot object you get in Lisp has one Lisp object, a `gdext:godot-object`, 
 
 When Godot frees an object, its Lisp object becomes invalid: using it signals an error instead of crashing. `(gdext:valid-object-p object)` tells whether it still exists, like `is_instance_valid` in GDScript.
 
-For dropping down: anything that takes an object also takes a Godot object pointer, `gdext:object-pointer` gives the pointer of a Lisp object, and `gdext:lisp-object` the Lisp object of a pointer.
+For dropping down: an Object argument of an engine method also takes a Godot object pointer (but a Variant isn't made from one, as it might point to something else, such as a StringName), `gdext:object-pointer` gives the pointer of a Lisp object, and `gdext:lisp-object` the Lisp object of a pointer.
 
 ## Builtin types
 

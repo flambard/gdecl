@@ -2,10 +2,6 @@
 
 From a review on 2026-10-13, updated on 2026-10-14 after fixing the bugs it found and the performance work (`define-builtin-type`, static FFI calls, cheaper callbacks). File references are in `lisp/` unless shown otherwise. `make bench` measures calls between Lisp and Godot.
 
-## Bugs
-
-- [ ] **D. Any foreign pointer counts as an Object.** `lisp-variant-type` (`gd-extension-types.lisp`) maps any `si:foreign-data` to Object. So an `sname` passed to `object-emit-signal`'s extra arguments becomes an Object Variant of a StringName pointer, which will most likely crash Godot. Now that every object Godot gives Lisp is a `godot-object` (I, step 1), and `singleton` returns one too, raw pointers needn't be Objects in Variants: make `lisp-variant-type` accept only `godot-object`s, and say so in the README (a raw pointer can still be passed to engine methods' Object arguments).
-
 ## Performance (measure with `make bench` before and after)
 
 Where things stand: an engine call from Lisp costs 0.5–0.7 µs (GDScript: 50–100 ns), a vararg one (`emit_signal`) 2.1 µs (130 ns), a call into a Lisp method with ptrcall, like `_process`, 0.7–0.9 µs (into a GDScript method: 0.25 µs; an empty callback alone: 0.3 µs), and a Lisp signal handler 1.3–1.7 µs on top of the emit (a GDScript handler: 0.45 µs). Results vary by about 15% from run to run.
@@ -37,9 +33,8 @@ Where things stand: an engine call from Lisp costs 0.5–0.7 µs (GDScript: 50�
 
 ## Suggested order
 
-1. D: the one bug left.
-2. L, decided together with K. These are the biggest remaining costs per call.
-3. The small things, when touching that code anyway.
-4. N and O, if measurements show they matter.
-5. P, before starting the high-level layer.
-6. I, J and K with the high-level layer or REPL work, which they shape.
+1. L, decided together with K. These are the biggest remaining costs per call.
+2. The small things, when touching that code anyway.
+3. N and O, if measurements show they matter.
+4. P, before starting the high-level layer.
+5. I, J and K with the high-level layer or REPL work, which they shape.

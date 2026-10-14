@@ -168,7 +168,10 @@ OBJECT isn't used."
              ;; All Nil, so they can all be destroyed, also if making one fails
              (ffi:c-inline (,variants ,(array-size 'variant)) (:pointer-void :unsigned-long) :void
                            "__builtin_memset(#0, 0, #1)" :one-liner t)
-             ;; Godot always initializes r_ret, also when the call fails
+             ;; Nil too, so it can be destroyed also if making an argument fails
+             ;; before the call, which initializes it
+             ,@(unless utility
+                 `((clear-foreign-object ,r-return 'variant)))
              (unwind-protect
                   (progn
                     ,@(loop for argument in arguments

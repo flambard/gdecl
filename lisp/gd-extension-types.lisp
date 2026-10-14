@@ -348,8 +348,10 @@ are found by the LISP-TYPE of their value types."
     (integer +variant-type-int+)
     (real +variant-type-float+)
     (string +variant-type-string+)
-    ;; Before other structs, as the Lisp objects of instances include it
-    ((or godot-object si:foreign-data) +variant-type-object+)
+    ;; Before other structs, as the Lisp objects of instances include it. Not
+    ;; raw pointers, which might point to something else than an Object, such
+    ;; as a StringName.
+    (godot-object +variant-type-object+)
     (structure-object (values (gethash (type-of value) *struct-variant-types*)))))
 
 (defun variant-value-p (value)
@@ -360,7 +362,9 @@ are found by the LISP-TYPE of their value types."
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
 by its Lisp type: T or NIL is a bool, an integer an int, a real a float, a
 string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a VECTOR3 a Vector3, a
-BASIS a Basis, a GODOT-OBJECT or a pointer an Object, and a CALLABLE a Callable. Destroy it with VARIANT-DESTROY."
+BASIS a Basis, a GODOT-OBJECT an Object (but not a raw pointer, which might
+point to something else, such as a StringName), and a CALLABLE a Callable.
+Destroy it with VARIANT-DESTROY."
   (write-variant-as variant
                     (find-value-type (or (lisp-variant-type value)
                                          (error "Can't make a Variant from ~s" value)))
