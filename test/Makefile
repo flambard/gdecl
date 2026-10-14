@@ -35,4 +35,11 @@ test: all project/.godot/extension_list.cfg
 	if [ $$status -ne 0 ]; then echo "[test] FAILED"; else echo "[test] PASSED"; fi; \
 	exit $$status
 
-.PHONY: test
+# The benchmarks, see run_benchmarks.gd. The whole output is in BENCH_LOG.
+BENCH_LOG = $(BUILD_DIR)/bench.log
+
+bench: all project/.godot/extension_list.cfg
+	@$(GODOT) --headless --path project -s res://run_benchmarks.gd > $(BENCH_LOG) 2>&1; \
+	grep -a '^\[bench\]\|^ERROR\|^SCRIPT ERROR' $(BENCH_LOG)
+
+.PHONY: test bench

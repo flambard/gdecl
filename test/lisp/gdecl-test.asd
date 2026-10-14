@@ -7,4 +7,5 @@
                  (:file "framework" :depends-on ("packages"))
                  (:file "engine-classes" :depends-on ("packages"))
                  (:file "classes" :depends-on ("packages" "framework" "engine-classes"))
-                 (:file "lisp-tests" :depends-on ("packages" "framework" "engine-classes" "classes"))))
+                 (:file "lisp-tests" :depends-on ("packages" "framework" "engine-classes" "classes"))
+                 (:file "benchmarks" :depends-on ("packages"))))
