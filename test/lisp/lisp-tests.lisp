@@ -133,8 +133,10 @@ types of Godot objects.")
     (check (gdext:valid-object-p node))
     (gdext-ffi:object-destroy (gdext:object-pointer node))
     (check (not (gdext:valid-object-p node)))
-    (check (eq :error (handler-case (node-get-name node)
-                        (error () :error))))))
+    ;; The error is about the freed object, not anything else
+    (check (search "freed"
+                   (handler-case (progn (node-get-child-count node) "no error")
+                     (error (e) (princ-to-string e)))))))
 
 (deftest raw-pointers-in-variants
   ;; Only Lisp objects of Godot objects become Object Variants, not raw
