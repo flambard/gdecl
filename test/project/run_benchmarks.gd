@@ -59,6 +59,15 @@ func _init() -> void:
 		func(): for i in COUNT: Input.is_action_pressed("ui_up"))
 	report("emit_signal(\"pinged\", 1) (vararg)", func(): for i in COUNT: lisp.emit_signal("pinged", 1))
 
+	# Signal handlers, emitted from GDScript: none, a GDScript one and a Lisp one
+	report("handled.emit(1), no handler", func(): for i in COUNT: lisp.handled.emit(1))
+	var handler := func(_value: int) -> void: ticker.ticks += 1
+	lisp.handled.connect(handler)
+	report("handled.emit(1), GDScript handler", func(): for i in COUNT: lisp.handled.emit(1))
+	lisp.handled.disconnect(handler)
+	lisp.connect_lisp_handler()
+	report("handled.emit(1), Lisp handler", func(): for i in COUNT: lisp.handled.emit(1))
+
 	lisp.run(COUNT)
 	lisp.free()
 	quit()

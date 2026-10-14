@@ -56,7 +56,12 @@ pointer), or a Godot object pointer, which is returned as it is."
   lisp-type
   ;; The size of the raw value in bytes, set by ADD-VALUE-TYPE, so it isn't
   ;; looked up at every conversion
-  (size nil))
+  (size nil)
+  ;; Names of functions that read a Variant of this type as a Lisp value, and
+  ;; that construct one from a Lisp value, faster than through a raw value in
+  ;; foreign memory (see READ-VARIANT-AS and WRITE-VARIANT-AS), or NIL
+  (variant-reader nil)
+  (variant-writer nil))
 
 (defparameter *value-types*
   (make-array (1+ +variant-type-variant-max+) :initial-element nil)
@@ -67,6 +72,9 @@ values: the VALUE-TYPE of each variant type, by variant type, and that of
 (defparameter *struct-variant-types* (make-hash-table :test #'eq)
   "The variant types of the value types with a LISP-TYPE, by the struct type.")
 
+;; Inline: called for every Variant converted, and a call of a function in
+;; another file costs about 50 ns in ECL
+(declaim (inline value-type-index find-value-type))
 (defun value-type-index (variant-type)
   "The index of VARIANT-TYPE (or :VARIANT) in *VALUE-TYPES*, or NIL."
   (cond ((eq variant-type :variant) +variant-type-variant-max+)
@@ -97,13 +105,17 @@ types whose conversion needs a higher layer, such as Callable, and builtin types
 
 (dolist (value-type
          (list (make-value-type :variant-type +variant-type-bool+ :ffi-type :uint8-t
-                         :reader 'read-bool :writer 'write-bool)
+                         :reader 'read-bool :writer 'write-bool
+                         :variant-reader 'read-bool-variant :variant-writer 'write-bool-variant)
         (make-value-type :variant-type +variant-type-int+ :ffi-type :int64-t
-                         :reader 'read-int :writer 'write-int)
+                         :reader 'read-int :writer 'write-int
+                         :variant-reader 'read-int-variant :variant-writer 'write-int-variant)
         (make-value-type :variant-type +variant-type-float+ :ffi-type :double
-                         :reader 'read-float :writer 'write-float)
+                         :reader 'read-float :writer 'write-float
+                         :variant-reader 'read-float-variant :variant-writer 'write-float-variant)
         (make-value-type :variant-type +variant-type-object+ :ffi-type :pointer-void
-                         :reader 'read-object :writer 'write-object)
+                         :reader 'read-object :writer 'write-object
+                         :variant-writer 'write-object-variant)
         (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
                          :reader 'read-godot-string :writer 'write-godot-string
                          :destructor 'string-destructor)
@@ -342,24 +354,73 @@ BASIS a Basis, a GODOT-OBJECT or a pointer an Object, and a CALLABLE a Callable.
 
 (defun write-variant-as (variant value-type value)
   "Construct a Variant of VALUE-TYPE at VARIANT, uninitialized memory, from the
-Lisp VALUE, through a temporary raw value. Destroy it with VARIANT-DESTROY."
-  ;; The Variant gets a copy of the raw value
-  (with-foreign-memory ((raw :size (value-type-size value-type)))
-    (write-value raw value-type value)
-    (unwind-protect
-         (call-variant-from-type-constructor
-          (aref *variant-from-type-constructors* (value-type-variant-type value-type))
-          variant raw)
-      (destroy-value raw value-type))))
+Lisp VALUE, with the type's VARIANT-WRITER, or through a temporary raw value.
+Destroy it with VARIANT-DESTROY."
+  (let ((variant-writer (value-type-variant-writer value-type)))
+    (if variant-writer
+        (funcall variant-writer variant value)
+        ;; The Variant gets a copy of the raw value
+        (with-foreign-memory ((raw :size (value-type-size value-type)))
+          (write-value raw value-type value)
+          (unwind-protect
+               (call-variant-from-type-constructor
+                (aref *variant-from-type-constructors* (value-type-variant-type value-type))
+                variant raw)
+            (destroy-value raw value-type))))))
 
 (defun read-variant-as (variant value-type)
   "The value of the Variant at VARIANT, which is of VALUE-TYPE, as a Lisp value,
-through a temporary raw value."
-  (with-foreign-memory ((raw :size (value-type-size value-type)))
-    (call-type-from-variant-constructor
-     (aref *type-from-variant-constructors* (value-type-variant-type value-type)) raw variant)
-    (unwind-protect (read-value raw value-type)
-      (destroy-value raw value-type))))
+with the type's VARIANT-READER, or through a temporary raw value."
+  (let ((variant-reader (value-type-variant-reader value-type)))
+    (if variant-reader
+        (funcall variant-reader variant)
+        (with-foreign-memory ((raw :size (value-type-size value-type)))
+          (call-type-from-variant-constructor
+           (aref *type-from-variant-constructors* (value-type-variant-type value-type))
+           raw variant)
+          (unwind-protect (read-value raw value-type)
+            (destroy-value raw value-type))))))
+
+;;; The primitive types' Variants are converted in one piece of C code each,
+;;; with the raw value in a C variable, instead of in foreign memory from
+;;; Lisp: that allocates nothing, and is several times faster.
+
+(defmacro variant-from-raw (variant variant-type ffi-type c-type value)
+  "Construct a Variant of VARIANT-TYPE at VARIANT from VALUE, a raw value of
+FFI-TYPE (C-TYPE in C), with Godot's constructor."
+  `(ffi:c-inline ((aref *variant-from-type-constructors* ,variant-type) ,variant ,value)
+                 (:pointer-void :pointer-void ,ffi-type) :void
+                 ,(format nil "{ ~a value = #2; ((void (*)(void *, void *))#0)(#1, &value); }"
+                          c-type)))
+
+(defmacro raw-from-variant (variant variant-type ffi-type c-type)
+  "The raw value of FFI-TYPE (C-TYPE in C) of the Variant of VARIANT-TYPE at
+VARIANT, with Godot's constructor."
+  `(ffi:c-inline ((aref *type-from-variant-constructors* ,variant-type) ,variant)
+                 (:pointer-void :pointer-void) ,ffi-type
+                 ,(format nil "{ ~a value; ((void (*)(void *, void *))#0)(&value, #1); @(return 0) = value; }"
+                          c-type)))
+
+(defun write-bool-variant (variant value)
+  (variant-from-raw variant +variant-type-bool+ :uint8-t "uint8_t" (if value 1 0)))
+
+(defun read-bool-variant (variant)
+  (/= 0 (raw-from-variant variant +variant-type-bool+ :uint8-t "uint8_t")))
+
+(defun write-int-variant (variant value)
+  (variant-from-raw variant +variant-type-int+ :int64-t "int64_t" value))
+
+(defun read-int-variant (variant)
+  (raw-from-variant variant +variant-type-int+ :int64-t "int64_t"))
+
+(defun write-float-variant (variant value)
+  (variant-from-raw variant +variant-type-float+ :double "double" (float value 1d0)))
+
+(defun read-float-variant (variant)
+  (raw-from-variant variant +variant-type-float+ :double "double"))
+
+(defun write-object-variant (variant value)
+  (variant-from-raw variant +variant-type-object+ :pointer-void "void *" (object-pointer value)))
 
 (defun read-variant (variant)
   "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for
@@ -367,10 +428,14 @@ Nil, otherwise as in *VALUE-TYPES*."
   (let ((variant-type (variant-get-type variant)))
     (if (= variant-type +variant-type-nil+)
         nil
-        (let ((value-type (find-value-type variant-type)))
-          (unless (and (value-type-ffi-type value-type) (value-type-reader value-type))
-            (error "Unsupported type for a Variant: variant type ~s" variant-type))
-          (read-variant-as variant value-type)))))
+        (let* ((value-type (find-value-type variant-type))
+               (variant-reader (value-type-variant-reader value-type)))
+          (cond (variant-reader
+                 (funcall variant-reader variant))
+                ((and (value-type-ffi-type value-type) (value-type-reader value-type))
+                 (read-variant-as variant value-type))
+                (t
+                 (error "Unsupported type for a Variant: variant type ~s" variant-type)))))))
 
 ;;;
 ;;; The autorelease pool

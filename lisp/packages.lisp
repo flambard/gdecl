@@ -317,6 +317,7 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:read-packed-string-array
            #:write-variant
            #:variant-value-p
+           #:lisp-variant-type
            #:read-variant
            #:read-variant-result
            ;; The autorelease pool
@@ -340,6 +341,10 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:value-type-writer
            #:value-type-destructor
            #:value-type-lisp-type
+           #:value-type-variant-reader
+           #:value-type-variant-writer
+           #:raw-from-variant
+           #:write-object-variant
            #:find-value-type
            #:add-value-type
            #:read-value

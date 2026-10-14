@@ -479,10 +479,18 @@ pointer."
 ;; Objects that Godot gives Lisp (results of engine methods, arguments of
 ;; bound methods and Callables) are instances' Lisp objects where there are
 ;; any
+(defun read-lisp-object-variant (variant)
+  "The Object in the Variant at VARIANT as a Lisp value, as in READ-LISP-OBJECT."
+  (let ((object (raw-from-variant variant +variant-type-object+ :pointer-void "void *")))
+    (and (not (ffi:null-pointer-p object))
+         (or (lisp-object object) object))))
+
 (add-value-type (make-value-type :variant-type +variant-type-object+
                                  :ffi-type :pointer-void
                                  :reader 'read-lisp-object
-                                 :writer 'write-object))
+                                 :writer 'write-object
+                                 :variant-reader 'read-lisp-object-variant
+                                 :variant-writer 'write-object-variant))
 
 (defun instance-object (instance)
   "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
@@ -624,11 +632,12 @@ until the last copy of the Callable is destroyed."
     (let ((result (apply (userdata-callable-function callable-userdata)
                          (loop for i below argument-count
                                collect (read-variant (foreign-ref args :pointer-void i))))))
-      (when (and result (variant-value-p result))
-        ;; R-RETURN is a Variant already (Nil). Written before the pool gives
-        ;; back its references, so an object in it stays alive.
-        (variant-destroy r-return)
-        (write-variant r-return result)))))
+      (let ((variant-type (and result (lisp-variant-type result))))
+        (when variant-type
+          ;; R-RETURN is a Variant already (Nil). Written before the pool
+          ;; gives back its references, so an object in it stays alive.
+          (variant-destroy r-return)
+          (write-variant-as r-return (find-value-type variant-type) result))))))
 
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (ffi:defcallback callable-free :void ((callable-userdata :pointer-void))
