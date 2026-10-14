@@ -135,6 +135,14 @@ arguments and returns how many there were."
   (:method "get_child_slot" test-bare-node-child :return-type :object))
 
 ;;;
+;;; TestFailingNode: its Lisp object can't be made, as a slot's initform
+;;; signals an error
+;;;
+
+(gdext:define-class test-failing-node ("TestFailingNode" "Node")
+  ((broken (error "A constructor error, expected by the tests"))))
+
+;;;
 ;;; LispTests: runs the tests written in Lisp
 ;;;
 

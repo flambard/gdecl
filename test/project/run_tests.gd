@@ -92,6 +92,14 @@ func test_errors() -> void:
 	node.free()
 
 
+func test_failing_constructor() -> void:
+	# The Godot object made for the instance must be freed again, or Godot
+	# reports it as leaked at exit
+	print("[test] expect error")
+	check(ClassDB.instantiate("TestFailingNode") == null,
+		"a class whose Lisp object can't be made isn't instantiated")
+
+
 func test_ready_and_process() -> void:
 	var node := TestNode.new()
 	var child := Node.new()

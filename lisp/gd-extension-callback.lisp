@@ -394,10 +394,19 @@ object, and return the object pointer."
   (let* ((class (userdata-class class-userdata))
          ;; An object of the parent class, which becomes an object of CLASS
          ;; through OBJECT-SET-INSTANCE
-         (object (classdb-construct-object (extension-class-parent-string-name class))))
-    (object-set-instance object (extension-class-string-name class)
-                         (add-instance object (funcall (extension-class-constructor class) object)))
-    object))
+         (object (classdb-construct-object (extension-class-parent-string-name class)))
+         (instance-set nil))
+    ;; If the Lisp object can't be made, the Godot object is destroyed again,
+    ;; as Godot only gets NULL
+    (unwind-protect
+         (progn
+           (object-set-instance object (extension-class-string-name class)
+                                (add-instance object
+                                              (funcall (extension-class-constructor class) object)))
+           (setf instance-set t)
+           object)
+      (unless instance-set
+        (object-destroy object)))))
 
 (defun free-class-instance (class-userdata instance)
   (let ((destructor (extension-class-destructor (userdata-class class-userdata)))
