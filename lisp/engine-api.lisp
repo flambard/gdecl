@@ -98,8 +98,9 @@ they're added to GODOT too."
       (let ((method-name (json-get method "name")))
         (unless (json-get method "is_virtual")
           (let* ((name (intern (format nil "~a-~a" prefix (lisp-style-method-name method-name))))
-                 ;; NIL if the method can't be called yet
-                 (form (ignore-errors (engine-method-defun name class-name method-name '()))))
+                 ;; NIL if the method has types that can't be converted yet
+                 (form (handler-case (engine-method-defun name class-name method-name '())
+                         (unsupported-api-type () nil))))
             (when form
               (push name names)
               (push form forms))))))
@@ -200,8 +201,10 @@ to Godot's output, also in the editor."
                                nil)
                               (t (lisp-style-method-name function-name))))
              (name (and lisp-name (intern lisp-name)))
-             ;; NIL if the function can't be called yet
-             (form (and name (ignore-errors (utility-function-defun name function)))))
+             ;; NIL if the function has types that can't be converted yet
+             (form (and name
+                        (handler-case (utility-function-defun name function)
+                          (unsupported-api-type () nil)))))
         (when form
           (push name names)
           (push form forms))))

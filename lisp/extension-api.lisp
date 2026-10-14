@@ -22,6 +22,18 @@
 ;;; The API
 ;;;
 
+(define-condition unsupported-api-type (simple-error)
+  ()
+  (:documentation "Signaled while generating code from extension_api.json for a
+type that gdecl can't convert yet. DEFINE-ENGINE-CLASS and
+DEFINE-UTILITY-FUNCTIONS skip the methods that signal it; any other error is a
+real one."))
+
+(defun unsupported-api-type (format-control &rest format-arguments)
+  "Signal UNSUPPORTED-API-TYPE with a message made by FORMAT."
+  (error 'unsupported-api-type :format-control format-control
+                               :format-arguments format-arguments))
+
 (defstruct extension-api
   ;; The classes (JSON objects) by name
   (classes (make-hash-table :test #'equal))
@@ -151,7 +163,7 @@ enum or bitfield, Object for an engine class, :VARIANT for Variant."
            +variant-type-int+)
           ((eql 0 (search "typedarray::" type)) +variant-type-array+)
           ((api-class type) +variant-type-object+)
-          (t (error "Unsupported type in extension_api.json: ~a" type)))))
+          (t (unsupported-api-type "Unsupported type in extension_api.json: ~a" type)))))
 
 (defun api-default-form (default variant-type)
   "A list of one form for the default value DEFAULT of an argument of
@@ -211,7 +223,7 @@ it's not supported (yet)."
           (t
            ;; A builtin type whose components are all floats, such as Vector2:
            ;; Vector2(x, y) is (VECTOR2 X Y)
-           (let* ((value-type (ignore-errors (find-value-type variant-type)))
+           (let* ((value-type (find-value-type variant-type nil))
                   (name (and value-type (value-type-lisp-type value-type)))
                   (components (and name (builtin-type-components name))))
              (when (and components

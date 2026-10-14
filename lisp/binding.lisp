@@ -236,7 +236,7 @@ string PROBLEM that says why the method can't be bound."
                                         (api-variant-type (json-get argument "type")))
                                       (json-get method "arguments"))
                               nil))
-                    (error (e)
+                    (unsupported-api-type (e)
                       (list class-name nil nil (princ-to-string e)))))))
 
 (defun bind-virtual-with-signatures (class-name virtual-name function signatures)

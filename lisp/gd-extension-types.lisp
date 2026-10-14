@@ -70,11 +70,13 @@ values: the VALUE-TYPE of each variant type, by variant type, and that of
         ((and (integerp variant-type) (< -1 variant-type +variant-type-variant-max+))
          variant-type)))
 
-(defun find-value-type (variant-type)
-  "The VALUE-TYPE of VARIANT-TYPE (or :VARIANT)."
+(defun find-value-type (variant-type &optional (errorp t))
+  "The VALUE-TYPE of VARIANT-TYPE (or :VARIANT). If there's none, signals an
+error, or returns NIL if ERRORP is false."
   (let ((index (value-type-index variant-type)))
     (or (and index (aref *value-types* index))
-        (error "Unsupported type: variant type ~s" variant-type))))
+        (and errorp
+             (error "Unsupported type: variant type ~s" variant-type)))))
 
 (defun add-value-type (value-type)
   "Add VALUE-TYPE to *VALUE-TYPES*, replacing one for the same variant type. For

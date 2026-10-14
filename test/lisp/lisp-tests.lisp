@@ -205,6 +205,18 @@
       (check (null (ignore-errors (json-stringify object 42)))))
     (check (null (instance-from-id id)))))
 
+(deftest unsupported-api-types
+  ;; DEFINE-ENGINE-CLASS skips the methods with types gdecl can't convert yet,
+  ;; which signal UNSUPPORTED-API-TYPE, but not other errors, such as bugs in
+  ;; the code generator
+  (check (eq :unsupported
+             (handler-case (gdext::engine-method-variant-type "PackedVector3Array" "points")
+               (gdext::unsupported-api-type () :unsupported))))
+  (check (eq :other
+             (handler-case (gdext::engine-method-variant-type 42 "points")
+               (gdext::unsupported-api-type () :unsupported)
+               (error () :other)))))
+
 (deftest autorelease-pool
   ;; RefCounted results stay alive until the call from Godot returns
   (let* ((tree (node-get-tree *root*))

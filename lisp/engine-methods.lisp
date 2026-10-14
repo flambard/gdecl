@@ -21,14 +21,16 @@ or NIL for a StringName or NodePath, which is passed as the pointer to it."
     "A form that stores the Lisp VALUE as a raw value of VARIANT-TYPE at POINTER."
     (let ((writer (value-type-writer (find-value-type variant-type))))
       (unless writer
-        (error "Unsupported argument type for an engine method: variant type ~s" variant-type))
+        (unsupported-api-type "Unsupported argument type for an engine method: variant type ~s"
+                              variant-type))
       `(,writer ,pointer ,value)))
 
   (defun engine-value-read-form (variant-type pointer)
     "A form that reads the raw value of VARIANT-TYPE at POINTER as a Lisp value."
     (let ((reader (value-type-reader (find-value-type variant-type))))
       (unless reader
-        (error "Unsupported return type for an engine method: variant type ~s" variant-type))
+        (unsupported-api-type "Unsupported return type for an engine method: variant type ~s"
+                              variant-type))
       `(,reader ,pointer)))
 
   (defun engine-value-destroy-form (variant-type pointer)
@@ -272,8 +274,8 @@ lambda list of an engine method: NAME in Lisp style, in the current package."
     "The variant type of TYPE (a type name from extension_api.json) of WHAT, the
 name of an argument or \"the result\", if engine methods support it."
     (let ((variant-type (api-variant-type type)))
-      (unless (ignore-errors (find-value-type variant-type))
-        (error "Unsupported type ~a of ~a" type what))
+      (unless (find-value-type variant-type nil)
+        (unsupported-api-type "Unsupported type ~a of ~a" type what))
       variant-type))
 
   (defun engine-method-arguments (method)
