@@ -194,6 +194,17 @@
   (let ((node (new-node "Node")))
     (check (same-object-p node (object-call *root* "get_child" (node-get-index node))))))
 
+(deftest argument-conversion-errors
+  ;; If an argument can't be converted, the raw values of those converted
+  ;; before it are destroyed: here a Variant with a reference to a RefCounted
+  ;; object, which would otherwise keep it alive
+  (let ((id nil))
+    (gdext:with-reference (object (class-db-instantiate "RefCounted"))
+      (setf id (object-get-instance-id object))
+      ;; The indent, a String, can't be made from 42
+      (check (null (ignore-errors (json-stringify object 42)))))
+    (check (null (instance-from-id id)))))
+
 (deftest autorelease-pool
   ;; RefCounted results stay alive until the call from Godot returns
   (let* ((tree (node-get-tree *root*))

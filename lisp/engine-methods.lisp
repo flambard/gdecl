@@ -87,43 +87,46 @@ needs no destroying."
 ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. If UTILITY is true,
 METHOD-BIND is a utility function (see DEFINE-UTILITY-FUNCTIONS) instead, and
 OBJECT isn't used."
-    (let ((has-return-value (not (eql return-type +variant-type-nil+)))
-          (args (gensym "ARGS"))
-          (r-ret (gensym "R-RET")))
+    (let* ((has-return-value (not (eql return-type +variant-type-nil+)))
+           (args (gensym "ARGS"))
+           (r-ret (gensym "R-RET"))
+           ;; The arguments whose raw values need destroying, such as Strings
+           ;; and Variants
+           (destroyed-arguments (remove-if-not #'argument-destroy-form arguments))
+           (destroy-forms (append
+                           (mapcar #'argument-destroy-form destroyed-arguments)
+                           (when has-return-value
+                             (let ((form (engine-value-destroy-form return-type r-ret)))
+                               (when form (list form))))))
+           (body `(,@(loop for argument in arguments
+                           for i from 0
+                           when (argument-ffi-type argument)
+                             collect (argument-write-form argument)
+                           collect `(setf (foreign-ref ,args :pointer-void ,i)
+                                          ,(argument-pointer-form argument)))
+                   ,(let ((r-ret (if has-return-value r-ret '(ffi:make-null-pointer :void))))
+                      (if utility
+                          `(call-ptr-utility-function ,method-bind ,r-ret ,args
+                                                      ,(length arguments))
+                          `(object-method-bind-ptrcall ,method-bind ,object ,args ,r-ret)))
+                   ,@(when has-return-value
+                       (list (engine-value-read-form return-type r-ret))))))
       `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
                                   ,@(raw-value-bindings arguments)
                                   ,@(when has-return-value
                                       `((,r-ret ',(engine-value-ffi-type return-type)))))
-         ,@(loop for argument in arguments
-                 for i from 0
-                 when (argument-ffi-type argument)
-                   collect (argument-write-form argument)
-                 collect `(setf (foreign-ref ,args :pointer-void ,i)
-                                ,(argument-pointer-form argument)))
-         ,(let ((call `(progn
-                         ;; Godot assigns the result, e.g. to a Ref or a
-                         ;; PackedStringArray, so the old value must be empty
-                         ,@(when has-return-value
-                             `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
-                         ,(let ((r-ret (if has-return-value r-ret '(ffi:make-null-pointer :void))))
-                            (if utility
-                                `(call-ptr-utility-function ,method-bind ,r-ret ,args
-                                                            ,(length arguments))
-                                `(object-method-bind-ptrcall ,method-bind ,object ,args ,r-ret)))
-                         ,(when has-return-value
-                            (engine-value-read-form return-type r-ret))))
-                ;; Raw values that need it, such as Variants, are destroyed
-                ;; after the call
-                (destroy-forms (append
-                                (loop for argument in arguments
-                                      for form = (argument-destroy-form argument)
-                                      when form collect form)
-                                (when has-return-value
-                                  (let ((form (engine-value-destroy-form return-type r-ret)))
-                                    (when form (list form)))))))
-            (if destroy-forms
-                `(unwind-protect ,call ,@destroy-forms)
-                call)))))
+         ;; Empty (all zero) at first, so they can be destroyed also if
+         ;; converting an argument fails before they're written. Godot
+         ;; assigns the result, e.g. to a Ref or a PackedStringArray, which
+         ;; releases the old value, so it must be empty too.
+         ,@(loop for argument in destroyed-arguments
+                 collect `(clear-foreign-object ,(argument-raw argument)
+                                                ',(argument-ffi-type argument)))
+         ,@(when has-return-value
+             `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
+         ,(if destroy-forms
+              `(unwind-protect (progn ,@body) ,@destroy-forms)
+              `(progn ,@body)))))
 
   (defun variant-call-method-form (method-bind object arguments return-type name rest
                                    &key utility)
