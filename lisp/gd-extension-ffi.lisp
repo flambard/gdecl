@@ -286,6 +286,21 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
   ((object :pointer-void) (token :pointer-void) (binding :pointer-void)
    (callbacks :pointer-void)))
 
+;; void *object_get_instance_binding(GDExtensionObjectPtr p_o, void *p_token,
+;;                                    const GDExtensionInstanceBindingCallbacks *p_callbacks)
+;;
+;; With P_CALLBACKS NULL, returns NULL if the object has no binding for the
+;; token; otherwise creates one with the create callback.
+(define-interface-function object-get-instance-binding "object_get_instance_binding"
+    :pointer-void
+  ((object :pointer-void) (token :pointer-void) (callbacks :pointer-void)))
+
+;; void object_free_instance_binding(GDExtensionObjectPtr p_o, void *p_token)
+;;
+;; Calls the binding's free callback.
+(define-interface-function object-free-instance-binding "object_free_instance_binding" :void
+  ((object :pointer-void) (token :pointer-void)))
+
 ;; void *mem_alloc(size_t p_bytes)
 (define-interface-function mem-alloc "mem_alloc" :pointer-void
   ((bytes :unsigned-long)))

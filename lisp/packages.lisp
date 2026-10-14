@@ -18,6 +18,9 @@
            #:object-destroy
            #:object-set-instance
            #:object-set-instance-binding
+           #:object-get-instance-binding
+           #:*object-get-instance-binding*
+           #:object-free-instance-binding
            #:mem-alloc
            #:mem-free
            #:classdb-register-extension-class-method
@@ -295,6 +298,7 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:godot-object-p
            #:godot-object-pointer
            #:object-pointer
+           #:valid-object-p
            ;; Builtin types
            #:define-builtin-type
            #:builtin-type-components
@@ -429,6 +433,7 @@ tables and dispatchers behind them")
            #:godot-object-p
            #:godot-object-pointer
            #:object-pointer
+           #:valid-object-p
            ;; Values looked up once
            #:sname
            #:npath

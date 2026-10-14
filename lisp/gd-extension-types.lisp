@@ -27,13 +27,27 @@ struct of a class's Lisp objects."
   ;; The Godot object pointer
   pointer)
 
+(defun freed-object-error (object)
+  (error "The Godot object of ~s has been freed" object))
+
 (declaim (inline object-pointer))
 (defun object-pointer (object)
   "The Godot object pointer of OBJECT: a GODOT-OBJECT, NIL for null (a NULL
-pointer), or a Godot object pointer, which is returned as it is."
-  (cond ((godot-object-p object) (godot-object-pointer object))
+pointer), or a Godot object pointer, which is returned as it is. Signals an
+error if OBJECT is a GODOT-OBJECT whose Godot object has been freed."
+  (cond ((godot-object-p object)
+         (or (godot-object-pointer object)
+             (freed-object-error object)))
         ((null object) (load-time-value (ffi:make-null-pointer :void)))
         (t object)))
+
+(defun valid-object-p (object)
+  "True if OBJECT is a GODOT-OBJECT whose Godot object hasn't been freed, like
+is_instance_valid in GDScript, or a Godot object pointer that isn't NULL (which
+can't be checked)."
+  (if (godot-object-p object)
+      (and (godot-object-pointer object) t)
+      (and object (not (ffi:null-pointer-p object)))))
 
 ;;;
 ;;; Value types

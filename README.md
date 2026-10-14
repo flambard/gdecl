@@ -182,7 +182,11 @@ Methods with other types are skipped for now, and give an error when your code i
 
 ## Objects
 
-An instance of one of your classes has a Lisp object (`player` above), a struct that includes `gdext:godot-object`. Godot gives you that Lisp object wherever an instance of your class comes back, e.g. from `get_node`, so you can call your own functions on it. Other objects are Godot object pointers. Anything that takes an object takes either one, and `nil` is null. `gdext:object-pointer` gives the pointer of either, and `gdext:lisp-object` the Lisp object of a pointer.
+Every Godot object you get in Lisp has one Lisp object, a `gdext:godot-object`, so the same object is always the same (`eq`) Lisp object. An instance of one of your classes has the struct its class defines (`player` above), which includes `godot-object`, so wherever it comes back, e.g. from `get_node`, you can call your own functions on it. `nil` is null.
+
+When Godot frees an object, its Lisp object becomes invalid: using it signals an error instead of crashing. `(gdext:valid-object-p object)` tells whether it still exists, like `is_instance_valid` in GDScript.
+
+For dropping down: anything that takes an object also takes a Godot object pointer, `gdext:object-pointer` gives the pointer of a Lisp object, and `gdext:lisp-object` the Lisp object of a pointer.
 
 ## Builtin types
 

@@ -72,6 +72,8 @@ three times, and print the best time and the bytes allocated per run."
       (node-get-child-count benchmarks))
     (benchmark "is_visible()" count
       (canvas-item-is-visible benchmarks))
+    (benchmark "get_parent() (Object result)" count
+      (node-get-parent benchmarks))
     (benchmark "get_position()" count
       (node-2d-get-position benchmarks))
     (benchmark "set_position(v)" count

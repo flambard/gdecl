@@ -4,7 +4,7 @@ From a review on 2026-10-13, updated on 2026-10-14 after fixing the bugs it foun
 
 ## Bugs
 
-- [ ] **D. Any foreign pointer counts as an Object.** `lisp-variant-type` (`gd-extension-types.lisp`) maps any `si:foreign-data` to Object. So an `sname` passed to `object-emit-signal`'s extra arguments becomes an Object Variant of a StringName pointer, which will most likely crash Godot. Reject or distinguish non-object pointers for now; the real fix is I.
+- [ ] **D. Any foreign pointer counts as an Object.** `lisp-variant-type` (`gd-extension-types.lisp`) maps any `si:foreign-data` to Object. So an `sname` passed to `object-emit-signal`'s extra arguments becomes an Object Variant of a StringName pointer, which will most likely crash Godot. Now that every object Godot gives Lisp is a `godot-object` (I, step 1), and `singleton` returns one too, raw pointers needn't be Objects in Variants: make `lisp-variant-type` accept only `godot-object`s, and say so in the README (a raw pointer can still be passed to engine methods' Object arguments).
 
 ## Performance (measure with `make bench` before and after)
 
@@ -20,7 +20,9 @@ Where things stand: an engine call from Lisp costs 0.5–0.7 µs (GDScript: 50�
 
 ## When the high-level layer or REPL work starts
 
-- [ ] **I. Engine objects as wrappers with identity.** Engine objects are bare pointers: a fresh pointer object for every result, no `eq` identity, nothing to dispatch `defmethod` on (if the high-level layer uses CLOS), and the cause of D. Godot's instance bindings (`object_set_instance_binding`, mapped but unused) would give one wrapper per Godot object, with hooks for RefCounted lifetimes, and could replace `*lisp-objects*`. Keep the `godot-object` struct, which applications `:include`, contained in `define-class` so it can become a standard class.
+- [ ] **I. Engine objects as wrappers with identity: the rest.** Step 1 is done: every Godot object has one Lisp object (a `godot-object`, through Godot's instance bindings), so `eq` works, and a freed object's Lisp object signals an error when used (`valid-object-p`). It costs about 60 ns per Object result. What's left:
+  - Typed wrappers: a wrapper type per engine class, mirroring Godot's inheritance (e.g. structs with `:include`, or CLOS classes, as P decides), so `typep`, `typecase` and `defmethod` work on engine objects. An object whose class isn't defined in Lisp gets the type of its nearest defined ancestor.
+  - Maybe: RefCounted lifetimes tied to Lisp's GC (the binding's `reference_callback`, weak references and finalizers, as C# does), instead of the autorelease pool and `setf-reference`, if those turn out to be a burden.
 - [ ] **J. Tables keyed by name, updated in place.** `*bound-methods*`, `*extension-classes*`, `*instances*` and `*callables*` (`gd-extension-callback.lisp`) are hand-written, append-only and keyed by `(1+ index)` pointers. Redefining a class at a REPL adds a duplicate entry, `add-virtual` finds the stale first one, and re-registered methods are never replaced. Use one table abstraction, key classes and methods by name, and update entries in place. Godot caches `get_virtual_call_data`, so a virtual added later isn't picked up. Redefining a struct with changed slots is undefined: an argument for `defclass` in the high-level layer.
 - [ ] **K. Shared callers per signature.** Every engine method has its own conversion code. Many methods share a signature, so one shared caller per signature with tiny per-method wrappers would cut library size and build time, for one extra function call per engine call. Re-measure first: the static FFI calls shrank the game's library from 13.6 MB to 7.4 MB, so the "15 KB per method" in `CLAUDE.md` is out of date. Matters before generating all engine classes, or CLOS classes. L would change this code too, so decide K and L together.
 

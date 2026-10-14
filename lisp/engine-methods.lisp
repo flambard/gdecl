@@ -392,7 +392,7 @@ signature from extension_api.json."
                        (and vararg "Variants")
                        singleton)
               (let ((,object ,(cond (static '(ffi:make-null-pointer :void))
-                                    (singleton `(singleton ,singleton))
+                                    (singleton `(object-pointer (singleton ,singleton)))
                                     (t `(object-pointer ,object))))
                     (,method-bind (initialize-cell-value
                                    (lookup-method-bind ,defining-class ,method-name ,hash))))

@@ -160,8 +160,8 @@ The NodePath is created once and kept until Godot unloads the extension."
   `(initialize-cell-value (new-node-path ,path)))
 
 (defmacro singleton (name)
-  "The Godot object pointer of the engine singleton NAME, a literal string such
-as \"Input\". Looked up once."
+  "The Lisp object of the engine singleton NAME, a literal string such as
+\"Input\" (see LISP-OBJECT). Looked up once."
   `(initialize-cell-value
     (with-string-name (string-name ,name)
-      (global-get-singleton string-name))))
+      (lisp-object (global-get-singleton string-name)))))

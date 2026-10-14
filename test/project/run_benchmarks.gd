@@ -53,6 +53,7 @@ func _init() -> void:
 	# The engine calls of LispBenchmarks.run
 	report("get_child_count()", func(): for i in COUNT: node.get_child_count())
 	report("is_visible()", func(): for i in COUNT: node.is_visible())
+	report("get_parent() (Object result)", func(): for i in COUNT: node.get_parent())
 	report("get_position()", func(): for i in COUNT: node.get_position())
 	report("set_position(v)", func(): for i in COUNT: node.set_position(position))
 	report("Input.is_action_pressed(\"ui_up\")",

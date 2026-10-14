@@ -432,41 +432,136 @@ CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it.
 (defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
 (defvar *free-instances* '())
 
-;; The addresses of the Godot objects of the instances, by index like
-;; *INSTANCES*, and their Lisp objects by address, for LISP-OBJECT
-(defvar *instance-addresses* (make-array 0 :adjustable t :fill-pointer t))
-(defvar *lisp-objects* (make-hash-table))
-
-(defun add-instance (godot-object lisp-object)
-  "Keep LISP-OBJECT, the Lisp object of GODOT-OBJECT, in *INSTANCES* and return
-its GDExtensionClassInstancePtr."
-  (let ((address (ffi:pointer-address godot-object))
-        (index (if *free-instances*
+(defun add-instance (lisp-object)
+  "Keep LISP-OBJECT, the Lisp object of an instance, in *INSTANCES* and return its
+GDExtensionClassInstancePtr."
+  (let ((index (if *free-instances*
                    (let ((index (pop *free-instances*)))
                      (setf (aref *instances* index) lisp-object)
                      index)
                    (vector-push-extend lisp-object *instances*))))
-    (if (< index (length *instance-addresses*))
-        (setf (aref *instance-addresses* index) address)
-        (vector-push-extend address *instance-addresses*))
-    (setf (gethash address *lisp-objects*) lisp-object)
     (ffi:make-pointer (1+ index) :void)))
 
 (defun remove-instance (instance)
   "Forget the Lisp object of INSTANCE, and return it."
   (let* ((index (1- (ffi:pointer-address instance)))
          (lisp-object (aref *instances* index)))
-    (remhash (aref *instance-addresses* index) *lisp-objects*)
-    (setf (aref *instances* index) nil
-          (aref *instance-addresses* index) nil)
+    (setf (aref *instances* index) nil)
     (push index *free-instances*)
     lisp-object))
 
+;;;
+;;; Bindings
+;;;
+;;; Every Godot object that Lisp gets has one Lisp object, a GODOT-OBJECT, so
+;;; the same object is always the same (EQ) Lisp object. It's found through
+;;; Godot's instance bindings: object_get_instance_binding, with the class
+;;; library as the token, gives the binding, which is (1+ index) into
+;;; *BINDINGS*, the table of the Lisp objects. An instance of an extension
+;;; class gets its binding when it's created (the Lisp object made by its
+;;; class's constructor); any other object the first time Lisp gets it, from
+;;; CREATE-BINDING. When Godot frees the object, it calls FREE-BINDING, which
+;;; clears the Lisp object's pointer, so using it signals an error (see
+;;; OBJECT-POINTER) instead of passing Godot a dangling pointer.
+;;;
+
+(defvar *bindings* (make-array 0 :adjustable t :fill-pointer t))
+(defvar *free-bindings* '())
+
+(defun add-binding (lisp-object)
+  "Keep LISP-OBJECT in *BINDINGS* and return the binding for it."
+  (let ((index (if *free-bindings*
+                   (let ((index (pop *free-bindings*)))
+                     (setf (aref *bindings* index) lisp-object)
+                     index)
+                   (vector-push-extend lisp-object *bindings*))))
+    (ffi:make-pointer (1+ index) :void)))
+
+(defun binding-object (binding)
+  "The Lisp object of BINDING."
+  (aref *bindings* (1- (ffi:pointer-address binding))))
+
+(defun remove-binding (binding)
+  "Forget the Lisp object of BINDING, and return it."
+  (let* ((index (1- (ffi:pointer-address binding)))
+         (lisp-object (aref *bindings* index)))
+    (setf (aref *bindings* index) nil)
+    (push index *free-bindings*)
+    lisp-object))
+
+;; void *(*GDExtensionInstanceBindingCreateCallback)(void *p_token, void *p_instance)
+(ffi:defcallback create-binding :pointer-void
+    ((token :pointer-void) (object :pointer-void))
+  (declare (ignore token))
+  (with-callback-protection ("create binding" (ffi:make-null-pointer :void))
+    (add-binding (make-godot-object :pointer object))))
+
+;; void (*GDExtensionInstanceBindingFreeCallback)(void *p_token, void *p_instance,
+;;                                                void *p_binding)
+(ffi:defcallback free-binding :void
+    ((token :pointer-void) (object :pointer-void) (binding :pointer-void))
+  (declare (ignore token object))
+  (with-callback-protection ("free binding")
+    (let ((lisp-object (remove-binding binding)))
+      ;; Freed: using it is an error from now on
+      (when (godot-object-p lisp-object)
+        (setf (godot-object-pointer lisp-object) nil)))))
+
+;; GDExtensionBool (*GDExtensionInstanceBindingReferenceCallback)(void *p_token,
+;;                                                                void *p_binding,
+;;                                                                GDExtensionBool p_reference)
+;;
+;; Called when the reference count of a RefCounted object changes; for tying
+;; the object's lifetime to its Lisp object, which gdecl doesn't do (yet).
+(ffi:defcallback reference-binding :unsigned-byte
+    ((token :pointer-void) (binding :pointer-void) (reference :unsigned-byte))
+  (declare (ignore token binding reference))
+  1)
+
+(defun binding-callbacks ()
+  "The GDExtensionInstanceBindingCallbacks of gdecl's bindings, made once."
+  (car (load-time-value
+        (make-initialize-cell
+         (lambda ()
+           ;; Kept until Godot unloads the extension
+           (let ((callbacks (mem-alloc (ffi:size-of-foreign-type 'instance-binding-callbacks))))
+             ;; create_callback, free_callback and reference_callback
+             (setf (foreign-ref callbacks :pointer-void 0) (ffi:callback 'create-binding)
+                   (foreign-ref callbacks :pointer-void 1) (ffi:callback 'free-binding)
+                   (foreign-ref callbacks :pointer-void 2) (ffi:callback 'reference-binding))
+             callbacks))))))
+
 (defun lisp-object (godot-object)
-  "The Lisp object of GODOT-OBJECT, a Godot object pointer (or its Lisp object),
-if it's an instance of an extension class registered with
-GD-EXTENSION:REGISTER-CLASS, else NIL."
-  (values (gethash (ffi:pointer-address (object-pointer godot-object)) *lisp-objects*)))
+  "The Lisp object of GODOT-OBJECT, a Godot object pointer (or its Lisp object):
+for an instance of an extension class, the one its class's constructor made
+(see GD-EXTENSION:REGISTER-CLASS), otherwise a GODOT-OBJECT made the first time.
+The same Godot object always has the same Lisp object."
+  ;; object_get_instance_binding, called with C code that returns the binding
+  ;; as an integer, so no pointer object is made for it
+  (let ((binding (ffi:c-inline (*object-get-instance-binding* (object-pointer godot-object)
+                                *class-library* (binding-callbacks))
+                               (:pointer-void :pointer-void :pointer-void :pointer-void)
+                               :unsigned-long
+                               "(unsigned long)((void *(*)(void *, void *, const void *))#0)(#1, #2, #3)"
+                               :one-liner t)))
+    (if (zerop binding)
+        ;; Making the binding failed, which has been reported
+        godot-object
+        (aref *bindings* (1- binding)))))
+
+(defun free-bindings ()
+  "Free the bindings of the objects that still exist, so that Godot doesn't call
+FREE-BINDING after Lisp is shut down, e.g. for engine singletons. A
+deinitialize hook: it's added when this file is loaded, before the others, so
+it runs last."
+  (let ((objects (loop for lisp-object across *bindings*
+                       when (and (godot-object-p lisp-object)
+                                 (godot-object-pointer lisp-object))
+                         collect (godot-object-pointer lisp-object))))
+    (dolist (object objects)
+      (object-free-instance-binding object *class-library*))))
+
+(add-deinitialize-hook 'free-bindings)
 
 (defun read-lisp-object (pointer)
   "The Object at POINTER (as in READ-OBJECT) as a Lisp value: NIL for null, the
@@ -508,11 +603,13 @@ object, and return the object pointer."
     ;; If the Lisp object can't be made, the Godot object is destroyed again,
     ;; as Godot only gets NULL
     (unwind-protect
-         (progn
+         (let ((lisp-object (funcall (extension-class-constructor class) object)))
            (object-set-instance object (extension-class-string-name class)
-                                (add-instance object
-                                              (funcall (extension-class-constructor class) object)))
+                                (add-instance lisp-object))
            (setf instance-set t)
+           ;; So LISP-OBJECT finds it
+           (object-set-instance-binding object *class-library* (add-binding lisp-object)
+                                        (binding-callbacks))
            object)
       (unless instance-set
         (object-destroy object)))))

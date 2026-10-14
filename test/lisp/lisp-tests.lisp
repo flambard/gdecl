@@ -83,6 +83,24 @@
     ;; NIL is null
     (check (null (node-get-node-or-null *root* "Missing")))))
 
+(deftest object-identity
+  ;; Every Godot object has one Lisp object, also an engine object: the same
+  ;; object comes back as the same (EQ) Lisp object
+  (let ((node (new-node "Node")))
+    (check (eq *root* (node-get-parent node)))
+    (check (eq (node-get-parent node) (node-get-parent node)))
+    (check (gdext:godot-object-p (node-get-parent node)))))
+
+(deftest freed-objects
+  ;; The Lisp object of a freed Godot object is no longer valid: using it
+  ;; signals an error instead of passing Godot a dangling pointer
+  (let ((node (class-db-instantiate "Node")))
+    (check (gdext:valid-object-p node))
+    (gdext-ffi:object-destroy (gdext:object-pointer node))
+    (check (not (gdext:valid-object-p node)))
+    (check (eq :error (handler-case (node-get-name node)
+                        (error () :error))))))
+
 (deftest strings-for-names
   (let ((node (new-node "Node")))
     (node-set-name node "Named")
