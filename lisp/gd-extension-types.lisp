@@ -194,6 +194,40 @@ Also known when the code is compiled, for the builtin types that contain them.")
 NIL if it's not one."
     (values (gethash name *builtin-type-components*)))
 
+  (defvar *builtin-types-with-own-conversion* '()
+    "The builtin types whose DEFINE-BUILTIN-TYPE has a READER or WRITER of its own,
+as their Lisp components aren't Godot's layout (Basis).")
+
+  (defun builtin-layout (name)
+    "The components of a value of the builtin type NAME in the order of Godot's
+layout, those of nested builtin types flattened: a list of (ffi-type accessors),
+where ACCESSORS are the accessor functions that get the component from the
+value, outermost first. NIL if NAME isn't a builtin type whose Lisp components
+are in Godot's layout."
+    (unless (member name *builtin-types-with-own-conversion*)
+      (let ((components (builtin-type-components name)))
+        (when components
+          (loop for (component type) in components
+                for accessor = (builtin-accessor name component)
+                append (if (keywordp type)
+                           (list (list type (list accessor)))
+                           (let ((nested (builtin-layout type)))
+                             (unless nested
+                               (return-from builtin-layout nil))
+                             (loop for (ffi-type accessors) in nested
+                                   collect (list ffi-type (cons accessor accessors))))))))))
+
+  (defun builtin-construct-form (name component-forms)
+    "A form that makes a value of the builtin type NAME from COMPONENT-FORMS, one
+for each component in BUILTIN-LAYOUT, in its order."
+    (let ((forms component-forms))
+      (labels ((construct (name)
+                 `(,name ,@(loop for (nil type) in (builtin-type-components name)
+                                 collect (if (keywordp type)
+                                             (pop forms)
+                                             (construct type))))))
+        (construct name))))
+
   (defun builtin-type-symbol (format-control type)
     "The symbol in this package named by FORMAT-CONTROL with the name of the
 builtin TYPE, e.g. GODOT-VECTOR2 for \"GODOT-~a\"."
@@ -269,7 +303,9 @@ layout."
                                           :writer ',writer-name
                                           :lisp-type ',name))
          (eval-when (:compile-toplevel :load-toplevel :execute)
-           (setf (gethash ',name *builtin-type-components*) ',components))
+           (setf (gethash ',name *builtin-type-components*) ',components)
+           ,@(when (or reader writer)
+               `((pushnew ',name *builtin-types-with-own-conversion*))))
          ',name))))
 
 (define-builtin-type vector2 +variant-type-vector2+

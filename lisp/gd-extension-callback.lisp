@@ -569,22 +569,23 @@ it runs last."
 
 (add-deinitialize-hook 'free-bindings)
 
+(defun pointer-lisp-object (object)
+  "The Lisp object of OBJECT, a Godot object pointer (see LISP-OBJECT), or NIL if
+it's NULL."
+  (and (not (ffi:null-pointer-p object))
+       (lisp-object object)))
+
 (defun read-lisp-object (pointer)
-  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: NIL for null, the
-Lisp object of an instance of an extension class, else the Godot object
-pointer."
-  (let ((object (read-object pointer)))
-    (and (not (ffi:null-pointer-p object))
-         (or (lisp-object object) object))))
+  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: NIL for null,
+otherwise its Lisp object (see LISP-OBJECT)."
+  (pointer-lisp-object (read-object pointer)))
 
 ;; Objects that Godot gives Lisp (results of engine methods, arguments of
 ;; bound methods and Callables) are instances' Lisp objects where there are
 ;; any
 (defun read-lisp-object-variant (variant)
   "The Object in the Variant at VARIANT as a Lisp value, as in READ-LISP-OBJECT."
-  (let ((object (raw-from-variant variant +variant-type-object+ :pointer-void "void *")))
-    (and (not (ffi:null-pointer-p object))
-         (or (lisp-object object) object))))
+  (pointer-lisp-object (raw-from-variant variant +variant-type-object+ :pointer-void "void *")))
 
 (add-value-type (make-value-type :variant-type +variant-type-object+
                                  :ffi-type :pointer-void

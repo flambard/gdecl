@@ -32,6 +32,7 @@
            #:call-ptr-constructor
            #:classdb-get-method-bind
            #:object-method-bind-ptrcall
+           #:*object-method-bind-ptrcall*
            #:object-method-bind-call
            #:classdb-register-extension-class-signal
            #:variant-destroy
@@ -303,6 +304,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            ;; Builtin types
            #:define-builtin-type
            #:builtin-type-components
+           #:builtin-layout
+           #:builtin-construct-form
            #:godot-vector2
            #:godot-rect2
            #:godot-vector3
@@ -380,6 +383,7 @@ tables and dispatchers behind them")
            ;; Errors
            #:report-error
            #:*wrapper-function*
+           #:pointer-lisp-object
            ;; Tables
            #:register-method
            #:ptrcall-invoker-form
@@ -414,6 +418,7 @@ tables and dispatchers behind them")
                 #:make-initialize-cell
                 #:report-error
                 #:*wrapper-function*
+                #:pointer-lisp-object
                 #:register-method
                 #:ptrcall-invoker-form
                 #:add-extension-class

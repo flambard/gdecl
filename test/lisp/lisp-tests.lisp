@@ -33,6 +33,13 @@
     (canvas-item-hide node)
     (check (not (canvas-item-is-visible node)))))
 
+(deftest engine-method-rect2
+  ;; A builtin type with nested builtin types, as an argument and a result
+  (let ((sprite (new-node "Sprite2D"))
+        (rect (rect2 (vector2 1.0 2.0) (vector2 3.0 4.0))))
+    (sprite-2d-set-region-rect sprite rect)
+    (check (equalp rect (sprite-2d-get-region-rect sprite)))))
+
 (deftest engine-method-values-3d
   (let ((node (new-node "Node3D")))
     (node-3d-set-position node (vector3 1.0 2.0 3.0))

@@ -84,11 +84,150 @@ needs no destroying."
     (and (argument-ffi-type argument)
          (engine-value-destroy-form (argument-variant-type argument) (argument-raw argument))))
 
+  (defun c-inline-argument-reference (index)
+    "How C code in FFI:C-INLINE refers to argument INDEX: #0 to #9, then #a to #z."
+    (format nil "#~a" (if (< index 10)
+                          index
+                          (code-char (+ (char-code #\a) (- index 10))))))
+
+  (defun float-layout (variant-type)
+    "The accessors of the components of a builtin type whose components are all
+floats, such as Vector2, from BUILTIN-LAYOUT, if VARIANT-TYPE is one; else NIL."
+    (let* ((value-type (find-value-type variant-type nil))
+           (name (and value-type (value-type-lisp-type value-type)))
+           (layout (and name (builtin-layout name))))
+      (when (and layout (every (lambda (component) (eq (first component) :float)) layout))
+        (mapcar #'second layout))))
+
+  (defun inline-call-code (declarations pointers count result-declaration result-pointer
+                           returns &key utility)
+    "The C code of INLINE-PTRCALL-FORM: DECLARATIONS of the raw values, the
+argument array of POINTERS, RESULT-DECLARATION, the call, and RETURNS."
+    (format nil "{ ~{~a ~}const void *args[~d] = { ~{~a~^, ~} }; ~a~a~a }"
+            (reverse declarations)
+            (max 1 count)
+            (if pointers (reverse pointers) '("0"))
+            result-declaration
+            (if utility
+                (format nil "((void (*)(void *, const void **, int))#0)(~a, args, ~d);"
+                        result-pointer count)
+                (format nil "((void (*)(void *, void *, const void **, void *))#0)(#1, #2, args, ~a);"
+                        result-pointer))
+            returns))
+
+  (defun inline-builtin-result-form (inputs declarations pointers arguments return-type
+                                     &key utility)
+    "The rest of INLINE-PTRCALL-FORM for a result of a builtin type made of
+floats: returned as multiple values, one per component, made into the Lisp
+value."
+    (let* ((count (length (float-layout return-type)))
+           (variables (loop repeat count collect (gensym "COMPONENT")))
+           (code (inline-call-code declarations pointers (length arguments)
+                                   (format nil "float r[~d] = { 0 }; " count)
+                                   "r"
+                                   (format nil " ~{~a~}"
+                                           (loop for i below count
+                                                 collect (format nil "@(return ~d) = r[~d]; " i i)))
+                                   :utility utility)))
+      `(multiple-value-bind ,variables
+           (ffi:c-inline ,(mapcar #'first (reverse inputs))
+                         ,(mapcar #'second (reverse inputs))
+                         (values ,@(loop repeat count collect :float))
+                         ,code)
+         ,(builtin-construct-form (value-type-lisp-type (find-value-type return-type))
+                                  variables))))
+
+  (defun inline-ptrcall-form (method-bind object arguments return-type &key utility)
+    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
+ptrcall in one piece of C code (FFI:C-INLINE), with the raw values and the
+argument array in C variables, so nothing is allocated for them: for methods
+whose ARGUMENTS (ENGINE-ARGUMENTs) and RETURN-TYPE are all simple types (bool,
+int, float, Object, and StringName and NodePath arguments, which are pointers
+already). NIL for other methods. METHOD-BIND, OBJECT and UTILITY are as in
+PTRCALL-METHOD-FORM."
+    (let ((inputs '())                  ; (form ffi-type), in order
+          (declarations '())            ; C declarations of the raw values
+          (pointers '()))               ; the elements of the argument array
+      (flet ((input (form ffi-type)
+               ;; The reference to a new input of the C code
+               (push (list form ffi-type) inputs)
+               (c-inline-argument-reference (1- (length inputs)))))
+        (if utility
+            (input method-bind :pointer-void)
+            (progn (input '*object-method-bind-ptrcall* :pointer-void)
+                   (input method-bind :pointer-void)
+                   (input object :pointer-void)))
+        (loop for argument in arguments
+              for i from 0
+              for name = (argument-name argument)
+              for type = (argument-variant-type argument)
+              do (flet ((raw (c-type form ffi-type)
+                          (push (format nil "~a a~d = ~a;" c-type i (input form ffi-type))
+                                declarations)
+                          (push (format nil "&a~d" i) pointers)))
+                   (cond ((eql type +variant-type-bool+) (raw "uint8_t" `(if ,name 1 0) :uint8-t))
+                         ((eql type +variant-type-int+) (raw "int64_t" name :int64-t))
+                         ((eql type +variant-type-float+) (raw "double" `(float ,name 1d0) :double))
+                         ;; An Object argument is a pointer to the object pointer
+                         ((eql type +variant-type-object+)
+                          (raw "void *" `(object-pointer ,name) :pointer-void))
+                         ;; Pointers to the StringName or NodePath already
+                         ((or (eql type +variant-type-string-name+)
+                              (eql type +variant-type-node-path+))
+                          (push (input name :pointer-void) pointers))
+                         ;; A builtin type made of floats, such as Vector2: an
+                         ;; array of its components
+                         ((float-layout type)
+                          (push (format nil "float a~d[] = { ~{~a~^, ~} };" i
+                                        (loop for accessors in (float-layout type)
+                                              ;; The outermost accessor applies first
+                                              collect (input (reduce (lambda (form accessor)
+                                                                       `(,accessor ,form))
+                                                                     accessors
+                                                                     :initial-value name)
+                                                             :float)))
+                                declarations)
+                          (push (format nil "a~d" i) pointers))
+                         (t (return-from inline-ptrcall-form nil)))))
+        (when (float-layout return-type)
+          (return-from inline-ptrcall-form
+            (inline-builtin-result-form inputs declarations pointers arguments return-type
+                                        :utility utility)))
+        (destructuring-bind (&optional c-type ffi-type)
+            (cond ((eql return-type +variant-type-nil+) '())
+                  ((eql return-type +variant-type-bool+) '("uint8_t" :uint8-t))
+                  ((eql return-type +variant-type-int+) '("int64_t" :int64-t))
+                  ((eql return-type +variant-type-float+) '("double" :double))
+                  ((eql return-type +variant-type-object+) '("void *" :pointer-void))
+                  (t (return-from inline-ptrcall-form nil)))
+          (let* ((count (length arguments))
+                 ;; Zero, as Godot assigns the result, e.g. to a Ref
+                 (result (if c-type (format nil "~a r = 0; " c-type) ""))
+                 (result-pointer (if c-type "&r" "0"))
+                 (code (inline-call-code declarations pointers count result result-pointer
+                                         (if c-type " @(return 0) = r;" "")
+                                         :utility utility))
+                 (form `(ffi:c-inline ,(mapcar #'first (reverse inputs))
+                                      ,(mapcar #'second (reverse inputs))
+                                      ,(or ffi-type :void)
+                                      ,code)))
+            (cond ((eql return-type +variant-type-bool+) `(/= 0 ,form))
+                  ((eql return-type +variant-type-object+) `(pointer-lisp-object ,form))
+                  (t form)))))))
+
   (defun ptrcall-method-form (method-bind object arguments return-type &key utility)
     "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
 ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. If UTILITY is true,
 METHOD-BIND is a utility function (see DEFINE-UTILITY-FUNCTIONS) instead, and
-OBJECT isn't used."
+OBJECT isn't used. Methods with only simple types are called in one piece of C
+code (see INLINE-PTRCALL-FORM)."
+    (or (inline-ptrcall-form method-bind object arguments return-type :utility utility)
+        (general-ptrcall-method-form method-bind object arguments return-type
+                                     :utility utility)))
+
+  (defun general-ptrcall-method-form (method-bind object arguments return-type &key utility)
+    "The code of PTRCALL-METHOD-FORM for methods with types that INLINE-PTRCALL-FORM
+doesn't handle: the raw values and the argument array are in foreign memory."
     (let* ((has-return-value (not (eql return-type +variant-type-nil+)))
            (args (gensym "ARGS"))
            (r-ret (gensym "R-RET"))
