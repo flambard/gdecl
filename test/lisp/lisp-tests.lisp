@@ -91,6 +91,41 @@
     (check (eq (node-get-parent node) (node-get-parent node)))
     (check (gdext:godot-object-p (node-get-parent node)))))
 
+(deftest typed-objects
+  ;; A Godot object's Lisp object has the Lisp type of its class, which
+  ;; mirrors Godot's inheritance, or of the nearest class it inherits from
+  ;; that's defined in Lisp (see DEFINE-ENGINE-CLASS)
+  (let ((node (new-node "Node2D")))
+    (check (typep node 'node-2d))
+    (check (typep node 'canvas-item))
+    (check (typep node 'node))
+    (check (not (typep node 'node-3d))))
+  ;; Button isn't defined in Lisp: its nearest class that is is CanvasItem
+  (let ((button (new-node "Button")))
+    (check (typep button 'canvas-item))
+    (check (not (typep button 'node-2d))))
+  (check (typep *root* 'node))
+  (check (typep (gdext:singleton "Input") 'input))
+  ;; An instance of a class defined with DEFINE-CLASS has the type of the
+  ;; class it inherits from too
+  (check (typep (new-test-node) 'node-2d)))
+
+(defgeneric object-kind (object)
+  (:documentation "For TYPED-OBJECTS: generic functions dispatch on the Lisp
+types of Godot objects.")
+  (:method ((object node-2d)) :node-2d)
+  (:method ((object node)) :node)
+  (:method ((object ref-counted)) :ref-counted)
+  (:method ((object t)) :other))
+
+(deftest dispatch-on-objects
+  (check (eq :node-2d (object-kind (new-node "Node2D"))))
+  (check (eq :node (object-kind (new-node "Timer"))))
+  (check (eq :node-2d (object-kind (new-test-node))))
+  (gdext:with-reference (object (class-db-instantiate "RefCounted"))
+    (check (eq :ref-counted (object-kind object))))
+  (check (eq :other (object-kind 42))))
+
 (deftest freed-objects
   ;; The Lisp object of a freed Godot object is no longer valid: using it
   ;; signals an error instead of passing Godot a dangling pointer

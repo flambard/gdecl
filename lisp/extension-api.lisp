@@ -111,6 +111,12 @@ real one."))
 or NIL if the class has no singleton."
   (values (gethash class-name (extension-api-singletons (extension-api)))))
 
+(defun api-class-parents ()
+  "The engine classes and the classes they inherit from, as an alist of
+(class-name . parent-class-name), where PARENT-CLASS-NAME is NIL for Object."
+  (loop for class being the hash-values of (extension-api-classes (extension-api))
+        collect (cons (json-get class "name") (json-get class "inherits"))))
+
 (defun api-ref-counted-class-p (type)
   "True if TYPE, a type name from extension_api.json, is an engine class that's
 RefCounted, such as a Resource."

@@ -238,7 +238,8 @@ initialize hooks of the application run."
                                                         (second (assoc :destructor options))))
          (tool (second (assoc :tool options))))
     `(progn
-       (defstruct (,name (:include godot-object) (:constructor ,make-name))
+       (defstruct (,name (:include ,(engine-object-type parent-class-name))
+                         (:constructor ,make-name))
          ,@(loop for slot in slots
                  collect `(,(class-slot-name slot) ,(class-slot-initform slot))))
        (add-class-definition

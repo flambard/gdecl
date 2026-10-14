@@ -19,10 +19,11 @@
                  (:file "gd-extension" :depends-on ("gd-extension-ffi" "gd-extension-types"
                                                     "gd-extension-callback" "extension-api"))
                  (:file "engine-methods" :depends-on ("gd-extension"))
-                 (:file "engine-api" :depends-on ("engine-methods"))
+                 (:file "engine-objects" :depends-on ("gd-extension"))
+                 (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))
                  (:file "references" :depends-on ("engine-methods"))
                  (:file "signals" :depends-on ("engine-methods"))
                  (:file "binding" :depends-on ("gd-extension" "engine-methods"))
-                 (:file "define-class" :depends-on ("binding" "references"))
+                 (:file "define-class" :depends-on ("binding" "references" "engine-objects"))
                  (:file "godot-engine-classes" :depends-on ("engine-api"))
                  (:file "godot-utility" :depends-on ("engine-api"))))

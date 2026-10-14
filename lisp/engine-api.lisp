@@ -75,6 +75,35 @@ RESULT, a form."
        ,@forms
        ,result)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun engine-object-type-name (class-name)
+    "The name of the struct of the objects of the engine class CLASS-NAME, in the
+current package: the class name in Lisp style (Node2D is NODE-2D), or with
+-OBJECT added if that's a symbol of Common Lisp."
+    (let ((name (lisp-style-class-name class-name)))
+      (intern (if (find-symbol name :common-lisp)
+                  (concatenate 'string name "-OBJECT")
+                  name))))
+
+  (defun engine-object-type-form (class-name class)
+    "The names to export, and the forms that define the struct of the objects of
+the engine class CLASS-NAME (CLASS from extension_api.json), see
+engine-objects.lisp."
+    (let* ((type (engine-object-type-name class-name))
+           (constructor (intern (format nil "%MAKE-~a" (symbol-name type)))))
+      (values (list type)
+              `((defstruct (,type (:include ,(engine-object-type (json-get class "inherits")))
+                                  (:constructor ,constructor)
+                                  (:copier nil)
+                                  (:predicate nil)
+                                  (:conc-name ,(intern (format nil "%~a-" (symbol-name type)))))
+                  ,(format nil "The Lisp object of a Godot object of the class ~a, or of a class ~
+                                that inherits from it and isn't defined in Lisp."
+                           class-name))
+                (eval-when (:compile-toplevel :load-toplevel :execute)
+                  (setf (gethash ,class-name *engine-object-types*) ',type))
+                (register-engine-object-type ,class-name #',constructor))))))
+
 (defmacro define-engine-class (class-name)
   "Define a function for each method of the engine class CLASS-NAME (a string)
 that DEFINE-ENGINE-METHOD can call, named after the class and the method in
@@ -84,9 +113,13 @@ functions, not those it inherits, so call get_position of a Sprite2D with
 NODE-2D-GET-POSITION. Methods with types that aren't supported yet, and
 virtual methods, are skipped. Also define a constant for each value of the
 class's enums and each of its constants, named likewise:
-Node.PROCESS_MODE_ALWAYS becomes GODOT:+NODE-PROCESS-MODE-ALWAYS+. GODOT already
-has the most used classes; an application defines the others it uses, and
-they're added to GODOT too."
+Node.PROCESS_MODE_ALWAYS becomes GODOT:+NODE-PROCESS-MODE-ALWAYS+. And define
+a struct for the Lisp objects of the class's objects, named like the class,
+GODOT:NODE-2D, which includes that of the nearest class it inherits from that's
+defined, so they mirror Godot's inheritance: (TYPEP OBJECT 'NODE-2D),
+TYPECASE and DEFMETHOD work. Define the classes an application uses after
+those they inherit from. GODOT already has the most used classes; an
+application defines the others it uses, and they're added to GODOT too."
   (let* ((class (or (api-class class-name)
                     (error "No engine class ~a in ~a" class-name *extension-api-file*)))
          (prefix (lisp-style-class-name class-name))
@@ -105,9 +138,10 @@ they're added to GODOT too."
               (push name names)
               (push form forms))))))
     (multiple-value-bind (constant-names constant-forms) (class-constant-defconstants class)
-      (exporting-progn :godot (append constant-names (reverse names))
-                       (append constant-forms (reverse forms))
-                       `',class-name))))
+      (multiple-value-bind (type-names type-forms) (engine-object-type-form class-name class)
+        (exporting-progn :godot (append type-names constant-names (reverse names))
+                         (append type-forms constant-forms (reverse forms))
+                         `',class-name)))))
 
 (defmacro define-global-enums ()
   "Define a constant for each value of Godot's global enums (such as Error, Key

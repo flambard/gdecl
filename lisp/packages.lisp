@@ -21,6 +21,7 @@
            #:object-get-instance-binding
            #:*object-get-instance-binding*
            #:object-free-instance-binding
+           #:object-get-class-name
            #:mem-alloc
            #:mem-free
            #:classdb-register-extension-class-method
@@ -378,6 +379,7 @@ tables and dispatchers behind them")
            #:make-initialize-cell
            ;; Errors
            #:report-error
+           #:*wrapper-function*
            ;; Tables
            #:register-method
            #:ptrcall-invoker-form
@@ -411,6 +413,7 @@ tables and dispatchers behind them")
                 #:add-deinitialize-hook
                 #:make-initialize-cell
                 #:report-error
+                #:*wrapper-function*
                 #:register-method
                 #:ptrcall-invoker-form
                 #:add-extension-class

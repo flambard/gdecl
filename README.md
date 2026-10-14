@@ -184,6 +184,8 @@ Methods with other types are skipped for now, and give an error when your code i
 
 Every Godot object you get in Lisp has one Lisp object, a `gdext:godot-object`, so the same object is always the same (`eq`) Lisp object. An instance of one of your classes has the struct its class defines (`player` above), which includes `godot-object`, so wherever it comes back, e.g. from `get_node`, you can call your own functions on it. `nil` is null.
 
+Lisp objects have types that mirror Godot's classes: `define-engine-class` defines a struct for each class, named like it (`node-2d`, `canvas-item`, `node`, …), which includes that of the nearest class it inherits from. So `(typep body 'rigid-body-2d)`, `typecase` and `defmethod` work on Godot objects, also on your classes' instances, which have the type of the engine class they inherit from too. An object of a class that isn't defined in Lisp has the type of the nearest class it inherits from that is. Define the engine classes you use after those they inherit from.
+
 When Godot frees an object, its Lisp object becomes invalid: using it signals an error instead of crashing. `(gdext:valid-object-p object)` tells whether it still exists, like `is_instance_valid` in GDScript.
 
 For dropping down: an Object argument of an engine method also takes a Godot object pointer (but a Variant isn't made from one, as it might point to something else, such as a StringName), `gdext:object-pointer` gives the pointer of a Lisp object, and `gdext:lisp-object` the Lisp object of a pointer.

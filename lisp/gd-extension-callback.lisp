@@ -489,12 +489,18 @@ GDExtensionClassInstancePtr."
     (push index *free-bindings*)
     lisp-object))
 
+(defvar *wrapper-function* (lambda (object) (make-godot-object :pointer object))
+  "The function that makes the Lisp object of a Godot object (a pointer) that
+isn't an instance of an extension class, the first time Lisp gets it: a
+GODOT-OBJECT, or a struct that includes it. GD-EXTENSION sets it to make one of
+the type of the object's class (see GD-EXTENSION:DEFINE-ENGINE-CLASS).")
+
 ;; void *(*GDExtensionInstanceBindingCreateCallback)(void *p_token, void *p_instance)
 (ffi:defcallback create-binding :pointer-void
     ((token :pointer-void) (object :pointer-void))
   (declare (ignore token))
   (with-callback-protection ("create binding" (ffi:make-null-pointer :void))
-    (add-binding (make-godot-object :pointer object))))
+    (add-binding (funcall *wrapper-function* object))))
 
 ;; void (*GDExtensionInstanceBindingFreeCallback)(void *p_token, void *p_instance,
 ;;                                                void *p_binding)

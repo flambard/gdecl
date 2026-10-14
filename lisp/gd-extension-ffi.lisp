@@ -301,6 +301,12 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
 (define-interface-function object-free-instance-binding "object_free_instance_binding" :void
   ((object :pointer-void) (token :pointer-void)))
 
+;; GDExtensionBool object_get_class_name(GDExtensionConstObjectPtr p_object,
+;;                                        GDExtensionClassLibraryPtr p_library,
+;;                                        GDExtensionUninitializedStringNamePtr r_class_name)
+(define-interface-function object-get-class-name "object_get_class_name" :uint8-t
+  ((object :pointer-void) (library :pointer-void) (class-name :pointer-void)))
+
 ;; void *mem_alloc(size_t p_bytes)
 (define-interface-function mem-alloc "mem_alloc" :pointer-void
   ((bytes :unsigned-long)))
