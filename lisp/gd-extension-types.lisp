@@ -53,7 +53,10 @@ pointer), or a Godot object pointer, which is returned as it is."
   destructor
   ;; The struct type of the Lisp values, for WRITE-VARIANT (see
   ;; LISP-VARIANT-TYPE), or NIL for the other types
-  lisp-type)
+  lisp-type
+  ;; The size of the raw value in bytes, set by ADD-VALUE-TYPE, so it isn't
+  ;; looked up at every conversion
+  (size nil))
 
 (defparameter *value-types*
   (make-array (1+ +variant-type-variant-max+) :initial-element nil)
@@ -82,6 +85,9 @@ error, or returns NIL if ERRORP is false."
   "Add VALUE-TYPE to *VALUE-TYPES*, replacing one for the same variant type. For
 types whose conversion needs a higher layer, such as Callable, and builtin types
 (see DEFINE-BUILTIN-TYPE)."
+  (when (value-type-ffi-type value-type)
+    (setf (value-type-size value-type)
+          (ffi:size-of-foreign-type (value-type-ffi-type value-type))))
   (setf (aref *value-types* (value-type-index (value-type-variant-type value-type)))
         value-type)
   (when (value-type-lisp-type value-type)
@@ -152,15 +158,16 @@ String)."
 ;;; and the type's value type.
 ;;;
 
-(defvar *builtin-type-components* (make-hash-table :test #'eq)
-  "The COMPONENTS of DEFINE-BUILTIN-TYPE of each builtin type, by its name.")
-
-(defun builtin-type-components (name)
-  "The components of the builtin type NAME, as given to DEFINE-BUILTIN-TYPE, or
-NIL if it's not one."
-  (values (gethash name *builtin-type-components*)))
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar *builtin-type-components* (make-hash-table :test #'eq)
+    "The COMPONENTS of DEFINE-BUILTIN-TYPE of each builtin type, by its name.
+Also known when the code is compiled, for the builtin types that contain them.")
+
+  (defun builtin-type-components (name)
+    "The components of the builtin type NAME, as given to DEFINE-BUILTIN-TYPE, or
+NIL if it's not one."
+    (values (gethash name *builtin-type-components*)))
+
   (defun builtin-type-symbol (format-control type)
     "The symbol in this package named by FORMAT-CONTROL with the name of the
 builtin TYPE, e.g. GODOT-VECTOR2 for \"GODOT-~a\"."
@@ -171,7 +178,38 @@ builtin TYPE, e.g. GODOT-VECTOR2 for \"GODOT-~a\"."
 as :FLOAT, or the mirror of a builtin type defined before."
     (if (keywordp type)
         type
-        (builtin-type-symbol "GODOT-~a" type))))
+        (builtin-type-symbol "GODOT-~a" type)))
+
+  (defun builtin-accessor (name component)
+    "The accessor of COMPONENT of the builtin type NAME, NAME-<component>."
+    (intern (format nil "~a-~a" (symbol-name name) (symbol-name component))
+            (symbol-package name)))
+
+  (defun builtin-raw-forms (name components pointer value)
+    "The form that reads a NAME with COMPONENTS (as in DEFINE-BUILTIN-TYPE) from
+its raw value at POINTER, and the forms that write the NAME VALUE there. Each
+component, also of nested builtin types, is read and written at its index with
+FOREIGN-REF, which a compiler macro makes C code of."
+    (let ((offset 0)
+          (write-forms '()))
+      (labels ((read-form (name components value)
+                 `(,name
+                   ,@(loop for (component type) in components
+                           for accessor-form = `(,(builtin-accessor name component) ,value)
+                           collect (if (keywordp type)
+                                       (let ((size (ffi:size-of-foreign-type type)))
+                                         ;; Godot's layout has no padding
+                                         (assert (zerop (mod offset size)))
+                                         (let ((index (/ offset size)))
+                                           (incf offset size)
+                                           (push `(setf (foreign-ref ,pointer ,type ,index)
+                                                        ,accessor-form)
+                                                 write-forms)
+                                           `(foreign-ref ,pointer ,type ,index)))
+                                       (read-form type (builtin-type-components type)
+                                                  accessor-form))))))
+        (values (read-form name components value)
+                (reverse write-forms))))))
 
 (defmacro define-builtin-type (name variant-type components &key reader writer)
   "Define how the builtin type NAME, a struct of GD-EXTENSION-BUILTINS made with
@@ -185,11 +223,8 @@ layout."
   (let ((mirror (builtin-type-symbol "GODOT-~a" name))
         (reader-name (or reader (builtin-type-symbol "READ-~a" name)))
         (writer-name (or writer (builtin-type-symbol "WRITE-~a" name))))
-    (flet ((accessor (component)
-             (intern (format nil "~a-~a" (symbol-name name) (symbol-name component))
-                     (symbol-package name)))
-           (slot-pointer (component)
-             `(ffi:get-slot-pointer pointer ',mirror ',component)))
+    (multiple-value-bind (read-form write-forms)
+        (builtin-raw-forms name components 'pointer 'value)
       `(progn
          (ffi:def-struct ,mirror
            ,@(loop for (component type) in components
@@ -197,29 +232,18 @@ layout."
          ,@(unless reader
              `((defun ,reader-name (pointer)
                  ,(format nil "The raw value at POINTER as a ~a." name)
-                 (let ((pointer (cast-pointer pointer ',mirror)))
-                   (,name ,@(loop for (component type) in components
-                                  collect (if (keywordp type)
-                                              `(ffi:get-slot-value pointer ',mirror ',component)
-                                              `(,(builtin-type-symbol "READ-~a" type)
-                                                ,(slot-pointer component)))))))))
+                 ,read-form)))
          ,@(unless writer
              `((defun ,writer-name (pointer value)
                  ,(format nil "Store the ~a VALUE at POINTER as a raw value." name)
-                 (let ((pointer (cast-pointer pointer ',mirror)))
-                   ,@(loop for (component type) in components
-                           collect (if (keywordp type)
-                                       `(setf (ffi:get-slot-value pointer ',mirror ',component)
-                                              (,(accessor component) value))
-                                       `(,(builtin-type-symbol "WRITE-~a" type)
-                                         ,(slot-pointer component)
-                                         (,(accessor component) value))))))))
+                 ,@write-forms)))
          (add-value-type (make-value-type :variant-type ,variant-type
                                           :ffi-type ',mirror
                                           :reader ',reader-name
                                           :writer ',writer-name
                                           :lisp-type ',name))
-         (setf (gethash ',name *builtin-type-components*) ',components)
+         (eval-when (:compile-toplevel :load-toplevel :execute)
+           (setf (gethash ',name *builtin-type-components*) ',components))
          ',name))))
 
 (define-builtin-type vector2 +variant-type-vector2+
@@ -240,25 +264,21 @@ layout."
   :writer write-basis)
 
 (defun read-basis (pointer)
-  (let* ((pointer (cast-pointer pointer 'godot-basis))
-         (row-x (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'x)))
-         (row-y (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'y)))
-         (row-z (read-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'z))))
-    (basis (vector3 (vector3-x row-x) (vector3-x row-y) (vector3-x row-z))
-           (vector3 (vector3-y row-x) (vector3-y row-y) (vector3-y row-z))
-           (vector3 (vector3-z row-x) (vector3-z row-y) (vector3-z row-z)))))
+  "The raw value at POINTER as a BASIS, made from Godot's rows."
+  ;; Row I, column J is at index 3I + J
+  (flet ((at (row column)
+           (foreign-ref pointer :float (+ (* 3 row) column))))
+    (basis (vector3 (at 0 0) (at 1 0) (at 2 0))
+           (vector3 (at 0 1) (at 1 1) (at 2 1))
+           (vector3 (at 0 2) (at 1 2) (at 2 2)))))
 
 (defun write-basis (pointer basis)
-  (let ((pointer (cast-pointer pointer 'godot-basis))
-        (x (basis-x basis))
-        (y (basis-y basis))
-        (z (basis-z basis)))
-    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'x)
-                   (vector3 (vector3-x x) (vector3-x y) (vector3-x z)))
-    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'y)
-                   (vector3 (vector3-y x) (vector3-y y) (vector3-y z)))
-    (write-vector3 (ffi:get-slot-pointer pointer 'godot-basis 'z)
-                   (vector3 (vector3-z x) (vector3-z y) (vector3-z z)))))
+  "Store the BASIS at POINTER as a raw value, with Godot's rows."
+  (loop for column in (list (basis-x basis) (basis-y basis) (basis-z basis))
+        for j from 0
+        do (setf (foreign-ref pointer :float j) (vector3-x column)
+                 (foreign-ref pointer :float (+ 3 j)) (vector3-y column)
+                 (foreign-ref pointer :float (+ 6 j)) (vector3-z column))))
 
 (defun read-godot-string (pointer)
   "The Godot String at POINTER as a Lisp string."
@@ -274,7 +294,7 @@ STRING. Destroy it with STRING-DESTRUCTOR."
 
 (defun read-packed-string-array (pointer)
   "The PackedStringArray at POINTER as a list of Lisp strings."
-  (let ((size (ffi:with-foreign-object (r-return :int64-t)
+  (let ((size (with-foreign-memory ((r-return :int64-t))
                 (call-ptr-builtin-method *packed-string-array-size* pointer
                                          (ffi:make-null-pointer :void) r-return 0)
                 (foreign-ref r-return :int64-t))))
@@ -324,7 +344,7 @@ BASIS a Basis, a GODOT-OBJECT or a pointer an Object, and a CALLABLE a Callable.
   "Construct a Variant of VALUE-TYPE at VARIANT, uninitialized memory, from the
 Lisp VALUE, through a temporary raw value. Destroy it with VARIANT-DESTROY."
   ;; The Variant gets a copy of the raw value
-  (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+  (with-foreign-memory ((raw :size (value-type-size value-type)))
     (write-value raw value-type value)
     (unwind-protect
          (call-variant-from-type-constructor
@@ -335,7 +355,7 @@ Lisp VALUE, through a temporary raw value. Destroy it with VARIANT-DESTROY."
 (defun read-variant-as (variant value-type)
   "The value of the Variant at VARIANT, which is of VALUE-TYPE, as a Lisp value,
 through a temporary raw value."
-  (ffi:with-foreign-object (raw (value-type-ffi-type value-type))
+  (with-foreign-memory ((raw :size (value-type-size value-type)))
     (call-type-from-variant-constructor
      (aref *type-from-variant-constructors* (value-type-variant-type value-type)) raw variant)
     (unwind-protect (read-value raw value-type)
@@ -429,8 +449,8 @@ taking a reference, and gives one back later, as for the results of engine
 methods. A Variant made from OBJECT and never destroyed keeps the reference, so
 there's no need to ask Godot whether OBJECT is RefCounted."
   (when object
-    (ffi:with-foreign-objects ((variant 'variant)
-                               (raw :pointer-void))
+    (with-foreign-memory ((variant 'variant)
+                          (raw :pointer-void))
       (setf (foreign-ref raw :pointer-void) (object-pointer object))
       (call-variant-from-type-constructor
        (aref *variant-from-type-constructors* +variant-type-object+) variant raw))))
@@ -453,6 +473,6 @@ usual."
             (push (list :variant copy (ffi:pointer-address (object-pointer value)))
                   *autorelease-pool*))
           ;; Never destroyed
-          (ffi:with-foreign-object (copy 'variant)
+          (with-foreign-memory ((copy 'variant))
             (variant-new-copy copy variant))))
     value))

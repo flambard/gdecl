@@ -57,6 +57,7 @@ func _init() -> void:
 	report("set_position(v)", func(): for i in COUNT: node.set_position(position))
 	report("Input.is_action_pressed(\"ui_up\")",
 		func(): for i in COUNT: Input.is_action_pressed("ui_up"))
+	report("emit_signal(\"pinged\", 1) (vararg)", func(): for i in COUNT: lisp.emit_signal("pinged", 1))
 
 	lisp.run(COUNT)
 	lisp.free()

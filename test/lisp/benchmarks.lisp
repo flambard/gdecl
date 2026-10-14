@@ -45,6 +45,8 @@ three times, and print the best time and the bytes allocated per run."
 
 (gdext:define-class lisp-benchmarks ("LispBenchmarks" "Node2D")
   ((ticks 0))
+  ;; Without connections, for timing emit_signal, a vararg method
+  (:signal "pinged" ("value" :int))
   ;; Like _process(delta)
   (:method "tick" lisp-benchmarks-tick :arguments (("delta" :float)))
   (:method "run" lisp-benchmarks-run :arguments (("count" :int))))
@@ -65,4 +67,6 @@ three times, and print the best time and the bytes allocated per run."
     (benchmark "set_position(v)" count
       (node-2d-set-position benchmarks position))
     (benchmark "Input.is_action_pressed(\"ui_up\")" count
-      (input-is-action-pressed "ui_up"))))
+      (input-is-action-pressed "ui_up"))
+    (benchmark "emit_signal(\"pinged\", 1) (vararg)" count
+      (object-emit-signal benchmarks "pinged" 1))))

@@ -113,10 +113,10 @@ OBJECT isn't used."
                           `(object-method-bind-ptrcall ,method-bind ,object ,args ,r-ret)))
                    ,@(when has-return-value
                        (list (engine-value-read-form return-type r-ret))))))
-      `(ffi:with-foreign-objects ((,args '(:array :pointer-void ,(max 1 (length arguments))))
-                                  ,@(raw-value-bindings arguments)
-                                  ,@(when has-return-value
-                                      `((,r-ret ',(engine-value-ffi-type return-type)))))
+      `(with-foreign-memory ((,args '(:array :pointer-void ,(max 1 (length arguments))))
+                             ,@(raw-value-bindings arguments)
+                             ,@(when has-return-value
+                                 `((,r-ret ',(engine-value-ffi-type return-type)))))
          ;; Empty (all zero) at first, so they can be destroyed also if
          ;; converting an argument fails before they're written. Godot
          ;; assigns the result, e.g. to a Ref or a PackedStringArray, which
@@ -148,31 +148,33 @@ OBJECT isn't used."
           (r-error (gensym "R-ERROR"))
           (r-ret (gensym "R-RET"))
           (call-error (gensym "CALL-ERROR")))
-      (flet ((array-type (element-type)
-               ;; Known when the macro is expanded, unless there are REST
-               ;; arguments
-               (if rest
-                   `(list :array ',element-type (max 1 ,count))
-                   `'(:array ,element-type ,(max 1 declared-count)))))
+      (flet ((array-size (element-type)
+               ;; The size of the array in bytes, known when the macro is
+               ;; expanded, unless there are REST arguments
+               (let ((element-size (ffi:size-of-foreign-type element-type)))
+                 (if rest
+                     `(* ,element-size (max 1 ,count))
+                     (* element-size (max 1 declared-count))))))
         `(let ((,count ,(if rest `(+ ,declared-count (length ,rest)) declared-count)))
-           (ffi:with-foreign-objects ((,args ,(array-type :pointer-void))
-                                      (,variants ,(array-type 'variant))
-                                      ,@(raw-value-bindings arguments)
-                                      ,@(unless utility
-                                          `((,r-return 'variant)
-                                            (,r-error 'call-error)))
-                                      ,@(when (and has-return-value
-                                                   (or utility (not (eql return-type :variant))))
-                                          `((,r-ret ',(engine-value-ffi-type return-type)))))
+           (with-foreign-memory ((,args :size ,(array-size :pointer-void))
+                                 (,variants :size ,(array-size 'variant))
+                                 ,@(raw-value-bindings arguments)
+                                 ,@(unless utility
+                                     `((,r-return 'variant)
+                                       (,r-error 'call-error)))
+                                 ,@(when (and has-return-value
+                                              (or utility (not (eql return-type :variant))))
+                                     `((,r-ret ',(engine-value-ffi-type return-type)))))
              ;; All Nil, so they can all be destroyed, also if making one fails
-             (clear-foreign-object ,variants ,(array-type 'variant))
+             (ffi:c-inline (,variants ,(array-size 'variant)) (:pointer-void :unsigned-long) :void
+                           "__builtin_memset(#0, 0, #1)" :one-liner t)
              ;; Godot always initializes r_ret, also when the call fails
              (unwind-protect
                   (progn
                     ,@(loop for argument in arguments
                             for type = (argument-variant-type argument)
                             for i from 0
-                            for variant = `(element-pointer ,variants 'variant ,i)
+                            for variant = `(array-element ,variants 'variant ,i)
                             if (eql type :variant)
                               ;; Already any Variant: constructed right in the array
                               collect `(write-variant ,variant ,(argument-name argument))
@@ -193,7 +195,7 @@ OBJECT isn't used."
                     ,@(when rest
                         `((loop for value in ,rest
                                 for i from ,declared-count
-                                for variant = (element-pointer ,variants 'variant i)
+                                for variant = (array-element ,variants 'variant i)
                                 do (write-variant variant value)
                                    (setf (foreign-ref ,args :pointer-void i) variant))))
                     ,@(if utility
@@ -206,7 +208,8 @@ OBJECT isn't used."
                                                        ,args ,count))
                           `((object-method-bind-call ,method-bind ,object ,args ,count
                                                      ,r-return ,r-error)
-                            (let ((,call-error (ffi:get-slot-value ,r-error 'call-error 'error)))
+                            ;; The error, the first member of GDExtensionCallError
+                            (let ((,call-error (foreign-ref ,r-error :int)))
                               (unless (= ,call-error +call-ok+)
                                 (error "Calling ~a failed with call error ~d" ',name ,call-error)))))
                     ,(flet ((read-raw-result ()
@@ -225,7 +228,7 @@ OBJECT isn't used."
                                   (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
                                  ,(read-raw-result))))))
                (dotimes (i ,count)
-                 (variant-destroy (element-pointer ,variants 'variant i)))
+                 (variant-destroy (array-element ,variants 'variant i)))
                ,@(unless utility
                    `((variant-destroy ,r-return)))))))))
 

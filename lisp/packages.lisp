@@ -238,6 +238,8 @@
            #:expected
            ;; Foreign memory
            #:clear-foreign-object
+           #:with-foreign-memory
+           #:array-element
            #:cast-pointer
            #:element-pointer
            #:foreign-ref))

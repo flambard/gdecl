@@ -232,6 +232,7 @@ An engine method that returns a RefCounted object, such as a Resource, returns i
 
 ```sh
 make test        # in gdecl: build the test project in test/ and run the tests in Godot, headless
+make bench       # time calls between Lisp and Godot, and the same calls in GDScript
 ```
 
 The tests are a small gdecl application in `test/`: Lisp classes that the GDScript script `test/project/run_tests.gd` uses from Godot, and tests written in Lisp that call Godot. The run fails if a test fails, Godot crashes, or Godot reports leaks when it exits; the whole output is in `test/build/test.log`.

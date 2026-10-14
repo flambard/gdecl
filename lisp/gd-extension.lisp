@@ -40,7 +40,7 @@ as +VARIANT-TYPE-FLOAT+), or a keyword named like one, such as :FLOAT, :VECTOR2,
   "Evaluate BODY with VAR bound to a pointer to a StringName created from the
 string CONTENTS. The StringName is destroyed when BODY exits, also on a
 non-local exit."
-  `(ffi:with-foreign-object (,var 'string-name)
+  `(with-foreign-memory ((,var 'string-name))
      (string-name-new-with-latin1-chars ,var ,contents)
      (unwind-protect (progn ,@body)
        (string-name-destructor ,var))))
@@ -57,7 +57,7 @@ extension_api.json; the result is NULL if it doesn't match."
   "Evaluate BODY with VAR bound to a pointer to a Godot String created from the
 Lisp string CONTENTS. The String is destroyed when BODY exits, also on a
 non-local exit."
-  `(ffi:with-foreign-object (,var 'godot-string)
+  `(with-foreign-memory ((,var 'godot-string))
      (string-new-with-utf8-chars ,var ,contents)
      (unwind-protect (progn ,@body)
        (string-destructor ,var))))
@@ -103,7 +103,7 @@ extension."
   "Construct a NodePath at POINTER, uninitialized memory, from the string PATH.
 Destroy it with NODE-PATH-DESTRUCTOR."
   (with-string (string path)
-    (ffi:with-foreign-object (args '(:array :pointer-void 1))
+    (with-foreign-memory ((args '(:array :pointer-void 1)))
       (setf (foreign-ref args :pointer-void 0) string)
       ;; Constructor 2 of NodePath takes a String
       (call-ptr-constructor (initialize-cell-value

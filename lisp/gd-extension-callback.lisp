@@ -152,10 +152,11 @@ is used in error messages."
   (aref *bound-methods* (1- (ffi:pointer-address userdata))))
 
 (defun set-call-error (r-error error &key (argument 0) (expected 0))
-  (let ((r-error (cast-pointer r-error 'call-error)))
-    (setf (ffi:get-slot-value r-error 'call-error 'error) error
-          (ffi:get-slot-value r-error 'call-error 'argument) argument
-          (ffi:get-slot-value r-error 'call-error 'expected) expected)))
+  ;; GDExtensionCallError's members are three 32-bit ints: error, argument and
+  ;; expected
+  (setf (foreign-ref r-error :int32-t 0) error
+        (foreign-ref r-error :int32-t 1) argument
+        (foreign-ref r-error :int32-t 2) expected))
 
 (defun ptrcall-bound-method (method-userdata instance args r-ret)
   "Call the method identified by METHOD-USERDATA, with ARGS and R-RET as in
@@ -316,7 +317,7 @@ StringName that must stay valid."
     (push (cons string-name method-userdata) (extension-class-virtuals class))))
 
 (defun string-name-equal (a b)
-  (ffi:with-foreign-object (result :uint8-t)
+  (with-foreign-memory ((result :uint8-t))
     (call-ptr-operator-evaluator *string-name-equal-evaluator* a b result)
     (/= (foreign-ref result :uint8-t) 0)))
 
