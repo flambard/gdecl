@@ -7,10 +7,18 @@
 
 (in-package :gd-extension-builtins)
 
-(defstruct (vector2 (:constructor vector2 (&optional (x 0.0) (y 0.0))))
+(defstruct (vector2 (:constructor %vector2 (x y)))
   "Godot's Vector2. Make one with (VECTOR2 X Y), like Vector2(x, y)."
   (x 0.0 :type single-float)
   (y 0.0 :type single-float))
+
+;; The components are single-floats, like Godot's real_t, but the constructors
+;; take any real, as Lisp code computes with doubles (such as delta) and
+;; integers
+(declaim (inline vector2))
+(defun vector2 (&optional (x 0.0) (y 0.0))
+  "Vector2(X, Y)"
+  (%vector2 (float x 1.0) (float y 1.0)))
 
 (defun vector2+ (a b)
   "A + B"
@@ -19,8 +27,8 @@
 
 (defun vector2* (vector number)
   "VECTOR * NUMBER"
-  (vector2 (float (* (vector2-x vector) number) 1.0)
-           (float (* (vector2-y vector) number) 1.0)))
+  (vector2 (* (vector2-x vector) number)
+           (* (vector2-y vector) number)))
 
 (defun vector2-length (vector)
   "VECTOR.length()"
@@ -41,8 +49,8 @@
         (sin (sin angle))
         (x (vector2-x vector))
         (y (vector2-y vector)))
-    (vector2 (float (- (* x cos) (* y sin)) 1.0)
-             (float (+ (* x sin) (* y cos)) 1.0))))
+    (vector2 (- (* x cos) (* y sin))
+             (+ (* x sin) (* y cos)))))
 
 (defun vector2-clamp (vector min max)
   "VECTOR.clamp(MIN, MAX): each component of VECTOR clamped between those of MIN
@@ -55,11 +63,16 @@ and MAX."
   (position (vector2) :type vector2)
   (size (vector2) :type vector2))
 
-(defstruct (vector3 (:constructor vector3 (&optional (x 0.0) (y 0.0) (z 0.0))))
+(defstruct (vector3 (:constructor %vector3 (x y z)))
   "Godot's Vector3. Make one with (VECTOR3 X Y Z), like Vector3(x, y, z)."
   (x 0.0 :type single-float)
   (y 0.0 :type single-float)
   (z 0.0 :type single-float))
+
+(declaim (inline vector3))
+(defun vector3 (&optional (x 0.0) (y 0.0) (z 0.0))
+  "Vector3(X, Y, Z)"
+  (%vector3 (float x 1.0) (float y 1.0) (float z 1.0)))
 
 (defun vector3+ (a b)
   "A + B"
@@ -77,9 +90,9 @@ and MAX."
 
 (defun vector3* (vector number)
   "VECTOR * NUMBER"
-  (vector3 (float (* (vector3-x vector) number) 1.0)
-           (float (* (vector3-y vector) number) 1.0)
-           (float (* (vector3-z vector) number) 1.0)))
+  (vector3 (* (vector3-x vector) number)
+           (* (vector3-y vector) number)
+           (* (vector3-z vector) number)))
 
 (defun vector3-length (vector)
   "Vector3.length()"

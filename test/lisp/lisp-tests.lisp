@@ -63,6 +63,16 @@
                                                        (/ pi 2))))
             1e-6)))
 
+;; Godot's real_t is single-float, but Lisp code computes with doubles (delta
+;; is one) and integers, so the constructors take any real
+(deftest builtin-constructors
+  (check (equalp (vector2 1.0 2.0) (vector2 1d0 2)))
+  (check (typep (vector2-x (vector2 (* 2 0.5d0))) 'single-float))
+  (check (equalp (vector3 1.0 2.0 3.0) (vector3 1d0 2 3.0)))
+  (check (typep (vector3-z (vector3 0 0 1d0)) 'single-float))
+  (check (equalp (vector2 0.0 0.0) (vector2)))
+  (check (equalp (vector3 0.0 0.0 0.0) (vector3))))
+
 (deftest objects
   (let ((node (new-node "Node2D"))
         (test-node (new-test-node)))
