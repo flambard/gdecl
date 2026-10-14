@@ -8,8 +8,8 @@ GDExtension is a low-level C interface, not meant to be used directly by applica
 
 Principles:
 
-- **Build up gradually.** Each layer is built on the ones below it (see Layers), probably with one more layer on top of `gd-extension` later for the highest-level concepts, such as the CLOS integration below. Grow the framework from what the applications built on it need, and move code from an application into gdecl once the pattern is clear.
-- **Keep the lower layers usable.** An application can always use a lower layer for what the higher ones don't cover yet, or for a hot path.
+- **Build up gradually.** Each layer is built on the ones below it (see Layers), probably with one more layer on top of `gd-extension` later for the highest-level concepts (see The high-level layer below). Grow the framework from what the applications built on it need, and move code from an application into gdecl once the pattern is clear.
+- **High level by default, drop down where it matters.** Applications should be able to program at a very high level, and drop down to lower-level concepts exactly where a task is performance sensitive, without giving up the high level elsewhere: one method of a high-level class, or one hot loop, can use a lower layer. So the layers must work together: high-level objects can be passed to everything below (as `godot-object`s are through `object-pointer`), a high-level class can have methods bound the low-level way, and the lower layers stay usable and documented. Speed is opt-in step by step: type declarations, non-allocating operations, dispatch resolved once.
 - **Do the work up front, not per call.** Look up method binds, StringNames and constructors once (at initialization or registration) and cache them. Prefer `ptrcall` to Variant calls. Avoid allocating in calls that happen every frame (`_process`, `_physics_process`), e.g. by not boxing floats or creating temporary Strings. Prefer compile-time expansion (macros, code generated from `extension_api.json`) to runtime lookup and dispatch.
 - **Improve gdecl as you go.** When an application needs something gdecl lacks, or something in it could be better, improve gdecl rather than working around it in the application. Keep such changes general.
 - **Measure.** Before choosing a convenient but slower design for something called often, check what it costs.
@@ -19,9 +19,11 @@ Where to look for inspiration:
 - **GDScript**: the API application developers know: `extends`, `@export`, `signal`, virtual methods such as `_ready` that you just define, `$Node` paths, `@onready`.
 - **Godot C# (`GodotSharp`)**: the closest model, a garbage-collected binding. Engine classes are generated from `extension_api.json` with method binds cached in static fields, builtin types such as `Vector2` are implemented in C#, user classes use attributes and a source generator writes the registration code, and `RefCounted` lifetimes are tied to the managed object.
 
-### CLOS integration (idea, not yet decided)
+### The high-level layer: CLOS, a specialized DSL, or both (open)
 
-`define-class` uses structs, with a syntax meant to be able to expand into `defclass` and methods later without changing applications much:
+The ambition is to program Godot at a high level in Lisp: Godot's object-oriented concepts (classes and inheritance, virtual methods, properties, signals) expressed naturally, at least as easy as GDScript and C#, and fast enough for games.
+
+CLOS is the leading candidate, but not yet a decision. Godot's model is class-based like GDScript's and C#'s, and CLOS adds what they lack: generic functions with method combination (e.g. `:before` methods on `_ready`), the MOP for registering classes behind the scenes, and redefining classes in a running game (`update-instance-for-redefined-class`), which is probably Lisp's strongest selling point here. Something like:
 
 ```lisp
 (define-godot-class player (sprite-2d)
@@ -31,7 +33,9 @@ Where to look for inspiration:
 (defmethod process ((self player) delta) ...)
 ```
 
-Open questions: a macro over `defclass` or a metaclass through the MOP; virtual methods as generic functions whose methods are found once, in `get_virtual_call_data`, and only reported when the class has one; the cost of CLOS dispatch in ECL every frame; generated CLOS classes for engine classes (plain inlinable functions are cheaper; use generic dispatch only where applications override); mapping each Godot object to one Lisp wrapper (instance bindings), with RefCounted lifetimes tied to the wrapper (finalizers). Lisp can also offer what GDScript and C# can't easily: redefining code in a running game, and a REPL connected to Godot.
+The risk is per-frame cost. ECL's dynamic machinery is expensive per call (measured: a call to a function in another file about 50 ns, `handler-bind` about 250 ns), and generic function dispatch and `slot-value` are likely similar. So it may fit better to have a more specialized DSL, macros that compile Godot-specific definitions into tight code (as `define-class` and the invokers of `ptrcall-invoker-form` already do), or a hybrid: CLOS for defining and redefining, with dispatch resolved once (an effective method found per class and virtual, e.g. in `get_virtual_call_data`, not per call) and specialized code generated for the per-frame paths. `define-class` is already a small DSL, with a syntax meant to be able to expand into whichever fits, without changing applications much.
+
+Whichever it is, dropping down must work from inside it (see the principles): a high-level class whose hot methods are written closer to the metal. Decide by measuring and prototyping, as for the FFI work: measure CLOS in ECL (a generic function call, `slot-value` against an accessor, `make-instance`, calling a precomputed effective method), and write a real class, such as the first game's Player, both ways, comparing ease of use and `make bench` numbers. Other open questions: a macro over `defclass` or a metaclass; generated classes for engine classes, and only for those used; mapping each Godot object to one Lisp wrapper (instance bindings), with RefCounted lifetimes tied to the wrapper (finalizers).
 
 ## Layers
 

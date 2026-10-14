@@ -8,9 +8,9 @@ gdecl is a proof of concept. Its API is incomplete and will change.
 
 GDExtension is a low-level C interface, not meant to be used directly by application developers. gdecl builds higher-level, Lisp-style APIs on top of it, step by step, with the aim of making Godot as easy to program in Lisp as in GDScript or C#, and taking inspiration from both. Since Godot is mostly used for games, the higher-level APIs must stay efficient: work such as looking up methods is done once rather than per call, and code called every frame shouldn't allocate.
 
-The lower layers stay available, so you can drop down to them for what the higher ones don't cover yet, or for performance-critical code.
+The aim is a very high-level way of programming Godot, with the option to drop down to lower-level concepts exactly where a task is performance sensitive: one method of a class, or one hot loop, without giving up the high level elsewhere. The lower layers stay available for that, and for what the higher ones don't cover yet.
 
-The long-term idea is to integrate Godot's classes with CLOS: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and use generated Lisp classes for Godot's own classes.
+The long-term ambition is to program Godot at a high level in Lisp, with Godot's classes, inheritance, virtual methods, properties and signals expressed naturally. CLOS looks like a very good fit: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and redefine classes in a running game. Whether it fits is still to be found out, though: if CLOS can't be made fast enough for code that runs every frame, a more specialized DSL, or a mix of the two, may fit better. That will be decided by prototyping and measuring.
 
 ## Requirements
 
