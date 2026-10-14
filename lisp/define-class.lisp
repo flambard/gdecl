@@ -39,6 +39,18 @@ that fails to register is reported, and the others are still registered."
 (add-initialize-hook 'register-defined-classes)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun invoker-arguments (return-type-form argument-type-forms)
+    "The arguments :INVOKER and the invoker's form (see PTRCALL-INVOKER-FORM) for
+BIND-METHOD, for a method whose types are given as forms, as in VARIANT-TYPE, if
+they're all constants. Otherwise NIL, and the method's calls go through the
+generic dispatcher."
+    (when (every #'constantp (cons return-type-form argument-type-forms))
+      (let ((form (ptrcall-invoker-form
+                   (variant-type (eval return-type-form))
+                   (mapcar (lambda (type) (variant-type (eval type))) argument-type-forms))))
+        (when form
+          `(:invoker ,form)))))
+
   (defun function-form (designator)
     "A form for the function DESIGNATOR in DEFINE-CLASS: a symbol, called by name
 so that redefining the function takes effect, or a form such as (LAMBDA ...)."
@@ -107,7 +119,8 @@ the values are RefCounted."
            (ref-counted (class-slot-ref-counted slot)))
       `((bind-method ,class-name ,getter-name
                      (lambda (object) (,accessor object))
-                     :return-type ,type)
+                     :return-type ,type
+                     ,@(invoker-arguments type '()))
         (bind-method ,class-name ,setter-name
                      ,(cond (setter
                              (function-form setter))
@@ -118,7 +131,8 @@ the values are RefCounted."
                                     (setf (,accessor object) value))))
                             (t
                              `(lambda (object value) (setf (,accessor object) value))))
-                     :arguments (list (list "value" ,type)))
+                     :arguments (list (list "value" ,type))
+                     ,@(invoker-arguments :nil (list type)))
         (bind-property ,class-name ,property-name ,type ,getter-name ,setter-name
                        ,@(when class `(:class ,class))))))
 
@@ -175,7 +189,8 @@ SLOTS that keep them. NIL if there's neither."
              arguments
            `((bind-method ,class-name ,method-name ,(function-form function)
                           :arguments ,(arguments-form arguments)
-                          :return-type ,return-type))))
+                          :return-type ,return-type
+                          ,@(invoker-arguments return-type (mapcar #'second arguments))))))
         (:virtual
          (destructuring-bind (virtual-name function) arguments
            `((bind-virtual ,class-name ,virtual-name ,(function-form function)))))

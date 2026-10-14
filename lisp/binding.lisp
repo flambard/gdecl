@@ -38,12 +38,13 @@
     (mem-free class-name)))
 
 (defun bind-method (class-name method-name function
-                    &key (return-type +variant-type-nil+) arguments)
+                    &key (return-type +variant-type-nil+) arguments invoker)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
 ARGUMENTS is a list of (name type), and RETURN-TYPE the type of the return
 value (:NIL for none), where a type is as in VARIANT-TYPE, e.g. :INT or
 :VECTOR2. FUNCTION is called with the instance's Lisp object (see
-REGISTER-CLASS) and the arguments as Lisp values."
+REGISTER-CLASS) and the arguments as Lisp values. INVOKER is as in
+REGISTER-METHOD; DEFINE-CLASS generates it."
   (let* ((return-type (variant-type return-type))
          (arguments (loop for (name type) in arguments
                           collect (list name (variant-type type))))
@@ -67,7 +68,8 @@ REGISTER-CLASS) and the arguments as Lisp values."
               (ffi:get-slot-value method-info 'class-method-info 'method-userdata)
               (register-method function :name (format nil "~a.~a" class-name method-name)
                                         :return-type return-type
-                                        :argument-types (mapcar #'second arguments))
+                                        :argument-types (mapcar #'second arguments)
+                                        :invoker invoker)
               (ffi:get-slot-value method-info 'class-method-info 'call-func)
               (ffi:callback 'method-call)
               (ffi:get-slot-value method-info 'class-method-info 'ptrcall-func)
@@ -241,9 +243,10 @@ string PROBLEM that says why the method can't be bound."
 
 (defun bind-virtual-with-signatures (class-name virtual-name function signatures)
   "Bind FUNCTION as the virtual method VIRTUAL-NAME of the class CLASS-NAME, with
-the signature from SIGNATURES (see VIRTUAL-SIGNATURES) of the engine class that
+the signature from SIGNATURES (see VIRTUAL-SIGNATURES, with the signature's
+invoker, see REGISTER-METHOD, added to each) of the engine class that
 CLASS-NAME inherits from."
-  (destructuring-bind (&optional defining-class return-type argument-types problem)
+  (destructuring-bind (&optional defining-class return-type argument-types problem invoker)
       (find-if (lambda (signature) (inherits-class-p class-name (first signature)))
                signatures)
     (unless defining-class
@@ -255,7 +258,8 @@ CLASS-NAME inherits from."
                  (new-string-name virtual-name)
                  (register-method function :name (format nil "~a.~a" class-name virtual-name)
                                            :return-type return-type
-                                           :argument-types argument-types))))
+                                           :argument-types argument-types
+                                           :invoker invoker))))
 
 (defmacro bind-virtual (class-name virtual-name function)
   "Make FUNCTION the class CLASS-NAME's implementation of the virtual method
@@ -270,4 +274,18 @@ creates any instances of the class."
   (let ((signatures (virtual-signatures virtual-name)))
     (unless signatures
       (error "No engine class has a virtual method ~a (~a)" virtual-name *extension-api-file*))
-    `(bind-virtual-with-signatures ,class-name ,virtual-name ,function ',signatures)))
+    ;; One invoker for each distinct signature that can be bound
+    (let ((invokers '()))
+      (loop for (nil return-type argument-types problem) in signatures
+            for key = (cons return-type argument-types)
+            unless (or problem (assoc key invokers :test #'equal))
+              do (push (list key (gensym "INVOKER") (ptrcall-invoker-form return-type argument-types))
+                       invokers))
+      `(let (,@(loop for (nil variable form) in invokers
+                     collect `(,variable ,form)))
+         (bind-virtual-with-signatures
+          ,class-name ,virtual-name ,function
+          (list ,@(loop for (class return-type argument-types problem) in signatures
+                        collect `(list ,class ,return-type ',argument-types ,problem
+                                       ,(second (assoc (cons return-type argument-types)
+                                                       invokers :test #'equal))))))))))

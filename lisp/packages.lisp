@@ -326,6 +326,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:release-autoreleased
            #:reference-for-caller
            #:with-autorelease-pool
+           #:release-autorelease-pool
+           #:*autorelease-pool*
            #:callable
            #:callable-p
            #:callable-target
@@ -369,6 +371,7 @@ tables and dispatchers behind them")
            #:report-error
            ;; Tables
            #:register-method
+           #:ptrcall-invoker-form
            #:add-extension-class
            #:add-virtual
            #:instance-object
@@ -400,6 +403,7 @@ tables and dispatchers behind them")
                 #:make-initialize-cell
                 #:report-error
                 #:register-method
+                #:ptrcall-invoker-form
                 #:add-extension-class
                 #:add-virtual
                 #:instance-object

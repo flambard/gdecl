@@ -89,6 +89,9 @@ func test_errors() -> void:
 	print("[test] expect error")
 	# Called with Variants: a typed call is a ptrcall, which returns 0 for an int
 	check(node.call("fail") == null, "a method that signals an error returns null")
+	print("[test] expect error")
+	# A typed call is a ptrcall, which returns 0 for an int
+	check(node.fail() == 0, "a method that signals an error returns 0 with ptrcall")
 	node.free()
 
 

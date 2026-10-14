@@ -26,6 +26,48 @@ output."
                  (ignore-errors (print-error description where "Lisp" 0) t))
       (format t "~&ERROR: ~a~%   at: ~a~%" description where))))
 
+;; WITH-CALLBACK-PROTECTION catches errors with a handler made once: ECL's
+;; HANDLER-BIND (and so HANDLER-CASE) conses a new handler cluster at every
+;; entry, which is most of what a callback cost (measured with `make bench`).
+;; It binds ECL's internal SI:*HANDLER-CLUSTERS* the way HANDLER-BIND does.
+
+(defun throw-callback-error (condition)
+  (throw 'callback-error condition))
+
+(defmacro catching-errors (&body body)
+  "Evaluate BODY and return NIL, or, if BODY signals an error, the condition,
+after unwinding BODY. Like HANDLER-CASE, but cheaper."
+  `(catch 'callback-error
+     (let ((si:*handler-clusters*
+             (cons (load-time-value (list (cons 'error #'throw-callback-error)))
+                   si:*handler-clusters*)))
+       ,@body
+       nil)))
+
+(defmacro with-callback-protection ((where &optional error-value) &body body)
+  "Evaluate BODY, the work of a callback, with an autorelease pool of its own
+(see GD-EXTENSION-TYPES:WITH-AUTORELEASE-POOL), and return its value. If BODY
+signals an error, it's reported with REPORT-ERROR as happening in WHERE (a form
+evaluated only then), and ERROR-VALUE is returned, as a Lisp error must never
+unwind through Godot's C frames. The references in the pool are given back
+afterwards, also after an error; no other non-local exit can leave a callback,
+so this needs no UNWIND-PROTECT."
+  (let ((result (gensym "RESULT"))
+        (condition (gensym "CONDITION"))
+        (release-condition (gensym "RELEASE-CONDITION")))
+    `(let ((*autorelease-pool* '())
+           (,result nil))
+       (let ((,condition (catching-errors (setf ,result (progn ,@body)))))
+         ;; Give back the references, also if giving back one of them fails
+         (loop while (consp *autorelease-pool*)
+               do (let ((,release-condition (catching-errors (release-autorelease-pool))))
+                    (when ,release-condition
+                      (report-error ,where ,release-condition))))
+         (cond (,condition
+                (report-error ,where ,condition)
+                ,error-value)
+               (t ,result))))))
+
 ;;;
 ;;; Initialization
 ;;;
@@ -113,15 +155,18 @@ Called from src/gdecl.c, before ECL is shut down."
 ;;; self in GDScript.
 ;;;
 
-(defun method-value-type (variant-type)
+(defun method-value-type (variant-type &optional (errorp t))
   "The VALUE-TYPE of VARIANT-TYPE, if the dispatcher can convert it: a type with
-a raw value that can also be a Variant."
-  (let ((value-type (find-value-type variant-type)))
-    (unless (and (integerp (value-type-variant-type value-type))
-                 (value-type-ffi-type value-type)
-                 (value-type-reader value-type))
-      (error "Unsupported type for a bound method: variant type ~s" variant-type))
-    value-type))
+a raw value that can also be a Variant. Otherwise signals an error, or returns
+NIL if ERRORP is false."
+  (let ((value-type (find-value-type variant-type nil)))
+    (cond ((and value-type
+                (integerp (value-type-variant-type value-type))
+                (value-type-ffi-type value-type)
+                (value-type-reader value-type))
+           value-type)
+          (errorp
+           (error "Unsupported type for a bound method: variant type ~s" variant-type)))))
 
 (defstruct bound-method
   ;; For error messages, e.g. "Player.start"
@@ -129,22 +174,28 @@ a raw value that can also be a Variant."
   function
   ;; VALUE-TYPEs; NIL as the return type means no return value
   return-type
-  argument-types)
+  argument-types
+  ;; A function that does what PTRCALL-BOUND-METHOD does, generated for the
+  ;; method's signature (see PTRCALL-INVOKER-FORM), or NIL
+  (invoker nil))
 
 (defvar *bound-methods* (make-array 0 :adjustable t :fill-pointer t))
 
-(defun register-method (function &key name (return-type +variant-type-nil+) argument-types)
+(defun register-method (function &key name (return-type +variant-type-nil+) argument-types
+                                      invoker)
   "Register FUNCTION as a method and return its method_userdata. FUNCTION is
 called with the instance's Lisp object and one Lisp value per argument.
 RETURN-TYPE and ARGUMENT-TYPES are variant types. NAME, e.g. \"Player.start\",
-is used in error messages."
+is used in error messages. INVOKER, if given, is the function of
+PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
   (ffi:make-pointer (1+ (vector-push-extend
                          (make-bound-method :name name
                                             :function function
                                             :return-type (unless (= return-type +variant-type-nil+)
                                                            (method-value-type return-type))
                                             :argument-types (mapcar #'method-value-type
-                                                                    argument-types))
+                                                                    argument-types)
+                                            :invoker invoker)
                          *bound-methods*))
                     :void))
 
@@ -163,17 +214,72 @@ is used in error messages."
 ptrcall_func: an array of pointers to the raw argument values, and a pointer to
 where the raw return value goes."
   (let* ((method (userdata-method method-userdata))
-         (return-type (bound-method-return-type method))
-         (arguments (loop for type in (bound-method-argument-types method)
-                          for i from 0
-                          collect (read-value (foreign-ref args :pointer-void i) type)))
-         (result (apply (bound-method-function method) (instance-object instance)
-                        arguments)))
-    (when return-type
-      ;; An Object result comes with a reference for Godot, if it's RefCounted
-      (when (eql (value-type-variant-type return-type) +variant-type-object+)
-        (reference-for-caller result))
-      (write-value r-ret return-type result))))
+         (invoker (bound-method-invoker method)))
+    (if invoker
+        (funcall invoker (bound-method-function method) (instance-object instance) args r-ret)
+        (let* ((return-type (bound-method-return-type method))
+               (arguments (loop for type in (bound-method-argument-types method)
+                                for i from 0
+                                collect (read-value (foreign-ref args :pointer-void i) type)))
+               (result (apply (bound-method-function method) (instance-object instance)
+                              arguments)))
+          (when return-type
+            ;; An Object result comes with a reference for Godot, if it's
+            ;; RefCounted
+            (when (eql (value-type-variant-type return-type) +variant-type-object+)
+              (reference-for-caller result))
+            (write-value r-ret return-type result))))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun invoker-argument-form (value-type args index)
+    "A form that reads argument INDEX, of VALUE-TYPE, from ARGS, the array of
+pointers to raw values of ptrcall_func. bool, int and float are read with C
+code, without a pointer object in between."
+    (let ((c-type (case (value-type-ffi-type value-type)
+                    (:uint8-t "uint8_t")
+                    (:int64-t "int64_t")
+                    (:double "double"))))
+      (if c-type
+          (let ((form `(ffi:c-inline (,args) (:pointer-void) ,(value-type-ffi-type value-type)
+                                     ,(format nil "*(~a *)((void **)#0)[~d]" c-type index)
+                                     :one-liner t)))
+            (if (eq (value-type-ffi-type value-type) :uint8-t)
+                `(/= 0 ,form)
+                form))
+          `(,(value-type-reader value-type) (foreign-ref ,args :pointer-void ,index)))))
+
+  (defun ptrcall-invoker-form (return-type argument-types)
+    "A LAMBDA form for the invoker of a bound method with RETURN-TYPE and
+ARGUMENT-TYPES (variant types, see REGISTER-METHOD): a function of the method's
+function, the instance's Lisp object, and ARGS and R-RET of ptrcall_func, which
+does what PTRCALL-BOUND-METHOD does, with the code for each type generated, so
+without a list of the arguments, APPLY or calling converters by name. NIL if
+the dispatcher can't convert one of the types."
+    (let ((return-value-type (and (not (eql return-type +variant-type-nil+))
+                                  (method-value-type return-type nil)))
+          (argument-value-types (mapcar (lambda (type) (method-value-type type nil))
+                                        argument-types))
+          (function (gensym "FUNCTION"))
+          (self (gensym "SELF"))
+          (args (gensym "ARGS"))
+          (r-ret (gensym "R-RET"))
+          (result (gensym "RESULT")))
+      (unless (or (and (not return-value-type) (not (eql return-type +variant-type-nil+)))
+                  (member nil argument-value-types))
+        `(lambda (,function ,self ,args ,r-ret)
+           (declare (ignorable ,args ,r-ret))
+           ,(let ((call `(funcall ,function ,self
+                                  ,@(loop for value-type in argument-value-types
+                                          for i from 0
+                                          collect (invoker-argument-form value-type args i)))))
+              (if return-value-type
+                  `(let ((,result ,call))
+                     ;; An Object result comes with a reference for Godot, if
+                     ;; it's RefCounted
+                     ,@(when (eql return-type +variant-type-object+)
+                         `((reference-for-caller ,result)))
+                     (,(value-type-writer return-value-type) ,r-ret ,result))
+                  call)))))))
 
 (defun call-bound-method (method-userdata instance args argument-count r-return r-error)
   "Call the method identified by METHOD-USERDATA, with arguments and return
@@ -224,11 +330,8 @@ value as Variants, as in call_func."
 (ffi:defcallback method-ptrcall :void
     ((method-userdata :pointer-void) (instance :pointer-void)
      (args :pointer-void) (r-ret :pointer-void))
-  (handler-case
-      (with-autorelease-pool
-        (ptrcall-bound-method method-userdata instance args r-ret))
-    (error (e)
-      (report-error (bound-method-name (userdata-method method-userdata)) e))))
+  (with-callback-protection ((bound-method-name (userdata-method method-userdata)))
+    (ptrcall-bound-method method-userdata instance args r-ret)))
 
 ;; void (*GDExtensionClassMethodCall)(void *method_userdata,
 ;;                                    GDExtensionClassInstancePtr p_instance,
@@ -243,11 +346,8 @@ value as Variants, as in call_func."
   ;; There's no call error for a failing method, and Godot already initialized
   ;; R-ERROR to OK and R-RETURN to Nil, so after an error the method returns
   ;; null, like a GDScript method that fails
-  (handler-case
-      (with-autorelease-pool
-        (call-bound-method method-userdata instance args argument-count r-return r-error))
-    (error (e)
-      (report-error (bound-method-name (userdata-method method-userdata)) e))))
+  (with-callback-protection ((bound-method-name (userdata-method method-userdata)))
+    (call-bound-method method-userdata instance args argument-count r-return r-error)))
 
 ;;;
 ;;; Classes, see GD-EXTENSION:REGISTER-CLASS
@@ -423,18 +523,15 @@ object, and return the object pointer."
 (ffi:defcallback create-instance :pointer-void
     ((class-userdata :pointer-void) (notify-postinitialize :unsigned-byte))
   (declare (ignore notify-postinitialize))
-  (handler-case (with-autorelease-pool (create-class-instance class-userdata))
-    (error (e)
-      (report-error "create instance" e)
-      (ffi:make-null-pointer :void))))
+  (with-callback-protection ("create instance" (ffi:make-null-pointer :void))
+    (create-class-instance class-userdata)))
 
 ;; void (*GDExtensionClassFreeInstance)(void *p_class_userdata,
 ;;                                      GDExtensionClassInstancePtr p_instance)
 (ffi:defcallback free-instance :void
     ((class-userdata :pointer-void) (instance :pointer-void))
-  (handler-case (with-autorelease-pool (free-class-instance class-userdata instance))
-    (error (e)
-      (report-error "free instance" e))))
+  (with-callback-protection ("free instance")
+    (free-class-instance class-userdata instance)))
 
 ;; void *(*GDExtensionClassGetVirtualCallData2)(void *p_class_userdata,
 ;;                                              GDExtensionConstStringNamePtr p_name,
@@ -444,10 +541,8 @@ object, and return the object pointer."
 (ffi:defcallback get-virtual-call-data :pointer-void
     ((class-userdata :pointer-void) (name :pointer-void) (hash :unsigned-int))
   (declare (ignore hash))
-  (handler-case (virtual-call-data class-userdata name)
-    (error (e)
-      (report-error "get virtual call data" e)
-      (ffi:make-null-pointer :void))))
+  (with-callback-protection ("get virtual call data" (ffi:make-null-pointer :void))
+    (virtual-call-data class-userdata name)))
 
 ;; void (*GDExtensionClassCallVirtualWithData)(GDExtensionClassInstancePtr p_instance,
 ;;                                             GDExtensionConstStringNamePtr p_name,
@@ -458,11 +553,8 @@ object, and return the object pointer."
     ((instance :pointer-void) (name :pointer-void) (virtual-call-userdata :pointer-void)
      (args :pointer-void) (r-ret :pointer-void))
   (declare (ignore name))
-  (handler-case
-      (with-autorelease-pool
-        (ptrcall-bound-method virtual-call-userdata instance args r-ret))
-    (error (e)
-      (report-error (bound-method-name (userdata-method virtual-call-userdata)) e))))
+  (with-callback-protection ((bound-method-name (userdata-method virtual-call-userdata)))
+    (ptrcall-bound-method virtual-call-userdata instance args r-ret)))
 
 ;;;
 ;;; Callables, see GD-EXTENSION-TYPES:CALLABLE
@@ -527,26 +619,20 @@ until the last copy of the Callable is destroyed."
 (ffi:defcallback callable-call :void
     ((callable-userdata :pointer-void) (args :pointer-void) (argument-count :int64-t)
      (r-return :pointer-void) (r-error :pointer-void))
-  (handler-case
-      (progn
-        (set-call-error r-error +call-ok+)
-        (with-autorelease-pool
-          (let ((result (apply (userdata-callable-function callable-userdata)
-                               (loop for i below argument-count
-                                     collect (read-variant (foreign-ref args :pointer-void i))))))
-            (when (and result (variant-value-p result))
-              ;; R-RETURN is a Variant already (Nil). Written before the pool
-              ;; gives back its references, so an object in it stays alive.
-              (variant-destroy r-return)
-              (write-variant r-return result)))))
-    (error (e)
-      (report-error "Lisp callable" e))))
+  (with-callback-protection ("Lisp callable")
+    (set-call-error r-error +call-ok+)
+    (let ((result (apply (userdata-callable-function callable-userdata)
+                         (loop for i below argument-count
+                               collect (read-variant (foreign-ref args :pointer-void i))))))
+      (when (and result (variant-value-p result))
+        ;; R-RETURN is a Variant already (Nil). Written before the pool gives
+        ;; back its references, so an object in it stays alive.
+        (variant-destroy r-return)
+        (write-variant r-return result)))))
 
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (ffi:defcallback callable-free :void ((callable-userdata :pointer-void))
-  (handler-case
-      (let ((index (1- (ffi:pointer-address callable-userdata))))
-        (setf (aref *callables* index) nil)
-        (push index *free-callables*))
-    (error (e)
-      (report-error "free Lisp callable" e))))
+  (with-callback-protection ("free Lisp callable")
+    (let ((index (1- (ffi:pointer-address callable-userdata))))
+      (setf (aref *callables* index) nil)
+      (push index *free-callables*))))
