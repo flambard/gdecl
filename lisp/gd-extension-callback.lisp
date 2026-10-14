@@ -508,7 +508,8 @@ until the last copy of the Callable is destroyed."
 (add-value-type (make-value-type :variant-type +variant-type-callable+
                                  :ffi-type 'godot-callable
                                  :writer 'write-callable
-                                 :destructor 'callable-destructor))
+                                 :destructor 'callable-destructor
+                                 :lisp-type 'callable))
 
 ;; void (*GDExtensionCallableCustomCall)(void *callable_userdata,
 ;;                                       const GDExtensionConstVariantPtr *p_args,

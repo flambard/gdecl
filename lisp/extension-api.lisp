@@ -172,7 +172,7 @@ it's not supported (yet)."
                     (subseq string (1+ start) end))))
            (prefixp (prefix)
              (eql 0 (search prefix default)))
-           (vector-default (prefix constructor count)
+           (builtin-default (prefix constructor count)
              ;; PREFIX is e.g. "Vector2(", and COUNT the number of components
              (let ((components
                      (and (prefixp prefix)
@@ -208,8 +208,14 @@ it's not supported (yet)."
                                 (string= default ")" :start1 (1- (length default)))
                                 (string-literal (subseq default 0 (1- (length default))) 9))))
              (and contents (list `(npath ,contents)))))
-          ((= variant-type +variant-type-vector2+)
-           (vector-default "Vector2(" 'vector2 2))
-          ((= variant-type +variant-type-vector3+)
-           (vector-default "Vector3(" 'vector3 3))
-          (t nil))))
+          (t
+           ;; A builtin type whose components are all floats, such as Vector2:
+           ;; Vector2(x, y) is (VECTOR2 X Y)
+           (let* ((value-type (ignore-errors (find-value-type variant-type)))
+                  (name (and value-type (value-type-lisp-type value-type)))
+                  (components (and name (builtin-type-components name))))
+             (when (and components
+                        (every (lambda (component) (eq (second component) :float))
+                               components))
+               (builtin-default (format nil "~a(" (car (rassoc variant-type *variant-type-names*)))
+                                name (length components))))))))

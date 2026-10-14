@@ -159,25 +159,12 @@
            #:+string-name-size+
            #:+string-size+
            #:+variant-size+
-           #:+vector2-size+
-           #:+rect2-size+
-           #:+vector3-size+
-           #:+basis-size+
            #:+node-path-size+
            #:+callable-size+
            #:+packed-string-array-size+
            #:string-name
            #:godot-string
            #:variant
-           #:godot-vector2
-           #:x
-           #:y
-           #:godot-rect2
-           #:position
-           #:size
-           #:godot-vector3
-           #:z
-           #:godot-basis
            #:node-path
            #:godot-callable
            #:callable-custom-info2
@@ -297,8 +284,8 @@ GD-EXTENSION and GODOT re-export all of it, so a symbol is added here only.")
            #:basis-looking-at))
 
 (defpackage #:gd-extension-types
-  (:documentation "Godot's builtin types in Lisp, and converting them to and from
-raw values")
+  (:documentation "Converting Godot's types between raw values, Lisp values and
+Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
   (:nicknames #:gdext-types)
   (:use #:cl #:gd-extension-ffi #:gd-extension-builtins)
   (:export #:godot-object
@@ -306,6 +293,13 @@ raw values")
            #:godot-object-p
            #:godot-object-pointer
            #:object-pointer
+           ;; Builtin types
+           #:define-builtin-type
+           #:builtin-type-components
+           #:godot-vector2
+           #:godot-rect2
+           #:godot-vector3
+           #:godot-basis
            #:read-vector2
            #:write-vector2
            #:read-rect2
@@ -341,6 +335,7 @@ raw values")
            #:value-type-reader
            #:value-type-writer
            #:value-type-destructor
+           #:value-type-lisp-type
            #:find-value-type
            #:add-value-type
            #:read-value
