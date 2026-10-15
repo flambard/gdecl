@@ -12,7 +12,6 @@
            #:string-name-new-with-utf8-chars
            #:string-name-destructor
            #:classdb-construct-object
-           #:classdb-register-extension-class2 ; deprecated
            #:classdb-register-extension-class4
            #:classdb-unregister-extension-class
            #:object-destroy
@@ -179,7 +178,6 @@
            #:create-callback
            #:free-callback
            #:reference-callback
-           #:class-creation-info2 ; deprecated
            #:class-creation-info4
            #:is-runtime
            #:icon-path
@@ -203,7 +201,6 @@
            #:get-virtual-func
            #:get-virtual-call-data-func
            #:call-virtual-with-data-func
-           #:get-rid-func
            #:class-userdata
            ;; The TYPE, CLASS-NAME and ERROR slots are CL symbols
            #:property-info

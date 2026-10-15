@@ -22,15 +22,9 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
   - Getting back to the main thread, where most of Godot's scene API must be called: `call-deferred` with a Lisp function, `call-deferred-thread-group`, and wrappers for `WorkerThreadPool`. A REPL (Swank) runs in a thread of its own, so it needs this too.
   - A thread still in Lisp when ECL shuts down isn't waited for.
 
-## Small things
-
-- [ ] Debug `printf`s in `src/gdecl.c` run on every launch.
-- [ ] `classdb-register-extension-class2` and `class-creation-info2` are deprecated and unused.
-
 ## Suggested order
 
 1. P: the high-level layer is gdecl's ambition, so decide its direction before building more on `define-class`. Its measurements are cheap.
 2. N: calls into Lisp (0.7–0.9 µs) are now the biggest cost per frame left.
-3. The small things, when touching that code anyway.
-4. O, if measurements show it matters.
-5. J with the REPL work, and R when an application uses threads.
+3. O, if measurements show it matters.
+4. J with the REPL work, and R when an application uses threads.

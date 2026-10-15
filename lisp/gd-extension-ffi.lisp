@@ -260,17 +260,6 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
 (define-interface-function classdb-construct-object "classdb_construct_object" :pointer-void
   ((class-name :pointer-void)))
 
-;; Deprecated in Godot 4.3, use CLASSDB-REGISTER-EXTENSION-CLASS4 instead.
-;;
-;; void classdb_register_extension_class2(GDExtensionClassLibraryPtr p_library,
-;;                                        GDExtensionConstStringNamePtr p_class_name,
-;;                                        GDExtensionConstStringNamePtr p_parent_class_name,
-;;                                        const GDExtensionClassCreationInfo2 *p_extension_funcs)
-(define-interface-function classdb-register-extension-class2 "classdb_register_extension_class2"
-    :void
-  ((library :pointer-void) (class-name :pointer-void) (parent-class-name :pointer-void)
-   (extension-funcs :pointer-void)))
-
 ;; void classdb_register_extension_class4(GDExtensionClassLibraryPtr p_library,
 ;;                                        GDExtensionConstStringNamePtr p_class_name,
 ;;                                        GDExtensionConstStringNamePtr p_parent_class_name,
@@ -745,42 +734,9 @@ other values looked up once."
   (reference-callback :pointer-void))
 
 
-;;  GDExtensionClassCreationInfo2, see gdextension_interface.h for the
+;;  GDExtensionClassCreationInfo4, see gdextension_interface.h for the
 ;;  documentation of each slot. GDExtensionBool is uint8_t and all the
 ;;  *_func slots are function pointers.
-;;
-;;  Deprecated, use CLASS-CREATION-INFO4 (with
-;;  CLASSDB-REGISTER-EXTENSION-CLASS4) instead.
-;;
-(ffi:def-struct class-creation-info2
-  (is-virtual :uint8-t)
-  (is-abstract :uint8-t)
-  (is-exposed :uint8-t)
-  (set-func :pointer-void)
-  (get-func :pointer-void)
-  (get-property-list-func :pointer-void)
-  (free-property-list-func :pointer-void)
-  (property-can-revert-func :pointer-void)
-  (property-get-revert-func :pointer-void)
-  (validate-property-func :pointer-void)
-  (notification-func :pointer-void)
-  (to-string-func :pointer-void)
-  (reference-func :pointer-void)
-  (unreference-func :pointer-void)
-  (create-instance-func :pointer-void)
-  (free-instance-func :pointer-void)
-  (recreate-instance-func :pointer-void)
-  (get-virtual-func :pointer-void)
-  (get-virtual-call-data-func :pointer-void)
-  (call-virtual-with-data-func :pointer-void)
-  (get-rid-func :pointer-void)
-  (class-userdata :pointer-void))
-
-
-;;  GDExtensionClassCreationInfo4, see gdextension_interface.h for the
-;;  documentation of each slot. Compared to GDExtensionClassCreationInfo2 it
-;;  adds is_runtime and icon_path and drops get_rid_func. Several *_func slots
-;;  also take newer callback types (e.g. GDExtensionClassCreateInstance2).
 ;;
 (ffi:def-struct class-creation-info4
   (is-virtual :uint8-t)
