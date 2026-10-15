@@ -115,46 +115,6 @@
            #:+variant-op-not+
            #:+variant-op-in+
            #:+variant-op-max+
-           #:+variant-type-nil+
-           #:+variant-type-bool+
-           #:+variant-type-int+
-           #:+variant-type-float+
-           #:+variant-type-string+
-           #:+variant-type-vector2+
-           #:+variant-type-vector2i+
-           #:+variant-type-rect2+
-           #:+variant-type-rect2i+
-           #:+variant-type-vector3+
-           #:+variant-type-vector3i+
-           #:+variant-type-transform2d+
-           #:+variant-type-vector4+
-           #:+variant-type-vector4i+
-           #:+variant-type-plane+
-           #:+variant-type-quaternion+
-           #:+variant-type-aabb+
-           #:+variant-type-basis+
-           #:+variant-type-transform3d+
-           #:+variant-type-projection+
-           #:+variant-type-color+
-           #:+variant-type-string-name+
-           #:+variant-type-node-path+
-           #:+variant-type-rid+
-           #:+variant-type-object+
-           #:+variant-type-callable+
-           #:+variant-type-signal+
-           #:+variant-type-dictionary+
-           #:+variant-type-array+
-           #:+variant-type-packed-byte-array+
-           #:+variant-type-packed-int32-array+
-           #:+variant-type-packed-int64-array+
-           #:+variant-type-packed-float32-array+
-           #:+variant-type-packed-float64-array+
-           #:+variant-type-packed-string-array+
-           #:+variant-type-packed-vector2-array+
-           #:+variant-type-packed-vector3-array+
-           #:+variant-type-packed-color-array+
-           #:+variant-type-packed-vector4-array+
-           #:+variant-type-variant-max+
            #:+method-flag-normal+
            #:+method-flag-editor+
            #:+method-flag-const+
