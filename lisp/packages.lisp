@@ -558,10 +558,6 @@ tables and dispatchers behind them")
            #:instance-object
            #:lisp-object
            ;; Binding
-           #:register-method
-           #:make-property
-           #:make-property-full
-           #:destruct-property
            #:bind-method
            #:bind-property
            #:bind-signal)

@@ -24,7 +24,6 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 
 ## Small things
 
-- [ ] `gd-extension` exports internals: `register-method`, `make-property`, `make-property-full`, `destruct-property` (`packages.lisp`).
 - [ ] Variant types are listed in three places: the constants (`gd-extension-ffi.lisp`), their exports (`packages.lisp`) and `*variant-type-names*` (`extension-api.lisp`). One table and a macro could produce all three.
 - [ ] Filling C structs repeats `(setf (ffi:get-slot-value …))` slot by slot (`bind-method`, `register-class` and `make-property-full` in `binding.lisp`, `write-callable` in `gd-extension-callback.lisp`): a `set-foreign-slots` macro, which could also write the slots with `foreign-ref` at their offsets instead of `get-slot-value` (about 5 µs a slot). That matters for `write-callable`, about 25 µs for every Callable made, e.g. by `connect-signal`. `make-property` and `destruct-property` aren't protected by `unwind-protect`, so an error during registration leaks the property infos: a `with-property-infos` macro.
 - [ ] StringNames are created with latin1 in some places (`with-string-name`, `new-string-name` in `gd-extension.lisp`, `make-property-full` in `binding.lisp`) and UTF-8 in others (temporary names).
