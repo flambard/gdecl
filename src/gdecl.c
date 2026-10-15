@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stdio.h>
 #include <ecl/ecl.h>
 
 #include "gdextension_interface.h"
@@ -34,15 +35,12 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
     ecl_set_option(ECL_OPT_SIGNAL_HANDLING_THREAD, ecl_fixnum(0));
 
     char *argv[] = {"ecl", "--norc"};
-    int boot_result;
+    cl_boot(2, argv);
 
-    printf("Booting ECL...");
-    boot_result = cl_boot(2, argv);
-    printf("cl_boot result: %d\n", boot_result);
-
-    if (ecl_get_option(ECL_OPT_BOOTED) == 1)
+    if (ecl_get_option(ECL_OPT_BOOTED) != 1)
     {
-        printf("ECL booted\n");
+        fprintf(stderr, "gdecl: ECL failed to boot\n");
+        return;
     }
 
     /* Initialize the Lisp library we linked in (application.a, see the Makefile).
@@ -57,13 +55,11 @@ static void initialize_gdecl_module(void *p_userdata, GDExtensionInitializationL
                                    ecl_make_pointer((void *)get_proc_address),
                                    ecl_make_pointer(class_library));
     si_safe_eval(2, initialize, ECL_NIL);
-    printf("gdecl initialized\n");
 }
 
 static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializationLevel p_level)
 {
-    // return early without printing if initialization level is not "Scene"
-    if (p_level != GDEXTENSION_INITIALIZATION_SCENE)
+    if (p_level != GDEXTENSION_INITIALIZATION_SCENE || ecl_get_option(ECL_OPT_BOOTED) != 1)
     {
         return;
     }
@@ -72,10 +68,8 @@ static void deinitialize_gdecl_module(void *p_userdata, GDExtensionInitializatio
     // (gd-extension-callback:deinitialize)
     cl_object deinitialize = cl_list(1, ecl_read_from_cstring("gd-extension-callback:deinitialize"));
     si_safe_eval(2, deinitialize, ECL_NIL);
-    printf("gdecl deinitialized\n");
 
     cl_shutdown();
-    printf("ECL shut down\n");
 }
 
 GDExtensionBool GDE_EXPORT gdecl_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization)
