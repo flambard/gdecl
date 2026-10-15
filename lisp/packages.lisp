@@ -58,9 +58,35 @@
            #:call-ptr-utility-function
            #:call-ptr-builtin-method
            #:packed-string-array-operator-index
-           #:*packed-string-array-size*
+           #:packed-byte-array-operator-index
+           #:packed-int32-array-operator-index
+           #:packed-int64-array-operator-index
+           #:packed-float32-array-operator-index
+           #:packed-float64-array-operator-index
+           #:packed-vector2-array-operator-index
+           #:packed-vector3-array-operator-index
+           #:packed-vector4-array-operator-index
+           #:packed-color-array-operator-index
+           #:array-operator-index
+           #:dictionary-operator-index
+           #:packed-byte-array-destructor
+           #:packed-int32-array-destructor
+           #:packed-int64-array-destructor
+           #:packed-float32-array-destructor
+           #:packed-float64-array-destructor
+           #:packed-vector2-array-destructor
+           #:packed-vector3-array-destructor
+           #:packed-vector4-array-destructor
+           #:packed-color-array-destructor
+           #:array-destructor
+           #:dictionary-destructor
+           #:packed-array
+           #:godot-array
+           #:godot-dictionary
            #:*variant-from-type-constructors*
            #:*string-name-equal-evaluator*
+           #:*string-from-string-name-constructor*
+           #:*string-from-node-path-constructor*
            #:*type-from-variant-constructors*
            ;; Enums
            #:+variant-op-equal+
@@ -288,7 +314,70 @@ GD-EXTENSION and GODOT re-export all of it, so a symbol is added here only.")
            #:basis-x
            #:basis-y
            #:basis-z
-           #:basis-looking-at))
+           #:basis-looking-at
+           #:color
+           #:color-p
+           #:color-r
+           #:color-g
+           #:color-b
+           #:color-a
+           #:vector2i
+           #:vector2i-p
+           #:vector2i-x
+           #:vector2i-y
+           #:vector3i
+           #:vector3i-p
+           #:vector3i-x
+           #:vector3i-y
+           #:vector3i-z
+           #:vector4
+           #:vector4-p
+           #:vector4-x
+           #:vector4-y
+           #:vector4-z
+           #:vector4-w
+           #:vector4i
+           #:vector4i-p
+           #:vector4i-x
+           #:vector4i-y
+           #:vector4i-z
+           #:vector4i-w
+           #:rect2i
+           #:rect2i-p
+           #:rect2i-position
+           #:rect2i-size
+           #:plane
+           #:plane-p
+           #:plane-normal
+           #:plane-d
+           #:quaternion
+           #:quaternion-p
+           #:quaternion-x
+           #:quaternion-y
+           #:quaternion-z
+           #:quaternion-w
+           #:aabb
+           #:aabb-p
+           #:aabb-position
+           #:aabb-size
+           #:transform2d
+           #:transform2d-p
+           #:transform2d-x
+           #:transform2d-y
+           #:transform2d-origin
+           #:transform3d
+           #:transform3d-p
+           #:transform3d-basis
+           #:transform3d-origin
+           #:projection
+           #:projection-p
+           #:projection-x
+           #:projection-y
+           #:projection-z
+           #:projection-w
+           #:rid
+           #:rid-p
+           #:rid-id))
 
 (defpackage #:gd-extension-types
   (:documentation "Converting Godot's types between raw values, Lisp values and
@@ -321,8 +410,9 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:read-object
            #:write-object
            #:read-godot-string
+           #:read-string-name
+           #:read-node-path
            #:write-godot-string
-           #:read-packed-string-array
            #:write-variant
            #:variant-value-p
            #:lisp-variant-type

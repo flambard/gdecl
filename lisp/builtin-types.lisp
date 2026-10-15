@@ -167,3 +167,115 @@ to UP as can be."
                                       (vector3 0.0 1.0 0.0)))))
     (setf v-x (vector3-normalized v-x))
     (basis v-x (vector3-cross v-z v-x) v-z)))
+
+;;;
+;;; More builtin types, with constructors and accessors so far. Float
+;;; components are single-floats, like Godot's real_t, and the constructors
+;;; take any real for them; int components are 32-bit integers.
+;;;
+
+(defstruct (color (:constructor %color (r g b a)))
+  "Godot's Color. Make one with (COLOR R G B &OPTIONAL (A 1.0)), like Color(r, g, b, a)."
+  (r 0.0 :type single-float)
+  (g 0.0 :type single-float)
+  (b 0.0 :type single-float)
+  (a 1.0 :type single-float))
+
+(declaim (inline color))
+(defun color (r g b &optional (a 1.0))
+  "Color(R, G, B, A)"
+  (%color (float r 1.0) (float g 1.0) (float b 1.0) (float a 1.0)))
+
+(defstruct (vector2i (:constructor vector2i (&optional (x 0) (y 0))))
+  "Godot's Vector2i. Make one with (VECTOR2I X Y), like Vector2i(x, y)."
+  (x 0 :type (signed-byte 32))
+  (y 0 :type (signed-byte 32)))
+
+(defstruct (vector3i (:constructor vector3i (&optional (x 0) (y 0) (z 0))))
+  "Godot's Vector3i. Make one with (VECTOR3I X Y Z), like Vector3i(x, y, z)."
+  (x 0 :type (signed-byte 32))
+  (y 0 :type (signed-byte 32))
+  (z 0 :type (signed-byte 32)))
+
+(defstruct (vector4 (:constructor %vector4 (x y z w)))
+  "Godot's Vector4. Make one with (VECTOR4 X Y Z W), like Vector4(x, y, z, w)."
+  (x 0.0 :type single-float)
+  (y 0.0 :type single-float)
+  (z 0.0 :type single-float)
+  (w 0.0 :type single-float))
+
+(declaim (inline vector4))
+(defun vector4 (&optional (x 0.0) (y 0.0) (z 0.0) (w 0.0))
+  "Vector4(X, Y, Z, W)"
+  (%vector4 (float x 1.0) (float y 1.0) (float z 1.0) (float w 1.0)))
+
+(defstruct (vector4i (:constructor vector4i (&optional (x 0) (y 0) (z 0) (w 0))))
+  "Godot's Vector4i. Make one with (VECTOR4I X Y Z W), like Vector4i(x, y, z, w)."
+  (x 0 :type (signed-byte 32))
+  (y 0 :type (signed-byte 32))
+  (z 0 :type (signed-byte 32))
+  (w 0 :type (signed-byte 32)))
+
+(defstruct (rect2i (:constructor rect2i (&optional (position (vector2i)) (size (vector2i)))))
+  "Godot's Rect2i. Make one with (RECT2I POSITION SIZE), like Rect2i(position, size)."
+  (position (vector2i) :type vector2i)
+  (size (vector2i) :type vector2i))
+
+(defstruct (plane (:constructor %plane (normal d)))
+  "Godot's Plane. Make one with (PLANE NORMAL D), like Plane(normal, d)."
+  (normal (vector3) :type vector3)
+  (d 0.0 :type single-float))
+
+(declaim (inline plane))
+(defun plane (&optional (normal (vector3)) (d 0.0))
+  "Plane(NORMAL, D)"
+  (%plane normal (float d 1.0)))
+
+(defstruct (quaternion (:constructor %quaternion (x y z w)))
+  "Godot's Quaternion. Make one with (QUATERNION X Y Z W), like Quaternion(x, y,
+z, w); (QUATERNION) is the identity."
+  (x 0.0 :type single-float)
+  (y 0.0 :type single-float)
+  (z 0.0 :type single-float)
+  (w 1.0 :type single-float))
+
+(declaim (inline quaternion))
+(defun quaternion (&optional (x 0.0) (y 0.0) (z 0.0) (w 1.0))
+  "Quaternion(X, Y, Z, W)"
+  (%quaternion (float x 1.0) (float y 1.0) (float z 1.0) (float w 1.0)))
+
+(defstruct (aabb (:constructor aabb (&optional (position (vector3)) (size (vector3)))))
+  "Godot's AABB. Make one with (AABB POSITION SIZE), like AABB(position, size)."
+  (position (vector3) :type vector3)
+  (size (vector3) :type vector3))
+
+(defstruct (transform2d (:constructor transform2d (&optional (x (vector2 1.0 0.0))
+                                                             (y (vector2 0.0 1.0))
+                                                             (origin (vector2)))))
+  "Godot's Transform2D. Make one with (TRANSFORM2D X Y ORIGIN), like
+Transform2D(x_axis, y_axis, origin); (TRANSFORM2D) is the identity."
+  (x (vector2 1.0 0.0) :type vector2)
+  (y (vector2 0.0 1.0) :type vector2)
+  (origin (vector2) :type vector2))
+
+(defstruct (transform3d (:constructor transform3d (&optional (basis (basis)) (origin (vector3)))))
+  "Godot's Transform3D. Make one with (TRANSFORM3D BASIS ORIGIN), like
+Transform3D(basis, origin); (TRANSFORM3D) is the identity."
+  (basis (basis) :type basis)
+  (origin (vector3) :type vector3))
+
+(defstruct (projection (:constructor projection (&optional (x (vector4 1.0 0.0 0.0 0.0))
+                                                           (y (vector4 0.0 1.0 0.0 0.0))
+                                                           (z (vector4 0.0 0.0 1.0 0.0))
+                                                           (w (vector4 0.0 0.0 0.0 1.0)))))
+  "Godot's Projection. Make one with (PROJECTION X Y Z W) from its columns, like
+Projection(x, y, z, w); (PROJECTION) is the identity."
+  (x (vector4 1.0 0.0 0.0 0.0) :type vector4)
+  (y (vector4 0.0 1.0 0.0 0.0) :type vector4)
+  (z (vector4 0.0 0.0 1.0 0.0) :type vector4)
+  (w (vector4 0.0 0.0 0.0 1.0) :type vector4))
+
+(defstruct (rid (:constructor rid (&optional (id 0))))
+  "Godot's RID, an opaque ID of a resource of a server, such as the canvas item
+of a node. (RID) is an invalid RID, like RID() in GDScript."
+  (id 0 :type (unsigned-byte 64)))

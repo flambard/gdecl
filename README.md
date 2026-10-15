@@ -164,14 +164,18 @@ Supported types, converted between Godot and Lisp:
 |---|---|
 | bool, int (also enums), float | `t`/`nil`, integers, floats |
 | String | strings |
-| Vector2, Rect2, Vector3, Basis | `vector2`, `rect2`, `vector3`, `basis` |
-| Object | the Lisp object of your class's instance, or a Godot object pointer; `nil` is null |
-| StringName, NodePath (arguments only) | a string, or `(gdext:sname "x")` and `(gdext:npath "a/b")` (see below) |
+| Vector2, Vector2i, Vector3, Vector3i, Vector4, Vector4i, Rect2, Rect2i, Color, Plane, Quaternion, AABB, Basis, Transform2D, Transform3D, Projection | Lisp structs: `vector2`, `vector2i`, …, `transform3d`, `projection` (see Builtin types) |
+| RID | `rid`, with the ID as `rid-id` |
+| Object | its Lisp object (see Objects); `nil` is null |
+| StringName, NodePath | arguments: a string, or `(gdext:sname "x")` and `(gdext:npath "a/b")` (see below); results: strings |
 | Callable (arguments only) | a `callable` from `gd-extension-types`: a target object and a Lisp function |
-| PackedStringArray (results only) | a list of strings |
+| PackedByteArray, PackedInt32Array, PackedInt64Array, PackedFloat32Array, PackedFloat64Array | specialized vectors, such as `(simple-array single-float (*))`, copied as they are; arguments can be any sequence |
+| PackedStringArray, PackedVector2Array, PackedVector3Array, PackedVector4Array, PackedColorArray | simple vectors of strings and structs; arguments can be any sequence |
+| Array (also typed, `Array[Node]`) | a simple vector; arguments can be any sequence |
+| Dictionary | an `equal` hash table |
 | Variant | converted by its type, as above |
 
-Methods with other types are skipped for now, and give an error when your code is compiled if you ask for them with `define-engine-method`.
+Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn't change Godot's. As Variants, a simple vector becomes an Array, a specialized vector the matching packed array, and a hash table a Dictionary. A few methods with other types (Callable results) are skipped for now, and give an error when your code is compiled if you ask for them with `define-engine-method`.
 
 `define-engine-method` defines a function for one method, under a name you choose. Its hash and signature are looked up in `extension_api.json` when your code is compiled. It can also give a vararg method's extra arguments fixed types:
 
@@ -192,7 +196,7 @@ For dropping down: an Object argument of an engine method also takes a Godot obj
 
 ## Builtin types
 
-`vector2`, `rect2`, `vector3` and `basis` are Lisp structs, with functions named like Godot's methods, computed in Lisp without calls into Godot:
+Godot's builtin types are Lisp structs, made with a function named like the type, which takes the components as in GDScript: `(vector2 1.0 2.0)`, `(color 1.0 0.5 0.0)`, `(transform2d x-axis y-axis origin)`. The components are accessors named like them, such as `vector2-x` and `color-a`; float components are single-floats, and the constructors take any real. Vector2, Vector3 and Basis also have functions named like Godot's methods, computed in Lisp without calls into Godot:
 
 ```lisp
 (vector2 1.0 2.0)                        ; Vector2(1.0, 2.0)
@@ -202,7 +206,7 @@ For dropping down: an Object argument of an engine method also takes a Godot obj
 (basis-looking-at direction)             ; Basis.looking_at(direction)
 ```
 
-A `basis` is made from its columns, `(basis x y z)`, and `basis-x` etc. are its columns, as `basis.x` in GDScript. `(basis)` is the identity. See the package `gd-extension-builtins` for all the functions.
+A `basis` is made from its columns, `(basis x y z)`, and `basis-x` etc. are its columns, as `basis.x` in GDScript; so are those of `transform2d` and `projection`. `(basis)`, `(transform2d)`, `(transform3d)`, `(projection)` and `(quaternion)` are the identity. See the package `gd-extension-builtins` for all the functions.
 
 ## StringNames and NodePaths
 

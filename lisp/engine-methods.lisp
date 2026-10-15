@@ -40,11 +40,18 @@ needs no destroying."
       (when destructor
         `(,destructor ,pointer))))
 
+  (defun argument-ffi-type-of (variant-type)
+    "The FFI type of the raw value of an argument of VARIANT-TYPE, or NIL for a
+StringName or NodePath, which is passed as the pointer to it."
+    (unless (or (eql variant-type +variant-type-string-name+)
+                (eql variant-type +variant-type-node-path+))
+      (engine-value-ffi-type variant-type)))
+
   (defstruct (engine-argument
               (:conc-name argument-)
               (:constructor make-engine-argument
                   (name variant-type default
-                   &aux (ffi-type (engine-value-ffi-type variant-type))
+                   &aux (ffi-type (argument-ffi-type-of variant-type))
                         (raw (gensym (symbol-name name))))))
     "An argument of an engine method or a utility function, while the code of its
 function is generated (only at macroexpansion time)."

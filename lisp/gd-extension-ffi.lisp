@@ -515,6 +515,53 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
     "packed_string_array_operator_index" :pointer-void
   ((packed-string-array :pointer-void) (index :int64-t)))
 
+;; uint8_t * packed_byte_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-byte-array-operator-index "packed_byte_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; int32_t * packed_int32_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-int32-array-operator-index "packed_int32_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; int64_t * packed_int64_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-int64-array-operator-index "packed_int64_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; float * packed_float32_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-float32-array-operator-index "packed_float32_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; double * packed_float64_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-float64-array-operator-index "packed_float64_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionTypePtr packed_vector2_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-vector2-array-operator-index "packed_vector2_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionTypePtr packed_vector3_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-vector3-array-operator-index "packed_vector3_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionTypePtr packed_vector4_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-vector4-array-operator-index "packed_vector4_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionTypePtr packed_color_array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function packed-color-array-operator-index "packed_color_array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionVariantPtr array_operator_index(GDExtensionTypePtr p_self, GDExtensionInt p_index)
+(define-interface-function array-operator-index "array_operator_index" :pointer-void
+  ((self :pointer-void) (index :int64-t)))
+
+;; GDExtensionVariantPtr dictionary_operator_index(GDExtensionTypePtr p_self,
+;;                                                 GDExtensionConstVariantPtr p_key)
+;;
+;; Adds the key, with the value Nil, if the dictionary doesn't have it.
+(define-interface-function dictionary-operator-index "dictionary_operator_index" :pointer-void
+  ((self :pointer-void) (key :pointer-void)))
+
 ;;;
 ;;; Destructors of builtin types
 ;;;
@@ -540,6 +587,17 @@ destructor that LOAD-INTERFACE looks up into the variable *NAME*."
 (define-type-destructor node-path-destructor +variant-type-node-path+)
 (define-type-destructor callable-destructor +variant-type-callable+)
 (define-type-destructor packed-string-array-destructor +variant-type-packed-string-array+)
+(define-type-destructor packed-byte-array-destructor +variant-type-packed-byte-array+)
+(define-type-destructor packed-int32-array-destructor +variant-type-packed-int32-array+)
+(define-type-destructor packed-int64-array-destructor +variant-type-packed-int64-array+)
+(define-type-destructor packed-float32-array-destructor +variant-type-packed-float32-array+)
+(define-type-destructor packed-float64-array-destructor +variant-type-packed-float64-array+)
+(define-type-destructor packed-vector2-array-destructor +variant-type-packed-vector2-array+)
+(define-type-destructor packed-vector3-array-destructor +variant-type-packed-vector3-array+)
+(define-type-destructor packed-vector4-array-destructor +variant-type-packed-vector4-array+)
+(define-type-destructor packed-color-array-destructor +variant-type-packed-color-array+)
+(define-type-destructor array-destructor +variant-type-array+)
+(define-type-destructor dictionary-destructor +variant-type-dictionary+)
 
 ;;;
 ;;; Other values looked up once
@@ -550,13 +608,14 @@ destructor that LOAD-INTERFACE looks up into the variable *NAME*."
 (defvar *variant-from-type-constructors* nil)
 (defvar *type-from-variant-constructors* nil)
 
-;; The builtin method PackedStringArray.size(), fetched with
-;; variant_get_ptr_builtin_method
-(defvar *packed-string-array-size* nil)
-
 ;; The operator evaluator for StringName == StringName, fetched with
 ;; variant_get_ptr_operator_evaluator
 (defvar *string-name-equal-evaluator* nil)
+
+;; The constructors of a String from a StringName and from a NodePath, fetched
+;; with variant_get_ptr_constructor
+(defvar *string-from-string-name-constructor* nil)
+(defvar *string-from-node-path-constructor* nil)
 
 ;;;
 ;;; Loading the interface
@@ -572,14 +631,12 @@ other values looked up once."
         do (setf (symbol-value variable) (get-proc-address c-name)))
   (loop for (variant-type . variable) in *type-destructors*
         do (setf (symbol-value variable) (variant-get-ptr-destructor variant-type)))
-  (ffi:with-foreign-object (method 'string-name)
-    (string-name-new-with-latin1-chars method "size")
-    (setf *packed-string-array-size*
-          (variant-get-ptr-builtin-method +variant-type-packed-string-array+ method 3173160232))
-    (string-name-destructor method))
   (setf *string-name-equal-evaluator*
         (variant-get-ptr-operator-evaluator +variant-op-equal+ +variant-type-string-name+
                                             +variant-type-string-name+))
+  ;; Constructors 2 and 3 of String take a StringName and a NodePath
+  (setf *string-from-string-name-constructor* (variant-get-ptr-constructor +variant-type-string+ 2)
+        *string-from-node-path-constructor* (variant-get-ptr-constructor +variant-type-string+ 3))
   (setf *variant-from-type-constructors* (make-array +variant-type-variant-max+ :initial-element nil)
         *type-from-variant-constructors* (make-array +variant-type-variant-max+ :initial-element nil))
   ;; There are no constructors for NIL
@@ -628,6 +685,18 @@ other values looked up once."
 
 (ffi:def-struct packed-string-array
   (data '(:array :uint8-t #.+packed-string-array-size+)))
+
+;; Any packed array: they're all the same size
+(ffi:def-struct packed-array
+  (data '(:array :uint8-t #.+packed-string-array-size+)))
+
+;; Godot's Array and Dictionary, both 8 bytes. Named GODOT-ARRAY and
+;; GODOT-DICTIONARY, since ARRAY is taken by CL.
+(ffi:def-struct godot-array
+  (data '(:array :uint8-t 8)))
+
+(ffi:def-struct godot-dictionary
+  (data '(:array :uint8-t 8)))
 
 
 ;;  typedef struct

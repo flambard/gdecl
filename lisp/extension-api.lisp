@@ -42,7 +42,10 @@ real one."))
   ;; The utility functions (JSON objects), such as randf_range
   (utility-functions '())
   ;; The global enums (JSON objects), such as Error and Key
-  (global-enums '()))
+  (global-enums '())
+  ;; The builtin classes (JSON objects), such as Vector2 and PackedByteArray,
+  ;; by name
+  (builtin-classes (make-hash-table :test #'equal)))
 
 (defparameter *variant-type-names*
   `(("Nil" . ,+variant-type-nil+)
@@ -95,6 +98,8 @@ real one."))
             (api (make-extension-api)))
         (dolist (class (json-get json "classes"))
           (setf (gethash (json-get class "name") (extension-api-classes api)) class))
+        (dolist (class (json-get json "builtin_classes"))
+          (setf (gethash (json-get class "name") (extension-api-builtin-classes api)) class))
         (setf (extension-api-utility-functions api) (json-get json "utility_functions")
               (extension-api-global-enums api) (json-get json "global_enums"))
         (dolist (singleton (json-get json "singletons"))
@@ -116,6 +121,17 @@ or NIL if the class has no singleton."
 (class-name . parent-class-name), where PARENT-CLASS-NAME is NIL for Object."
   (loop for class being the hash-values of (extension-api-classes (extension-api))
         collect (cons (json-get class "name") (json-get class "inherits"))))
+
+(defun api-builtin-method-hash (class-name method-name)
+  "The hash of the method METHOD-NAME of the builtin class CLASS-NAME (strings),
+such as \"PackedByteArray\" and \"size\"."
+  (let* ((class (or (gethash class-name (extension-api-builtin-classes (extension-api)))
+                    (error "No builtin class ~a in ~a" class-name *extension-api-file*)))
+         (method (or (find method-name (json-get class "methods")
+                           :key (lambda (method) (json-get method "name"))
+                           :test #'string=)
+                     (error "No method ~a in the builtin class ~a" method-name class-name))))
+    (json-get method "hash")))
 
 (defun api-ref-counted-class-p (type)
   "True if TYPE, a type name from extension_api.json, is an engine class that's
@@ -226,6 +242,18 @@ it's not supported (yet)."
                                 (string= default ")" :start1 (1- (length default)))
                                 (string-literal (subseq default 0 (1- (length default))) 9))))
              (and contents (list `(npath ,contents)))))
+          ;; Empty arrays: [], Array[Node]([]) and PackedByteArray(), which
+          ;; can be any empty sequence, as the writers take any sequence
+          ((and (or (= variant-type +variant-type-array+)
+                    (<= +variant-type-packed-byte-array+ variant-type
+                        +variant-type-packed-vector4-array+))
+                (or (string= default "[]")
+                    (and (prefixp "Array[") (string= default "([])" :start1 (- (length default) 4)))
+                    (and (prefixp "Packed") (string= default "()" :start1 (- (length default) 2)))))
+           (list #()))
+          ;; An empty Dictionary, made when the argument isn't given
+          ((and (= variant-type +variant-type-dictionary+) (string= default "{}"))
+           (list '(make-hash-table :test #'equal)))
           (t
            ;; A builtin type whose components are all floats, such as Vector2:
            ;; Vector2(x, y) is (VECTOR2 X Y)

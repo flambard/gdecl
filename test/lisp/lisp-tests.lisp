@@ -187,6 +187,117 @@ types of Godot objects.")
         (check (equalp basis (round-trip basis))))
       (check (same-object-p *root* (round-trip *root*))))))
 
+(deftest more-builtin-types
+  ;; Through Variants
+  (let ((node (new-node "Node")))
+    (flet ((round-trip (value)
+             (object-set-meta node "value" value)
+             (object-get-meta node "value" nil)))
+      (dolist (value (list (color 0.25 0.5 0.75 1.0)
+                           (vector2i 1 -2)
+                           (vector3i 1 -2 3)
+                           (vector4 1.0 2.0 3.0 4.0)
+                           (vector4i 1 2 3 4)
+                           (rect2i (vector2i 1 2) (vector2i 3 4))
+                           (plane (vector3 0.0 1.0 0.0) 2.0)
+                           (quaternion 0.0 0.0 0.0 1.0)
+                           (aabb (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0))
+                           (transform2d (vector2 1.0 2.0) (vector2 3.0 4.0) (vector2 5.0 6.0))
+                           (transform3d (basis (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0)
+                                               (vector3 7.0 8.0 9.0))
+                                        (vector3 10.0 11.0 12.0))
+                           (projection (vector4 1.0 2.0 3.0 4.0) (vector4 5.0 6.0 7.0 8.0)
+                                       (vector4 9.0 10.0 11.0 12.0) (vector4 13.0 14.0 15.0 16.0))))
+        (check (equalp value (round-trip value))))))
+  ;; Through engine methods
+  (let ((node (new-node "Node2D"))
+        (color (color 0.25 0.5 0.75 1.0))
+        (transform (transform2d (vector2 2.0 0.0) (vector2 0.0 3.0) (vector2 4.0 5.0))))
+    (canvas-item-set-modulate node color)
+    (check (equalp color (canvas-item-get-modulate node)))
+    (node-2d-set-transform node transform)
+    (check (equalp transform (canvas-item-get-transform node)))
+    (check (/= 0 (rid-id (canvas-item-get-canvas-item node)))))
+  (let ((node (new-node "Node3D"))
+        (transform (transform3d (basis (vector3 2.0 0.0 0.0) (vector3 0.0 3.0 0.0)
+                                       (vector3 0.0 0.0 4.0))
+                                (vector3 1.0 2.0 3.0))))
+    (node-3d-set-transform node transform)
+    (check (equalp transform (node-3d-get-transform node))))
+  (let ((sprite (new-node "Sprite2D")))
+    (sprite-2d-set-hframes sprite 4)
+    (sprite-2d-set-vframes sprite 4)
+    (sprite-2d-set-frame-coords sprite (vector2i 1 2))
+    (check (equalp (vector2i 1 2) (sprite-2d-get-frame-coords sprite)))))
+
+(deftest name-results
+  ;; StringName and NodePath results are Lisp strings
+  (let ((node (new-node "Node")))
+    (node-set-name node "NameResults")
+    (check (equal "NameResults" (node-get-name node)))
+    (let ((path (node-get-path node)))
+      (check (eql (- (length path) (length "/NameResults")) (search "/NameResults" path))))))
+
+(deftest packed-arrays
+  ;; Packed arrays of numbers are specialized Lisp vectors
+  (let ((node (new-node "Node")))
+    (flet ((round-trip (value)
+             (object-set-meta node "value" value)
+             (object-get-meta node "value" nil)))
+      (dolist (value (list (make-array 3 :element-type '(unsigned-byte 8)
+                                         :initial-contents '(1 2 255))
+                           (make-array 2 :element-type '(signed-byte 32)
+                                         :initial-contents '(-1 7))
+                           (make-array 2 :element-type '(signed-byte 64)
+                                         :initial-contents (list (expt 2 40) -3))
+                           (make-array 2 :element-type 'single-float
+                                         :initial-contents '(1.5 -2.0))
+                           (make-array 2 :element-type 'double-float
+                                         :initial-contents '(1.5d0 -2d0))
+                           (make-array 0 :element-type 'single-float)))
+        (let ((result (round-trip value)))
+          (check (equalp value result))
+          (check (equal (array-element-type value) (array-element-type result))))))))
+
+(deftest packed-arrays-of-builtin-types
+  ;; Packed arrays of other types are simple vectors
+  (let ((line (new-node "Line2D"))
+        (points (vector (vector2 1.0 2.0) (vector2 3.0 4.0))))
+    (line-2d-set-points line points)
+    (check (equalp points (line-2d-get-points line)))
+    ;; Any sequence will do as an argument
+    (line-2d-set-points line (list (vector2 5.0 6.0)))
+    (check (equalp (vector (vector2 5.0 6.0)) (line-2d-get-points line))))
+  (let ((classes (class-db-get-class-list)))
+    (check (simple-vector-p classes))
+    (check (find "Node2D" classes :test #'equal))))
+
+(deftest arrays-and-dictionaries
+  ;; An Array is a simple vector, a Dictionary a hash table
+  (let ((node (new-node "Node")))
+    (flet ((round-trip (value)
+             (object-set-meta node "value" value)
+             (object-get-meta node "value" nil)))
+      (let ((vector (vector 1 "two" (vector2 3.0 4.0) (vector 5))))
+        (check (equalp vector (round-trip vector))))
+      (let ((table (make-hash-table :test #'equal)))
+        (setf (gethash "one" table) 1
+              (gethash 2 table) "two")
+        (let ((result (round-trip table)))
+          (check (hash-table-p result))
+          (check (= 2 (hash-table-count result)))
+          (check (eql 1 (gethash "one" result)))
+          (check (equal "two" (gethash 2 result)))))))
+  ;; A typed array result
+  (let ((parent (new-node "Node"))
+        (a (class-db-instantiate "Node"))
+        (b (class-db-instantiate "Node")))
+    (node-add-child parent a)
+    (node-add-child parent b)
+    (check (equalp (vector a b) (node-get-children parent))))
+  ;; A Dictionary result
+  (check (eql 4 (gethash "major" (engine-get-version-info)))))
+
 (deftest vararg-methods
   (let ((node (new-node "Node2D"))
         (test-node (new-test-node))
@@ -282,7 +393,7 @@ types of Godot objects.")
   ;; which signal UNSUPPORTED-API-TYPE, but not other errors, such as bugs in
   ;; the code generator
   (check (eq :unsupported
-             (handler-case (gdext::engine-method-variant-type "PackedVector3Array" "points")
+             (handler-case (gdext::engine-method-variant-type "Signal" "signal")
                (gdext::unsupported-api-type () :unsupported))))
   (check (eq :other
              (handler-case (gdext::engine-method-variant-type 42 "points")

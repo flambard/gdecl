@@ -133,12 +133,14 @@ types whose conversion needs a higher layer, such as Callable, and builtin types
         (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
                          :reader 'read-godot-string :writer 'write-godot-string
                          :destructor 'string-destructor)
-        (make-value-type :variant-type +variant-type-packed-string-array+
-                         :ffi-type 'packed-string-array
-                         :reader 'read-packed-string-array
-                         :destructor 'packed-string-array-destructor)
-        (make-value-type :variant-type +variant-type-string-name+)
-        (make-value-type :variant-type +variant-type-node-path+)
+        ;; As arguments, they're passed as the pointer to them (see
+        ;; GD-EXTENSION::MAKE-ENGINE-ARGUMENT); as results, read as Lisp strings
+        (make-value-type :variant-type +variant-type-string-name+ :ffi-type 'string-name
+                         :reader 'read-string-name
+                         :destructor 'string-name-destructor)
+        (make-value-type :variant-type +variant-type-node-path+ :ffi-type 'node-path
+                         :reader 'read-node-path
+                         :destructor 'node-path-destructor)
         ;; The reader is for results, see READ-VARIANT-RESULT
         (make-value-type :variant-type :variant :ffi-type 'variant
                          :reader 'read-variant-result :writer 'write-variant
@@ -325,6 +327,61 @@ layout."
   :reader read-basis
   :writer write-basis)
 
+(define-builtin-type color +variant-type-color+
+  ((r :float) (g :float) (b :float) (a :float)))
+
+(define-builtin-type vector2i +variant-type-vector2i+
+  ((x :int32-t) (y :int32-t)))
+
+(define-builtin-type vector3i +variant-type-vector3i+
+  ((x :int32-t) (y :int32-t) (z :int32-t)))
+
+(define-builtin-type vector4 +variant-type-vector4+
+  ((x :float) (y :float) (z :float) (w :float)))
+
+(define-builtin-type vector4i +variant-type-vector4i+
+  ((x :int32-t) (y :int32-t) (z :int32-t) (w :int32-t)))
+
+(define-builtin-type rect2i +variant-type-rect2i+
+  ((position vector2i) (size vector2i)))
+
+(define-builtin-type plane +variant-type-plane+
+  ((normal vector3) (d :float)))
+
+(define-builtin-type quaternion +variant-type-quaternion+
+  ((x :float) (y :float) (z :float) (w :float)))
+
+(define-builtin-type aabb +variant-type-aabb+
+  ((position vector3) (size vector3)))
+
+;; Godot's x, y and origin are the columns, like the Lisp TRANSFORM2D's
+(define-builtin-type transform2d +variant-type-transform2d+
+  ((x vector2) (y vector2) (origin vector2)))
+
+;; Godot's x, y, z and w are the columns, like the Lisp PROJECTION's
+(define-builtin-type projection +variant-type-projection+
+  ((x vector4) (y vector4) (z vector4) (w vector4)))
+
+(define-builtin-type rid +variant-type-rid+
+  ((id :uint64-t)))
+
+;; Its Basis is stored as rows, see READ-BASIS
+(define-builtin-type transform3d +variant-type-transform3d+
+  ((basis basis) (origin vector3))
+  :reader read-transform3d
+  :writer write-transform3d)
+
+(defun read-transform3d (pointer)
+  "The raw value at POINTER as a TRANSFORM3D: the Basis, then the origin, after
+the 9 floats of the Basis."
+  (transform3d (read-basis pointer)
+               (read-vector3 (array-element pointer :float 9))))
+
+(defun write-transform3d (pointer transform)
+  "Store the TRANSFORM3D at POINTER as a raw value."
+  (write-basis pointer (transform3d-basis transform))
+  (write-vector3 (array-element pointer :float 9) (transform3d-origin transform)))
+
 (defun read-basis (pointer)
   "The raw value at POINTER as a BASIS, made from Godot's rows."
   ;; Row I, column J is at index 3I + J
@@ -349,19 +406,28 @@ layout."
     (string-to-utf8-chars pointer (si:make-foreign-data-from-array octets) length)
     (ext:octets-to-string octets :external-format :utf-8)))
 
+(defun read-string-from (constructor pointer)
+  "The Godot String that CONSTRUCTOR, a String constructor, makes from the value
+at POINTER, as a Lisp string."
+  (with-foreign-memory ((string 'godot-string)
+                        (args '(:array :pointer-void 1)))
+    (setf (foreign-ref args :pointer-void 0) pointer)
+    (call-ptr-constructor constructor string args)
+    (unwind-protect (read-godot-string string)
+      (string-destructor string))))
+
+(defun read-string-name (pointer)
+  "The StringName at POINTER as a Lisp string."
+  (read-string-from *string-from-string-name-constructor* pointer))
+
+(defun read-node-path (pointer)
+  "The NodePath at POINTER as a Lisp string."
+  (read-string-from *string-from-node-path-constructor* pointer))
+
 (defun write-godot-string (pointer string)
   "Construct a Godot String at POINTER, uninitialized memory, from the Lisp
 STRING. Destroy it with STRING-DESTRUCTOR."
   (string-new-with-utf8-chars pointer string))
-
-(defun read-packed-string-array (pointer)
-  "The PackedStringArray at POINTER as a list of Lisp strings."
-  (let ((size (with-foreign-memory ((r-return :int64-t))
-                (call-ptr-builtin-method *packed-string-array-size* pointer
-                                         (ffi:make-null-pointer :void) r-return 0)
-                (foreign-ref r-return :int64-t))))
-    (loop for i below size
-          collect (read-godot-string (packed-string-array-operator-index pointer i)))))
 
 (defstruct (callable (:constructor callable (target function)))
   "A Callable that calls the Lisp FUNCTION with the arguments as Lisp values,
@@ -383,7 +449,18 @@ are found by the LISP-TYPE of their value types."
     (boolean +variant-type-bool+)
     (integer +variant-type-int+)
     (real +variant-type-float+)
+    ;; Before other vectors
     (string +variant-type-string+)
+    ;; Specialized vectors are packed arrays (see containers.lisp in
+    ;; GD-EXTENSION)
+    ((simple-array (unsigned-byte 8) (*)) +variant-type-packed-byte-array+)
+    ((simple-array (signed-byte 32) (*)) +variant-type-packed-int32-array+)
+    ((simple-array (signed-byte 64) (*)) +variant-type-packed-int64-array+)
+    ((simple-array single-float (*)) +variant-type-packed-float32-array+)
+    ((simple-array double-float (*)) +variant-type-packed-float64-array+)
+    ;; Other vectors are Arrays, and hash tables Dictionaries
+    (simple-vector +variant-type-array+)
+    (hash-table +variant-type-dictionary+)
     ;; Before other structs, as the Lisp objects of instances include it. Not
     ;; raw pointers, which might point to something else than an Object, such
     ;; as a StringName.

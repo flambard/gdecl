@@ -69,18 +69,6 @@ the class, or of the nearest class it inherits from, that has one."
                (return constructor)))
         finally (return #'make-godot-object)))
 
-(defun string-name-string (string-name)
-  "The StringName at STRING-NAME as a Lisp string."
-  (with-foreign-memory ((string 'godot-string)
-                        (args '(:array :pointer-void 1)))
-    (setf (foreign-ref args :pointer-void 0) string-name)
-    ;; Constructor 2 of String takes a StringName
-    (call-ptr-constructor (initialize-cell-value
-                           (variant-get-ptr-constructor +variant-type-string+ 2))
-                          string args)
-    (unwind-protect (read-godot-string string)
-      (string-destructor string))))
-
 (defun make-engine-object (object)
   "The Lisp object of the Godot object OBJECT (a pointer), of the type of its
 class (see DEFINE-ENGINE-CLASS), for GD-EXTENSION-CALLBACK:*WRAPPER-FUNCTION*."
@@ -91,7 +79,7 @@ class (see DEFINE-ENGINE-CLASS), for GD-EXTENSION-CALLBACK:*WRAPPER-FUNCTION*."
              (let* ((key (foreign-ref class-name :uint64-t))
                     (constructor (or (gethash key *class-name-constructors*)
                                      (setf (gethash key *class-name-constructors*)
-                                           (class-constructor (string-name-string class-name))))))
+                                           (class-constructor (read-string-name class-name))))))
                (funcall constructor :pointer object))
           (string-name-destructor class-name)))))
 

@@ -1,6 +1,6 @@
 # TODO
 
-Started from a review on 2026-10-13. Done since: the bugs it found, the performance work (`define-builtin-type`, static FFI calls, cheaper callbacks, faster Variant conversion, engine calls in one piece of C for simple types), and Lisp objects for all Godot objects (identity, invalidation when freed, struct types mirroring Godot's classes). File references are in `lisp/` unless shown otherwise. `make bench` measures calls between Lisp and Godot. gdecl's first principle applies to all of it: performance first, and shift work from run time to compile time (`CLAUDE.md`).
+Started from a review on 2026-10-13. Done since: the bugs it found, the performance work (`define-builtin-type`, static FFI calls, cheaper callbacks, faster Variant conversion, engine calls in one piece of C for simple types), Lisp objects for all Godot objects (identity, invalidation when freed, struct types mirroring Godot's classes), and nearly all types: only 10 of Godot's 13,903 methods are still skipped (9 with Callable results). File references are in `lisp/` unless shown otherwise. `make bench` measures calls between Lisp and Godot. gdecl's first principle applies to all of it: performance first, and shift work from run time to compile time (`CLAUDE.md`).
 
 ## Performance (measure with `make bench` before and after)
 
@@ -16,7 +16,6 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 
 ## Gaps
 
-- [ ] **Q. Unsupported types.** Engine methods with types gdecl can't convert yet are skipped, so they have no functions. Most noticeable: StringName and NodePath results (e.g. `Node.get_name`, `AnimatedSprite2D.get_animation`); `string-name-string` (`engine-objects.lisp`) could be the reader. Also Color and Transform2D (builtin types made of floats: add them with `define-builtin-type`), Array, Dictionary, RID, and the packed arrays (only PackedStringArray results are supported). Add them as applications need them.
 - [ ] **R. Calls from other threads.** Godot can call into Lisp from threads other than the main one (e.g. with physics on a separate thread, or `WorkerThreadPool`). ECL needs such threads registered (`ecl_import_current_thread`), which gdecl doesn't do, and its tables aren't thread-safe. Add it when an application needs it.
 
 ## Small things
@@ -26,13 +25,12 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 - [ ] Filling C structs repeats `(setf (ffi:get-slot-value …))` slot by slot (`bind-method`, `register-class` and `make-property-full` in `binding.lisp`, `write-callable` in `gd-extension-callback.lisp`): a `set-foreign-slots` macro, which could also write the slots with `foreign-ref` at their offsets instead of `get-slot-value` (about 5 µs a slot). That matters for `write-callable`, about 25 µs for every Callable made, e.g. by `connect-signal`. `make-property` and `destruct-property` aren't protected by `unwind-protect`, so an error during registration leaks the property infos: a `with-property-infos` macro.
 - [ ] StringNames are created with latin1 in some places (`with-string-name`, `new-string-name` in `gd-extension.lisp`, `make-property-full` in `binding.lisp`) and UTF-8 in others (temporary names).
 - [ ] Debug `printf`s in `src/gdecl.c` run on every launch.
-- [ ] `classdb-register-extension-class2` and `class-creation-info2` are deprecated and unused; `PackedStringArray.size`'s hash is hardcoded in `load-interface` (`gd-extension-ffi.lisp`).
+- [ ] `classdb-register-extension-class2` and `class-creation-info2` are deprecated and unused.
 
 ## Suggested order
 
 1. P: the high-level layer is gdecl's ambition, so decide its direction before building more on `define-class`. Its measurements are cheap.
-2. Q, as the game needs the types.
-3. N: calls into Lisp (0.7–0.9 µs) are now the biggest cost per frame left.
-4. The small things, when touching that code anyway.
-5. O, if measurements show it matters.
-6. J with the REPL work, and R when an application uses threads.
+2. N: calls into Lisp (0.7–0.9 µs) are now the biggest cost per frame left.
+3. The small things, when touching that code anyway.
+4. O, if measurements show it matters.
+5. J with the REPL work, and R when an application uses threads.
