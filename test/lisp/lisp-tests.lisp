@@ -167,7 +167,10 @@ types of Godot objects.")
     (node-add-to-group node (format nil "g~c" (code-char 228)))
     (check (node-is-in-group node (format nil "g~c" (code-char 228))))
     ;; Inside another call, so CHECK doesn't make the literal string a value
-    (check (eq t (node-is-in-group node #.(format nil "g~c" (code-char 228)))))))
+    (check (eq t (node-is-in-group node #.(format nil "g~c" (code-char 228)))))
+    ;; The same with a character outside Latin-1 (the euro sign)
+    (node-add-to-group node (format nil "g~c" (code-char 8364)))
+    (check (eq t (node-is-in-group node #.(format nil "g~c" (code-char 8364)))))))
 
 (deftest variant-values
   (let ((node (new-node "Node")))

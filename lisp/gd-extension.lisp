@@ -41,7 +41,7 @@ as +VARIANT-TYPE-FLOAT+), or a keyword named like one, such as :FLOAT, :VECTOR2,
 string CONTENTS. The StringName is destroyed when BODY exits, also on a
 non-local exit."
   `(with-foreign-memory ((,var 'string-name))
-     (string-name-new-with-latin1-chars ,var ,contents)
+     (string-name-new-with-utf8-chars ,var ,contents)
      (unwind-protect (progn ,@body)
        (string-name-destructor ,var))))
 
@@ -89,7 +89,7 @@ extension, or when the code is loaded if it already has (e.g. at a REPL)."
   "A StringName created from the string CONTENTS, in memory from MEM-ALLOC. Kept
 until Godot unloads the extension."
   (let ((string-name (mem-alloc +string-name-size+)))
-    (string-name-new-with-latin1-chars string-name contents)
+    (string-name-new-with-utf8-chars string-name contents)
     (push string-name *permanent-string-names*)
     string-name))
 

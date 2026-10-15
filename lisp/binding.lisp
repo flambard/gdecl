@@ -15,9 +15,9 @@ by value). DESTRUCT-PROPERTY frees what it allocates."
   (let ((prop-name (mem-alloc +string-name-size+))
         (prop-hint-string (mem-alloc +string-size+))
         (prop-class-name (mem-alloc +string-name-size+)))
-    (string-name-new-with-latin1-chars prop-name name)
+    (string-name-new-with-utf8-chars prop-name name)
     (string-new-with-utf8-chars prop-hint-string hint-string)
-    (string-name-new-with-latin1-chars prop-class-name class-name)
+    (string-name-new-with-utf8-chars prop-class-name class-name)
     (set-foreign-slots (info property-info)
       name prop-name
       type type

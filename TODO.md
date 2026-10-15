@@ -24,7 +24,6 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 
 ## Small things
 
-- [ ] StringNames are created with latin1 in some places (`with-string-name`, `new-string-name` in `gd-extension.lisp`, `make-property` in `binding.lisp`) and UTF-8 in others (temporary names).
 - [ ] Debug `printf`s in `src/gdecl.c` run on every launch.
 - [ ] `classdb-register-extension-class2` and `class-creation-info2` are deprecated and unused.
 
