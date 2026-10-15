@@ -3,28 +3,28 @@
 ;;;
 ;;; Binding helpers
 ;;;
-;;; MAKE-PROPERTY fills in the GDExtensionPropertyInfo at INFO (the C version
-;;; returns the struct by value). The StringNames and the String it allocates
-;;; are freed by DESTRUCT-PROPERTY.
+;;; WITH-PROPERTY-INFOS makes an array of GDExtensionPropertyInfo, for
+;;; registering methods, properties and signals, and destroys the StringNames
+;;; and Strings in them when its body exits, also after an error.
 ;;;
 
-(defun make-property (info type name)
-  (make-property-full info type name +property-hint-none+ "" "" +property-usage-default+))
-
-(defun make-property-full (info type name hint hint-string class-name usage-flags)
+(defun make-property (info name type &key (hint +property-hint-none+) (hint-string "")
+                                          (class-name "") (usage +property-usage-default+))
+  "Fill in the GDExtensionPropertyInfo at INFO (the C version returns the struct
+by value). DESTRUCT-PROPERTY frees what it allocates."
   (let ((prop-name (mem-alloc +string-name-size+))
         (prop-hint-string (mem-alloc +string-size+))
         (prop-class-name (mem-alloc +string-name-size+)))
     (string-name-new-with-latin1-chars prop-name name)
     (string-new-with-utf8-chars prop-hint-string hint-string)
     (string-name-new-with-latin1-chars prop-class-name class-name)
-    (setf (ffi:get-slot-value info 'property-info 'name) prop-name
-          (ffi:get-slot-value info 'property-info 'type) type
-          (ffi:get-slot-value info 'property-info 'hint) hint
-          (ffi:get-slot-value info 'property-info 'hint-string) prop-hint-string
-          (ffi:get-slot-value info 'property-info 'class-name) prop-class-name
-          (ffi:get-slot-value info 'property-info 'usage) usage-flags)
-    info))
+    (set-foreign-slots (info property-info)
+      name prop-name
+      type type
+      hint hint
+      hint-string prop-hint-string
+      class-name prop-class-name
+      usage usage)))
 
 (defun destruct-property (info)
   (let ((name (ffi:get-slot-value info 'property-info 'name))
@@ -36,6 +36,27 @@
     (mem-free name)
     (mem-free hint-string)
     (mem-free class-name)))
+
+(defun call-with-property-infos (properties function)
+  (let ((count 0))
+    ;; At least one element, so the array is never empty
+    (ffi:with-foreign-object (infos `(:array property-info ,(max (length properties) 1)))
+      (unwind-protect
+           (progn
+             (dolist (property properties)
+               (apply #'make-property (element-pointer infos 'property-info count) property)
+               (incf count))
+             (funcall function infos))
+        (dotimes (i count)
+          (destruct-property (element-pointer infos 'property-info i)))))))
+
+(defmacro with-property-infos ((variable properties) &body body)
+  "Evaluate BODY with VARIABLE bound to a pointer to an array of
+GDExtensionPropertyInfo, one for each of PROPERTIES, a list of argument lists of
+MAKE-PROPERTY without the INFO: (name type &key hint hint-string class-name
+usage). The property infos are destroyed when BODY exits, also on a non-local
+exit."
+  `(call-with-property-infos ,properties (lambda (,variable) ,@body)))
 
 (defun bind-method (class-name method-name function
                     &key (return-type +variant-type-nil+) arguments invoker)
@@ -51,47 +72,34 @@ REGISTER-METHOD; DEFINE-CLASS generates it."
          (argument-count (length arguments))
          (has-return-value (/= return-type +variant-type-nil+)))
     (with-string-name (method-name-string method-name)
-      (ffi:with-foreign-objects ((return-info 'property-info)
-                                 ;; At least one element, so the arrays are never empty
-                                 (args-info `(:array property-info ,(max argument-count 1)))
-                                 (args-metadata `(:array :int ,(max argument-count 1)))
-                                 (method-info 'class-method-info))
-        (when has-return-value
-          (make-property return-info return-type ""))
-        (loop for (name type) in arguments
-              for i from 0
-              do (make-property (element-pointer args-info 'property-info i) type name)
-                 (setf (foreign-ref args-metadata :int i) +method-argument-metadata-none+))
-        ;; All slots not set below are NULL/0
-        (clear-foreign-object method-info 'class-method-info)
-        (setf (ffi:get-slot-value method-info 'class-method-info 'name) method-name-string
-              (ffi:get-slot-value method-info 'class-method-info 'method-userdata)
-              (register-method function :name (format nil "~a.~a" class-name method-name)
-                                        :return-type return-type
-                                        :argument-types (mapcar #'second arguments)
-                                        :invoker invoker)
-              (ffi:get-slot-value method-info 'class-method-info 'call-func)
-              (callback-pointer 'method-call)
-              (ffi:get-slot-value method-info 'class-method-info 'ptrcall-func)
-              (callback-pointer 'method-ptrcall)
-              (ffi:get-slot-value method-info 'class-method-info 'method-flags)
-              +method-flags-default+
-              (ffi:get-slot-value method-info 'class-method-info 'has-return-value)
-              (if has-return-value 1 0)
-              (ffi:get-slot-value method-info 'class-method-info 'return-value-info) return-info
-              (ffi:get-slot-value method-info 'class-method-info 'return-value-metadata)
-              +method-argument-metadata-none+
-              (ffi:get-slot-value method-info 'class-method-info 'argument-count) argument-count
-              (ffi:get-slot-value method-info 'class-method-info 'arguments-info) args-info
-              (ffi:get-slot-value method-info 'class-method-info 'arguments-metadata)
-              args-metadata)
-        (with-string-name (class-name-string class-name)
-          (classdb-register-extension-class-method *class-library* class-name-string
-                                                   method-info))
-        (when has-return-value
-          (destruct-property return-info))
-        (dotimes (i argument-count)
-          (destruct-property (element-pointer args-info 'property-info i)))))))
+      (with-property-infos (return-info (and has-return-value `(("" ,return-type))))
+        (with-property-infos (args-info arguments)
+          ;; At least one element, so the array is never empty
+          (ffi:with-foreign-objects ((args-metadata `(:array :int ,(max argument-count 1)))
+                                     (method-info 'class-method-info))
+            (dotimes (i argument-count)
+              (setf (foreign-ref args-metadata :int i) +method-argument-metadata-none+))
+            ;; All slots not set below are NULL/0
+            (clear-foreign-object method-info 'class-method-info)
+            (set-foreign-slots (method-info class-method-info)
+              name method-name-string
+              method-userdata (register-method function
+                                               :name (format nil "~a.~a" class-name method-name)
+                                               :return-type return-type
+                                               :argument-types (mapcar #'second arguments)
+                                               :invoker invoker)
+              call-func (callback-pointer 'method-call)
+              ptrcall-func (callback-pointer 'method-ptrcall)
+              method-flags +method-flags-default+
+              has-return-value (if has-return-value 1 0)
+              return-value-info return-info
+              return-value-metadata +method-argument-metadata-none+
+              argument-count argument-count
+              arguments-info args-info
+              arguments-metadata args-metadata)
+            (with-string-name (class-name-string class-name)
+              (classdb-register-extension-class-method *class-library* class-name-string
+                                                       method-info))))))))
 
 (define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
 
@@ -130,14 +138,12 @@ PropertyHint."
             hint-string class
             property-class-name class))
     (with-string-name (class-string-name class-name)
-      (ffi:with-foreign-object (info 'property-info)
-        (make-property-full info type name hint hint-string property-class-name
-                            +property-usage-default+)
+      (with-property-infos (info `((,name ,type :hint ,hint :hint-string ,hint-string
+                                           :class-name ,property-class-name)))
         (with-string-name (getter-name getter)
           (with-string-name (setter-name setter)
             (classdb-register-extension-class-property *class-library* class-string-name
-                                                       info setter-name getter-name)))
-        (destruct-property info)))))
+                                                       info setter-name getter-name)))))))
 
 (defun bind-signal (class-name signal-name &optional arguments)
   "Register the signal SIGNAL-NAME of the class CLASS-NAME, like signal in
@@ -148,15 +154,10 @@ without arguments has none."
          (argument-count (length arguments)))
     (with-string-name (class-string-name class-name)
       (with-string-name (signal-string-name signal-name)
-        ;; At least one element, so the array is never empty
-        (ffi:with-foreign-object (args-info `(:array property-info ,(max argument-count 1)))
-          (loop for (name type) in arguments
-                for i from 0
-                do (make-property (element-pointer args-info 'property-info i) type name))
+        (with-property-infos (args-info arguments)
           (classdb-register-extension-class-signal *class-library* class-string-name
-                                                   signal-string-name args-info argument-count)
-          (dotimes (i argument-count)
-            (destruct-property (element-pointer args-info 'property-info i))))))))
+                                                   signal-string-name args-info
+                                                   argument-count))))))
 
 ;; StringNames with the names of the classes registered with REGISTER-CLASS,
 ;; the last one first
@@ -184,17 +185,14 @@ script without @tool."
     (ffi:with-foreign-object (info 'class-creation-info4)
       ;; All slots not set below are NULL/0
       (clear-foreign-object info 'class-creation-info4)
-      (setf (ffi:get-slot-value info 'class-creation-info4 'is-exposed) 1
-            (ffi:get-slot-value info 'class-creation-info4 'is-runtime) (if tool 0 1)
-            (ffi:get-slot-value info 'class-creation-info4 'create-instance-func)
-            (callback-pointer 'create-instance)
-            (ffi:get-slot-value info 'class-creation-info4 'free-instance-func)
-            (callback-pointer 'free-instance)
-            (ffi:get-slot-value info 'class-creation-info4 'get-virtual-call-data-func)
-            (callback-pointer 'get-virtual-call-data)
-            (ffi:get-slot-value info 'class-creation-info4 'call-virtual-with-data-func)
-            (callback-pointer 'call-virtual-with-data)
-            (ffi:get-slot-value info 'class-creation-info4 'class-userdata) class-userdata)
+      (set-foreign-slots (info class-creation-info4)
+        is-exposed 1
+        is-runtime (if tool 0 1)
+        create-instance-func (callback-pointer 'create-instance)
+        free-instance-func (callback-pointer 'free-instance)
+        get-virtual-call-data-func (callback-pointer 'get-virtual-call-data)
+        call-virtual-with-data-func (callback-pointer 'call-virtual-with-data)
+        class-userdata class-userdata)
       (classdb-register-extension-class4 *class-library* string-name parent-string-name
                                          info))
     (push string-name *registered-classes*)

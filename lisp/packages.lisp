@@ -233,7 +233,8 @@
            #:array-element
            #:cast-pointer
            #:element-pointer
-           #:foreign-ref))
+           #:foreign-ref
+           #:set-foreign-slots))
 
 (defpackage #:gd-extension-builtins
   (:documentation "Lisp versions of Godot's builtin types, such as Vector2 and

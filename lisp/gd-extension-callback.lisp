@@ -833,18 +833,15 @@ object, and return the object pointer."
   "Construct a custom Godot Callable at POINTER, uninitialized memory, from the
 Lisp CALLABLE. Destroy it with CALLABLE-DESTRUCTOR; Godot keeps the Lisp function
 until the last copy of the Callable is destroyed."
-  (ffi:with-foreign-object (info 'callable-custom-info2)
+  (with-foreign-memory ((info 'callable-custom-info2))
     ;; All slots not set below are NULL/0
     (clear-foreign-object info 'callable-custom-info2)
-    (setf (ffi:get-slot-value info 'callable-custom-info2 'callable-userdata)
-          (add-callable-function (callable-function callable))
-          (ffi:get-slot-value info 'callable-custom-info2 'token) *class-library*
-          (ffi:get-slot-value info 'callable-custom-info2 'object-id)
-          (object-get-instance-id (object-pointer (callable-target callable)))
-          (ffi:get-slot-value info 'callable-custom-info2 'call-func)
-          (callback-pointer 'callable-call)
-          (ffi:get-slot-value info 'callable-custom-info2 'free-func)
-          (callback-pointer 'callable-free))
+    (set-foreign-slots (info callable-custom-info2)
+      callable-userdata (add-callable-function (callable-function callable))
+      token *class-library*
+      object-id (object-get-instance-id (object-pointer (callable-target callable)))
+      call-func (callback-pointer 'callable-call)
+      free-func (callback-pointer 'callable-free))
     (callable-custom-create2 pointer info)))
 
 (add-value-type (make-value-type :variant-type +variant-type-callable+

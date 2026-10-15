@@ -185,6 +185,7 @@ in order, +VARIANT-TYPE-VARIANT-MAX+ after them, and *VARIANT-TYPE-NAMES*."
       (:int32-t "int32_t")
       (:int64-t "int64_t")
       (:uint8-t "uint8_t")
+      (:uint32-t "uint32_t")
       (:uint64-t "uint64_t")
       (:unsigned-long "unsigned long")
       (:double "double")
@@ -954,6 +955,24 @@ when the code is compiled, unlike with ELEMENT-POINTER."
         `(ffi:c-inline (,pointer ,index) (:pointer-void :long) :pointer-void
                        ,(format nil "(char *)#0 + #1 * ~d" size) :one-liner t)
         `(element-pointer ,pointer ,type ,index))))
+
+(defmacro set-foreign-slots ((pointer struct-type) &rest slots-and-values)
+  "Set slots of the struct of STRUCT-TYPE (a symbol, not evaluated) at POINTER:
+SLOTS-AND-VALUES is slot value ..., as in SETF, and the slots are set in that
+order. The slots' offsets and types are looked up when the code is compiled, and
+each is set with a line of C, so unlike (SETF FFI:GET-SLOT-VALUE), which costs
+about 5 microseconds a slot, this costs little more than the writes, and works
+on pointers without a size. Returns POINTER."
+  (let ((pointer-variable (gensym "POINTER")))
+    `(let ((,pointer-variable ,pointer))
+       ,@(loop for (slot value) on slots-and-values by #'cddr
+               collect (multiple-value-bind (offset slot-type)
+                           (ffi::slot-position struct-type slot)
+                         `(ffi:c-inline (,pointer-variable ,value) (:pointer-void ,slot-type) :void
+                                        ,(format nil "*(~a *)((char *)#0 + ~d) = #1"
+                                                 (c-type-name slot-type) offset)
+                                        :one-liner t)))
+       ,pointer-variable)))
 
 (define-compiler-macro clear-foreign-object (&whole form pointer type)
   (let ((size (constant-type-size type)))
