@@ -458,6 +458,7 @@ tables and dispatchers behind them")
   (:nicknames #:gdext-callback)
   (:use #:cl #:gd-extension-ffi #:gd-extension-types)
   (:export ;; Callbacks
+           #:callback-pointer
            #:method-ptrcall
            #:method-call
            #:create-instance
@@ -497,6 +498,7 @@ tables and dispatchers behind them")
                 #:read-json-file
                 #:json-get)
   (:import-from #:gd-extension-callback
+                #:callback-pointer
                 #:method-ptrcall
                 #:method-call
                 #:create-instance

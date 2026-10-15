@@ -16,7 +16,11 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 
 ## Gaps
 
-- [ ] **R. Calls from other threads.** Godot can call into Lisp from threads other than the main one (e.g. with physics on a separate thread, or `WorkerThreadPool`). ECL needs such threads registered (`ecl_import_current_thread`), which gdecl doesn't do, and its tables aren't thread-safe. Add it when an application needs it.
+- [ ] **R. Calls from other threads.** Godot calls into Lisp from threads other than the main one: Callables on `Thread` and `WorkerThreadPool`, `_process` of nodes in a thread group, instances made by threaded resource loading, objects freed on another thread. Done: `define-callback` imports a thread into ECL the first time it calls in, and releases it when it exits (`make test` runs Callables on both). Left:
+  - The tables behind the callbacks (`*instances*`, `*bindings*`, `*callables*` and their free lists, `*bound-methods*`, `*extension-classes*`) aren't thread-safe: `vector-push-extend`, `push` and `pop` race, e.g. `callable-free` on a worker thread while the main thread makes a Callable can give two Callables the same index. A lock on every read would cost about 85 ns (an `aref` is 6 ns), too much for the per-frame path. Instead, since ECL's GC doesn't move objects, the handles given to Godot could be the Lisp objects' addresses (1.7 ns to turn back into the object), kept reachable in a table locked only when adding and removing. Do it with J.
+  - `*class-name-constructors*` (`engine-objects.lisp`) is filled in by `create-binding`, on any thread: `:synchronized t` (38 ns against 11 ns for `gethash`) or a lock only when filling it in. Never call Godot while holding a Lisp lock: Godot holds its own around `create-binding`.
+  - Getting back to the main thread, where most of Godot's scene API must be called: `call-deferred` with a Lisp function, `call-deferred-thread-group`, and wrappers for `WorkerThreadPool`. A REPL (Swank) runs in a thread of its own, so it needs this too.
+  - A thread still in Lisp when ECL shuts down isn't waited for.
 
 ## Small things
 

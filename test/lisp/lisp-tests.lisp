@@ -407,3 +407,31 @@ types of Godot objects.")
          (object (class-db-instantiate "RefCounted")))
     (check (= 2 (ref-counted-get-reference-count timer)))
     (check (= 1 (ref-counted-get-reference-count object)))))
+
+(deftest callable-on-thread
+  ;; Godot calls a Lisp Callable on a new thread, which Lisp hasn't seen before
+  (let ((thread (class-db-instantiate "Thread"))
+        (ran-in nil))
+    (check (= +ok+ (thread-start thread (gd-extension-types:callable
+                                         *root*
+                                         (lambda ()
+                                           (setf ran-in mp:*current-process*)
+                                           42)))))
+    (check (eql 42 (thread-wait-to-finish thread)))
+    (check ran-in)
+    (check (not (eq ran-in mp:*current-process*)))))
+
+(deftest callables-on-worker-thread-pool
+  ;; Several Callables at once, on the threads of WorkerThreadPool
+  (let* ((lock (mp:make-lock :name "callables-on-worker-thread-pool"))
+         (count 0)
+         (tasks (loop repeat 8
+                      collect (worker-thread-pool-add-task
+                               (gd-extension-types:callable
+                                *root*
+                                (lambda ()
+                                  (mp:with-lock (lock)
+                                    (incf count))))))))
+    (dolist (task tasks)
+      (check (= +ok+ (worker-thread-pool-wait-for-task-completion task))))
+    (check (= 8 count))))

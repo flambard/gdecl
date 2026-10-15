@@ -16,3 +16,7 @@
 
 ;; A static method whose Variant argument comes before a String
 (gdext:define-engine-method json-stringify ("JSON" "stringify"))
+
+;; Threads of Godot's own, which call Lisp Callables
+(gdext:define-engine-class "Thread")
+(gdext:define-engine-class "WorkerThreadPool")
