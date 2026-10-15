@@ -438,3 +438,12 @@ types of Godot objects.")
     (dolist (task tasks)
       (check (= +ok+ (worker-thread-pool-wait-for-task-completion task))))
     (check (= 8 count))))
+
+(deftest singletons
+  ;; A singleton the extension registers itself (define-class with :singleton)
+  (let ((singleton (gdext:singleton "TestSingleton")))
+    (check (typep singleton 'test-singleton))
+    (check (eq singleton (engine-get-singleton "TestSingleton")))
+    (let ((count (test-singleton-count singleton)))
+      (object-call singleton "next")
+      (check (eql (1+ count) (test-singleton-count singleton))))))

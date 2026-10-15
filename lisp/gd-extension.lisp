@@ -159,9 +159,17 @@ values must not be used any more."
 The NodePath is created once and kept until Godot unloads the extension."
   `(initialize-cell-value (new-node-path ,path)))
 
+(defun look-up-singleton (name)
+  "The Lisp object of the engine singleton NAME, a string, or NIL."
+  (with-string-name (string-name name)
+    (lisp-object (global-get-singleton string-name))))
+
 (defmacro singleton (name)
   "The Lisp object of the engine singleton NAME, a literal string such as
-\"Input\" (see LISP-OBJECT). Looked up once."
-  `(initialize-cell-value
-    (with-string-name (string-name ,name)
-      (lisp-object (global-get-singleton string-name)))))
+\"Input\" (see LISP-OBJECT). Looked up the first time it's used, not when Godot
+initializes the extension, so that it also finds singletons that the extension
+registers itself (see REGISTER-SINGLETON)."
+  (let ((cell (gensym "CELL")))
+    `(let ((,cell (load-time-value (list nil))))
+       (or (car ,cell)
+           (setf (car ,cell) (look-up-singleton ,name))))))

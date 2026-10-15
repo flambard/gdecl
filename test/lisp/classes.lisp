@@ -143,6 +143,19 @@ arguments and returns how many there were."
   ((broken (error "A constructor error, expected by the tests"))))
 
 ;;;
+;;; TestSingleton: an engine singleton, which GDScript uses by name like Input
+;;;
+
+(gdext:define-class test-singleton ("TestSingleton" "Object")
+  ((count 0))
+  (:singleton t)
+  (:method "next" test-singleton-next :return-type :int))
+
+(defun test-singleton-next (singleton)
+  "Count the calls, and return the count."
+  (incf (test-singleton-count singleton)))
+
+;;;
 ;;; LispTests: runs the tests written in Lisp
 ;;;
 

@@ -34,7 +34,6 @@ Where things stand: an engine call from Lisp with only simple types costs 140–
 - [ ] **X. Extension points beyond classes.** gdecl starts only at the scene level (`initialize_gdecl_module` in `src/gdecl.c` returns at the other levels), and its classes are game classes. Not possible yet:
   - Editor plugins: classes extending `EditorPlugin`, `EditorInspectorPlugin` or `EditorExportPlugin` must be registered at the editor level and added with `editor_add_plugin`. Needs initialize hooks per level, and ECL already booted then (it is, from the scene level).
   - Lisp as a script language, attached to nodes like GDScript: a `ScriptLanguageExtension` and a `ScriptExtension` (60 and 37 virtual methods) and script instances (`script_instance_create3`). A large piece of work; worth it only if attaching scripts to nodes in the editor matters more than `define-class`.
-  - Singletons: `Engine.register_singleton` with an instance of a Lisp class, unregistered at deinit. Possible today with `(define-engine-class "Engine")` and an initialize hook; a `define-class` option would make it one line. (An autoload works now with a scene whose root is a Lisp class.)
 
 ## Suggested order
 

@@ -147,6 +147,13 @@ func test_signals() -> void:
 	listener.free()
 
 
+func test_singleton() -> void:
+	check(Engine.has_singleton("TestSingleton"), "TestSingleton is a singleton")
+	var first: int = TestSingleton.next()
+	check(Engine.get_singleton("TestSingleton").next() == first + 1,
+			"TestSingleton by name and from Engine is the same object")
+
+
 func test_references() -> void:
 	var node := TestNode.new()
 	var tests := LispTests.new()

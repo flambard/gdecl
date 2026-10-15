@@ -210,6 +210,43 @@ names are still there, and after the application's hooks."
 (add-deinitialize-hook 'unregister-classes)
 
 ;;;
+;;; Singletons
+;;;
+
+(define-engine-method engine-register-singleton ("Engine" "register_singleton"))
+(define-engine-method engine-unregister-singleton ("Engine" "unregister_singleton"))
+
+;; The singletons registered with REGISTER-SINGLETON: a list of (name . object),
+;; the last one first
+(defvar *singletons* '())
+
+(defun register-singleton (class-name &optional (name class-name))
+  "Make an instance of the class CLASS-NAME and register it as the engine
+singleton NAME (both strings), like Engine.register_singleton, so that GDScript
+can use it by name, as Input. Returns its Lisp object, which (SINGLETON NAME)
+also gives. It's unregistered and freed when Godot unloads the extension, after
+the application's deinitialize hooks. The class can't be RefCounted: Godot's
+singletons don't keep references."
+  (when (inherits-class-p class-name "RefCounted")
+    (error "The singleton ~a can't be of the RefCounted class ~a" name class-name))
+  (let ((object (lisp-object (with-string-name (string-name class-name)
+                               (classdb-construct-object string-name)))))
+    (engine-register-singleton name object)
+    (push (cons name object) *singletons*)
+    object))
+
+(defun unregister-singletons ()
+  "Unregister and free the singletons registered with REGISTER-SINGLETON, the last
+one first. A deinitialize hook, added after UNREGISTER-CLASSES so that it runs
+before it, while the classes are there, and after the application's hooks."
+  (loop for (name . object) in *singletons*
+        do (engine-unregister-singleton name)
+           (object-destroy (object-pointer object)))
+  (setf *singletons* '()))
+
+(add-deinitialize-hook 'unregister-singletons)
+
+;;;
 ;;; Virtual methods
 ;;;
 ;;; BIND-VIRTUAL looks up the virtual method's signature in extension_api.json

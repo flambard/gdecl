@@ -130,6 +130,7 @@ Class options:
 | `(:virtual name function)` | A virtual method such as `"_ready"`, `"_process"` or `"_input"`. Its signature comes from the engine class you inherit from, so `_process` gets `delta` as a float |
 | `(:destructor function)` | Called with the instance when Godot frees it |
 | `(:tool t)` | Run the class's code in the editor too, like `@tool`. Otherwise instances in the editor are placeholders |
+| `(:singleton t)` | Make one instance and register it as an engine singleton named like the class, so GDScript uses it by name like `Input`: `GameState.add_score(10)`. `(:singleton "Name")` gives it another name. In Lisp, `(gdext:singleton "GameState")` is the instance. It's freed when Godot unloads the extension. The class can't be RefCounted |
 
 Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, `:string`, `:vector2`, `:rect2`, `:vector3`, `:basis` and `:object` can be arguments and results of methods.
 
@@ -210,7 +211,7 @@ A `basis` is made from its columns, `(basis x y z)`, and `basis-x` etc. are its 
 
 ## StringNames and NodePaths
 
-A literal string given for a StringName or NodePath argument, as in `(input-is-action-pressed "ui_up")`, becomes a StringName created once, when the code is compiled. A string that's only known at runtime becomes a temporary one for the call. To make your own, `(gdext:sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(gdext:npath "AnimatedSprite2D")` a NodePath created once. `(gdext:singleton "Input")` is an engine singleton, looked up once.
+A literal string given for a StringName or NodePath argument, as in `(input-is-action-pressed "ui_up")`, becomes a StringName created once, when the code is compiled. A string that's only known at runtime becomes a temporary one for the call. To make your own, `(gdext:sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(gdext:npath "AnimatedSprite2D")` a NodePath created once. `(gdext:singleton "Input")` is an engine singleton, looked up the first time it's used.
 
 ## Signals
 
@@ -236,7 +237,7 @@ An engine method that returns a RefCounted object, such as a Resource, returns i
 
 ## The lower level
 
-`define-class` is built on functions you can also call yourself, e.g. for classes defined at runtime: `register-class`, `bind-method`, `bind-property`, `bind-signal` and `bind-virtual`. Types are given as in `define-class` (see `variant-type`). `with-string-name` and `with-string` create and destroy Godot StringNames and Strings; `get-method-bind` looks up a method to call with `object-method-bind-ptrcall` from `gd-extension-ffi`; and `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory. See their docstrings.
+`define-class` is built on functions you can also call yourself, e.g. for classes defined at runtime: `register-class`, `bind-method`, `bind-property`, `bind-signal`, `bind-virtual` and `register-singleton`. Types are given as in `define-class` (see `variant-type`). `with-string-name` and `with-string` create and destroy Godot StringNames and Strings; `get-method-bind` looks up a method to call with `object-method-bind-ptrcall` from `gd-extension-ffi`; and `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory. See their docstrings.
 
 ## Testing gdecl
 

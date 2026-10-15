@@ -194,8 +194,8 @@ SLOTS that keep them. NIL if there's neither."
         (:virtual
          (destructuring-bind (virtual-name function) arguments
            `((bind-virtual ,class-name ,virtual-name ,(function-form function)))))
-        ((:destructor :tool)
-         ;; Arguments of REGISTER-CLASS
+        ((:destructor :tool :singleton)
+         ;; Arguments of REGISTER-CLASS, and the singleton, made after the rest
          '())))))
 
 (defmacro define-class (name (class-name parent-class-name) slots &rest options)
@@ -225,6 +225,8 @@ OPTIONS are:
   (:virtual name function), see BIND-VIRTUAL
   (:destructor function), called with the Lisp object when Godot frees it
   (:tool t), see REGISTER-CLASS
+  (:singleton t) or (:singleton name), an instance registered as the engine
+    singleton with the class's name or NAME, see REGISTER-SINGLETON
 Functions are symbols, called by name, so redefining them takes effect, or
 forms that evaluate to functions. They're called with the Lisp object, like
 self in GDScript.
@@ -236,7 +238,8 @@ initialize hooks of the application run."
          (options (onready-options slots options))
          (destructor-form (define-class-destructor-form slots
                                                         (second (assoc :destructor options))))
-         (tool (second (assoc :tool options))))
+         (tool (second (assoc :tool options)))
+         (singleton (second (assoc :singleton options))))
     `(progn
        (defstruct (,name (:include ,(engine-object-type parent-class-name))
                          (:constructor ,make-name))
@@ -258,5 +261,8 @@ initialize hooks of the application run."
                     when (class-slot-export slot)
                       append (define-class-property-forms class-name slot))
             ,@(loop for option in options
-                    append (define-class-option-forms class-name option)))))
+                    append (define-class-option-forms class-name option))
+            ,@(when singleton
+                `((register-singleton ,class-name
+                                      ,@(when (stringp singleton) `(,singleton))))))))
        ',name)))

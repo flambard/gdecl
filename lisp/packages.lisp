@@ -512,6 +512,7 @@ tables and dispatchers behind them")
            ;; Classes
            #:define-class
            #:register-class
+           #:register-singleton
            #:bind-virtual
            #:instance-object
            #:lisp-object
