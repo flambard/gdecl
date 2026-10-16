@@ -15,15 +15,17 @@
 ;;;
 ;;; Objects
 ;;;
-;;; A Godot object is a pointer in Lisp, but an instance of an extension class
-;;; has a Lisp object too (see GD-EXTENSION:REGISTER-CLASS), a GODOT-OBJECT:
-;;; applications include GODOT-OBJECT in their structs. Wherever an Object is
-;;; passed to Godot, either one will do, and NIL is null.
+;;; Every Godot object that Lisp gets has one Lisp object, a GODOT-OBJECT (see
+;;; GD-EXTENSION-CALLBACK:LISP-OBJECT): an instance of an extension class the
+;;; struct its class defines, which includes GODOT-OBJECT, any other object a
+;;; struct of the type of its engine class (engine-objects.lisp in
+;;; GD-EXTENSION). NIL is null. Wherever an Object is passed to Godot, a raw
+;;; Godot object pointer will also do, for dropping down.
 ;;;
 
 (defstruct godot-object
-  "The Lisp object of an instance of an extension class. Include it in the
-struct of a class's Lisp objects."
+  "The Lisp object of a Godot object. The structs of engine classes and of
+extension classes include it."
   ;; The Godot object pointer
   pointer)
 
@@ -473,11 +475,11 @@ are found by the LISP-TYPE of their value types."
 
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
-by its Lisp type: T or NIL is a bool, an integer an int, a real a float, a
-string a String, a VECTOR2 a Vector2, a RECT2 a Rect2, a VECTOR3 a Vector3, a
-BASIS a Basis, a GODOT-OBJECT an Object (but not a raw pointer, which might
-point to something else, such as a StringName), and a CALLABLE a Callable.
-Destroy it with VARIANT-DESTROY."
+of the variant type LISP-VARIANT-TYPE gives by its Lisp type: e.g. T or NIL is a
+bool, a string a String, a VECTOR2 a Vector2, a specialized vector a packed
+array, a simple vector an Array, a hash table a Dictionary, and a GODOT-OBJECT
+an Object (but not a raw pointer, which might point to something else, such as
+a StringName). Destroy it with VARIANT-DESTROY."
   (write-variant-as variant
                     (find-value-type (or (lisp-variant-type value)
                                          (error "Can't make a Variant from ~s" value)))

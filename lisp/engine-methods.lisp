@@ -68,7 +68,7 @@ function is generated (only at macroexpansion time)."
     raw)
 
   (defun raw-value-bindings (arguments)
-    "The bindings of FFI:WITH-FOREIGN-OBJECTS for the raw values of ARGUMENTS."
+    "The bindings of WITH-FOREIGN-MEMORY for the raw values of ARGUMENTS."
     (loop for argument in arguments
           when (argument-ffi-type argument)
             collect `(,(argument-raw argument) ',(argument-ffi-type argument))))
@@ -278,13 +278,13 @@ doesn't handle: the raw values and the argument array are in foreign memory."
 
   (defun variant-call-method-form (method-bind object arguments return-type name rest
                                    &key utility)
-    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a vararg
-method, with object_method_bind_call, with ARGUMENTS (a list of
-ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the variable with the list of further arguments,
-converted to Variants by their Lisp types (see WRITE-VARIANT). If UTILITY is
-true, METHOD-BIND is a vararg utility function (see DEFINE-UTILITY-FUNCTIONS)
-instead, which takes Variants and returns a raw value of its return type, and
-OBJECT isn't used."
+    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a
+vararg method, with object_method_bind_call, with ARGUMENTS (a list of
+ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the variable
+with the list of further arguments, converted to Variants by their Lisp types
+(see WRITE-VARIANT). If UTILITY is true, METHOD-BIND is a vararg utility
+function (see DEFINE-UTILITY-FUNCTIONS) instead, which takes Variants and
+returns a raw value of its return type, and OBJECT isn't used."
     (let ((has-return-value (not (eql return-type +variant-type-nil+)))
           (declared-count (length arguments))
           (count (gensym "COUNT"))
@@ -382,9 +382,9 @@ OBJECT isn't used."
                    `((variant-destroy ,r-return)))))))))
 
   (defun temporary-names-form (arguments form)
-    "FORM, the call of an engine method with ARGUMENTS (ENGINE-ARGUMENTs), wrapped in code that turns each StringName or NodePath
-argument that's a Lisp string at runtime into a temporary one, destroyed after
-the call."
+    "FORM, the call of an engine method with ARGUMENTS (ENGINE-ARGUMENTs),
+wrapped in code that turns each StringName or NodePath argument that's a Lisp
+string at runtime into a temporary one, destroyed after the call."
     (loop for argument in (reverse arguments)
           for arg-name = (argument-name argument)
           for type = (argument-variant-type argument)
@@ -573,22 +573,23 @@ dumped from another version of Godot? Run make godot-api."
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
 CLASS-NAME (or a class it inherits from). The method's hash, arguments and
 return type are looked up in extension_api.json when the macro is expanded.
-The function takes the Godot object (a pointer or a GODOT-OBJECT; none if the
-method is static, or if the class is an engine singleton's, such as Input,
-whose methods are called on the singleton) and then the method's arguments as
-Lisp values, and returns the result as a Lisp value. Arguments with a default
-value are optional, if the default can be expressed in Lisp (bool, int, float,
-String, StringName, NodePath, Vector2 and null). The arguments are named as in
-extension_api.json, in Lisp style.
+The function takes the Godot object (a GODOT-OBJECT, or a Godot object pointer;
+none if the method is static, or if the class is an engine singleton's, such as
+Input, whose methods are called on the singleton) and then the method's
+arguments as Lisp values, and returns the result as a Lisp value. Arguments
+with a default value are optional, if the default can be expressed in Lisp
+(see API-DEFAULT-FORM): bool, int, float, String, StringName, NodePath, null,
+empty arrays and dictionaries, and builtin types made of floats, such as
+Vector2(0, 0). The arguments are named as in extension_api.json, in Lisp style.
 
-Supported types: bool, int (also enums and bitfields), float, Vector2, String
-(a Lisp string), Callable (a CALLABLE), StringName and NodePath as arguments
-(pointers to them, see SNAME and NPATH), Variant (an argument is converted from
-the Lisp value by its type, see WRITE-VARIANT, and a result by its type, see
-READ-VARIANT), Object (a Godot object pointer or a GODOT-OBJECT; NIL is null),
-and Rect2 and PackedStringArray (a list of strings) as results. An Object
-result is the Lisp object of an instance of an extension class (see
-LISP-OBJECT), and otherwise the Godot object pointer.
+The types are converted as *VALUE-TYPES* says: e.g. a String is a Lisp string,
+a Vector2 a VECTOR2, a packed array a vector, an Array a simple vector and a
+Dictionary a hash table. A StringName or NodePath argument is a pointer to one
+(see SNAME and NPATH) or a string, and a result a string. An Object is its Lisp
+object (see LISP-OBJECT), and NIL is null. A Variant argument is converted from
+the Lisp value by its type (see WRITE-VARIANT), and a result by the Variant's
+type (see READ-VARIANT). A Callable can only be an argument (a CALLABLE). A
+method with a type that can't be converted yet signals UNSUPPORTED-API-TYPE.
 
 A StringName or NodePath argument can also be given as a literal string in a
 call, e.g. (OBJECT-EMIT-SIGNAL OBJECT \"hit\"): a compiler macro wraps it in

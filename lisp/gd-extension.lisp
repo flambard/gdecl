@@ -1,18 +1,22 @@
 (in-package :gd-extension)
 
 ;;;
-;;; The Lisp-style layer of the framework: initialization, helpers and macros,
-;;; and registering classes and binding Lisp functions as methods, properties
-;;; and signals. Built on the package GD-EXTENSION-FFI (gd-extension-ffi.lisp),
-;;; which maps the C interface, GD-EXTENSION-TYPES (gd-extension-types.lisp),
-;;; Godot's builtin types in Lisp, and GD-EXTENSION-CALLBACK
-;;; (gd-extension-callback.lisp), which handles Godot's calls into Lisp.
+;;; The Lisp-style layer of the framework, the package GD-EXTENSION. Built on
+;;; GD-EXTENSION-FFI (gd-extension-ffi.lisp), which maps the C interface,
+;;; GD-EXTENSION-BUILTINS (builtin-types.lisp), Godot's builtin types in Lisp,
+;;; GD-EXTENSION-TYPES (gd-extension-types.lisp), which converts values between
+;;; Godot and Lisp, and GD-EXTENSION-CALLBACK (gd-extension-callback.lisp),
+;;; which handles Godot's calls into Lisp.
 ;;;
-;;; This file has the helpers and the values looked up once. The rest of the
-;;; package is in engine-methods.lisp (calling engine methods), engine-api.lisp
-;;; (DEFINE-ENGINE-CLASS, the global enums and the utility functions),
-;;; references.lisp, signals.lisp, binding.lisp (registering classes, methods,
-;;; properties, signals and virtual methods) and define-class.lisp.
+;;; This file has the helpers, the values looked up once (SNAME, NPATH,
+;;; SINGLETON) and the temporary names. The rest of the package is in
+;;; extension-api.lisp (reading extension_api.json), engine-methods.lisp
+;;; (calling engine methods), engine-objects.lisp (the structs of engine
+;;; objects), engine-api.lisp (DEFINE-ENGINE-CLASS, the global enums and the
+;;; utility functions), containers.lisp (packed arrays, Arrays and
+;;; Dictionaries), references.lisp, signals.lisp, binding.lisp (registering
+;;; classes, methods, properties, signals, virtual methods and singletons) and
+;;; define-class.lisp.
 ;;;
 
 ;;;

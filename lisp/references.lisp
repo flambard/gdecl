@@ -39,7 +39,7 @@ destructor of Ref<T>."
 (setf *release-reference-function* 'release-reference)
 
 (defmacro with-reference ((var form) &body body)
-  "Evaluate BODY with VAR bound to the RefCounted object (a Godot object pointer)
+  "Evaluate BODY with VAR bound to the RefCounted object (its Lisp object)
 returned by FORM, a call of an engine method, and give the reference back when
 BODY exits, also on a non-local exit: from the autorelease pool, during a call
 from Godot, so it's given back earlier than when the call returns, or else the

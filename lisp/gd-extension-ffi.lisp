@@ -27,9 +27,6 @@
   (ffi:with-cstring (c-name name)
     (si:call-cfun *get-proc-address* :pointer-void '(:cstring) (list c-name))))
 
-;; Copied from CFFI
-;; `(si::call-cfun ,pointer ,return-type (list ,@types) (list ,@values))
-
 ;;;
 ;;; Enums
 ;;;
