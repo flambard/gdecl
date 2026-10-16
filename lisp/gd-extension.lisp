@@ -5,8 +5,8 @@
 ;;; GD-EXTENSION-FFI (gd-extension-ffi.lisp), which maps the C interface,
 ;;; GD-EXTENSION-BUILTINS (builtin-types.lisp), Godot's builtin types in Lisp,
 ;;; GD-EXTENSION-TYPES (gd-extension-types.lisp), which converts values between
-;;; Godot and Lisp, and GD-EXTENSION-CALLBACK (gd-extension-callback.lisp),
-;;; which handles Godot's calls into Lisp.
+;;; Godot and Lisp, and GD-EXTENSION-CALLBACK (gd-extension-callback.lisp and
+;;; the files after it in gdecl.asd), which handles Godot's calls into Lisp.
 ;;;
 ;;; This file has the helpers, the values looked up once (SNAME, NPATH,
 ;;; SINGLETON) and the temporary names. The rest of the package is in
