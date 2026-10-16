@@ -74,14 +74,19 @@ or NIL if the class has no singleton."
   (loop for class being the hash-values of (extension-api-classes (extension-api))
         collect (cons (json-get class "name") (json-get class "inherits"))))
 
+(defun json-class-method (class method-name)
+  "The method METHOD-NAME (a string) of CLASS, a class from extension_api.json,
+as a JSON object, or NIL if the class itself has none."
+  (find method-name (json-get class "methods")
+        :key (lambda (method) (json-get method "name"))
+        :test #'string=))
+
 (defun api-builtin-method-hash (class-name method-name)
   "The hash of the method METHOD-NAME of the builtin class CLASS-NAME (strings),
 such as \"PackedByteArray\" and \"size\"."
   (let* ((class (or (gethash class-name (extension-api-builtin-classes (extension-api)))
                     (error "No builtin class ~a in ~a" class-name *extension-api-file*)))
-         (method (or (find method-name (json-get class "methods")
-                           :key (lambda (method) (json-get method "name"))
-                           :test #'string=)
+         (method (or (json-class-method class method-name)
                      (error "No method ~a in the builtin class ~a" method-name class-name))))
     (json-get method "hash")))
 
@@ -134,9 +139,7 @@ second value is the name of the class that defines it."
   (loop for name = class-name then (json-get class "inherits")
         for class = (and name (api-class name))
         while class
-        do (let ((method (find method-name (json-get class "methods")
-                               :key (lambda (method) (json-get method "name"))
-                               :test #'string=)))
+        do (let ((method (json-class-method class method-name)))
              (when method
                (return (values method name))))
         finally (error "No method ~a in the engine class ~a or the classes it inherits from (~a)"
@@ -147,9 +150,7 @@ second value is the name of the class that defines it."
 list of (class-name . method), with the method as a JSON object, sorted by
 class name."
   (sort (loop for class being the hash-values of (extension-api-classes (extension-api))
-              for method = (find method-name (json-get class "methods")
-                                 :key (lambda (method) (json-get method "name"))
-                                 :test #'string=)
+              for method = (json-class-method class method-name)
               when (and method (json-get method "is_virtual"))
                 collect (cons (json-get class "name") method))
         #'string< :key #'car))
@@ -166,82 +167,3 @@ enum or bitfield, Object for an engine class, :VARIANT for Variant."
           ((eql 0 (search "typedarray::" type)) +variant-type-array+)
           ((api-class type) +variant-type-object+)
           (t (unsupported-api-type "Unsupported type in extension_api.json: ~a" type)))))
-
-(defun api-default-form (default variant-type)
-  "A list of one form for the default value DEFAULT of an argument of
-VARIANT-TYPE, a string in GDScript syntax from extension_api.json, or NIL if
-it's not supported (yet)."
-  (labels ((number-or-nil (string)
-             (let ((*read-default-float-format* 'double-float)
-                   (*read-eval* nil))
-               (let ((number (ignore-errors (read-from-string string))))
-                 (and (realp number) number))))
-           (string-literal (string start)
-             ;; "..." without escapes
-             (let ((end (1- (length string))))
-               (and (> end start)
-                    (char= (char string start) #\")
-                    (char= (char string end) #\")
-                    (not (find #\\ string))
-                    (subseq string (1+ start) end))))
-           (prefixp (prefix)
-             (eql 0 (search prefix default)))
-           (builtin-default (prefix constructor count)
-             ;; PREFIX is e.g. "Vector2(", and COUNT the number of components
-             (let ((components
-                     (and (prefixp prefix)
-                          (ignore-errors
-                           (let ((*read-default-float-format* 'single-float)
-                                 (*read-eval* nil))
-                             (read-from-string
-                              (substitute #\Space #\, (subseq default (1- (length prefix))))))))))
-               (and (listp components)
-                    (= (length components) count)
-                    (every #'realp components)
-                    (list `(,constructor ,@(mapcar (lambda (x) (float x 1.0)) components)))))))
-    (cond ((eql variant-type :variant) nil)
-          ((= variant-type +variant-type-bool+)
-           (cond ((string= default "true") (list t))
-                 ((string= default "false") (list nil))))
-          ((= variant-type +variant-type-int+)
-           (let ((number (number-or-nil default)))
-             (and (integerp number) (list number))))
-          ((= variant-type +variant-type-float+)
-           (let ((number (number-or-nil default)))
-             (and number (list (float number 1d0)))))
-          ((= variant-type +variant-type-object+)
-           (and (string= default "null") (list nil)))
-          ((= variant-type +variant-type-string+)
-           (let ((contents (string-literal default 0)))
-             (and contents (list contents))))
-          ((= variant-type +variant-type-string-name+)
-           (let ((contents (and (prefixp "&") (string-literal default 1))))
-             (and contents (list `(sname ,contents)))))
-          ((= variant-type +variant-type-node-path+)
-           (let ((contents (and (prefixp "NodePath(")
-                                (string= default ")" :start1 (1- (length default)))
-                                (string-literal (subseq default 0 (1- (length default))) 9))))
-             (and contents (list `(npath ,contents)))))
-          ;; Empty arrays: [], Array[Node]([]) and PackedByteArray(), which
-          ;; can be any empty sequence, as the writers take any sequence
-          ((and (or (= variant-type +variant-type-array+)
-                    (<= +variant-type-packed-byte-array+ variant-type
-                        +variant-type-packed-vector4-array+))
-                (or (string= default "[]")
-                    (and (prefixp "Array[") (string= default "([])" :start1 (- (length default) 4)))
-                    (and (prefixp "Packed") (string= default "()" :start1 (- (length default) 2)))))
-           (list #()))
-          ;; An empty Dictionary, made when the argument isn't given
-          ((and (= variant-type +variant-type-dictionary+) (string= default "{}"))
-           (list '(make-hash-table :test #'equal)))
-          (t
-           ;; A builtin type whose components are all floats, such as Vector2:
-           ;; Vector2(x, y) is (VECTOR2 X Y)
-           (let* ((value-type (find-value-type variant-type nil))
-                  (name (and value-type (value-type-lisp-type value-type)))
-                  (components (and name (builtin-type-components name))))
-             (when (and components
-                        (every (lambda (component) (eq (second component) :float))
-                               components))
-               (builtin-default (format nil "~a(" (car (rassoc variant-type *variant-type-names*)))
-                                name (length components))))))))

@@ -194,25 +194,19 @@ JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
                               (engine-method-variant-type type "the result")
                               +variant-type-nil+)))
            (arguments (engine-method-arguments function))
-           (rest (and vararg (intern "ARGUMENTS")))
-           (function-pointer (gensym "FUNCTION")))
-      `(progn
-         (defun ,name ,(engine-function-lambda-list nil arguments rest)
-           ,(format nil "Call the utility function ~a(~{~a~^, ~}) of @GlobalScope~@[ with ~a~]."
-                    function-name
-                    (documented-argument-names function rest)
-                    (and vararg "Variants"))
-           (let ((,function-pointer (initialize-cell-value
-                                     (look-up-utility-function ,function-name ,hash))))
-             (unless ,function-pointer
-               (error "The utility function ~a wasn't found" ,function-name))
-             ,(temporary-names-form
-               arguments
-               (if vararg
-                   (variant-call-method-form function-pointer nil arguments return-type name rest
-                                             :utility t)
-                   (ptrcall-method-form function-pointer nil arguments return-type :utility t)))))
-         ,@(literal-names-compiler-macro name arguments 0)))))
+           (rest (and vararg (intern "ARGUMENTS"))))
+      (engine-function-defun
+       name
+       (format nil "Call the utility function ~a(~{~a~^, ~}) of @GlobalScope~@[ with ~a~]."
+               function-name
+               (documented-argument-names function rest)
+               (and vararg "Variants"))
+       arguments return-type
+       :function (gensym "FUNCTION")
+       :look-up-form `(look-up-utility-function ,function-name ,hash)
+       :not-found-error `("The utility function ~a wasn't found" ,function-name)
+       :vararg vararg
+       :rest rest))))
 
 (defmacro define-utility-functions ()
   "Define a function for each of Godot's utility functions (the global functions

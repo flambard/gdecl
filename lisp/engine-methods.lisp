@@ -97,6 +97,18 @@ needs no destroying."
                           index
                           (code-char (+ (char-code #\a) (- index 10))))))
 
+  (defstruct (call-target (:constructor make-call-target (function &optional object)))
+    "What the code of the generators below calls: an engine method, or a utility
+function (see DEFINE-UTILITY-FUNCTIONS), which takes no object."
+    ;; A form for the method bind, or for the utility function's pointer
+    function
+    ;; A form for the object pointer, or NIL for a utility function
+    object)
+
+  (defun utility-target-p (target)
+    "True if TARGET, a CALL-TARGET, is a utility function."
+    (null (call-target-object target)))
+
   (defun float-layout (variant-type)
     "The accessors of the components of a builtin type whose components are all
 floats, such as Vector2, from BUILTIN-LAYOUT, if VARIANT-TYPE is one; else NIL."
@@ -106,36 +118,36 @@ floats, such as Vector2, from BUILTIN-LAYOUT, if VARIANT-TYPE is one; else NIL."
       (when (and layout (every (lambda (component) (eq (first component) :float)) layout))
         (mapcar #'second layout))))
 
-  (defun inline-call-code (declarations pointers count result-declaration result-pointer
-                           returns &key utility)
+  (defun inline-call-code (target declarations pointers count result-declaration
+                           result-pointer returns)
     "The C code of INLINE-PTRCALL-FORM: DECLARATIONS of the raw values, the
-argument array of POINTERS, RESULT-DECLARATION, the call, and RETURNS."
+argument array of POINTERS, RESULT-DECLARATION, the call of TARGET (a
+CALL-TARGET), and RETURNS."
     (format nil "{ ~{~a ~}const void *args[~d] = { ~{~a~^, ~} }; ~a~a~a }"
             (reverse declarations)
             (max 1 count)
             (if pointers (reverse pointers) '("0"))
             result-declaration
-            (if utility
+            (if (utility-target-p target)
                 (format nil "((void (*)(void *, const void **, int))#0)(~a, args, ~d);"
                         result-pointer count)
                 (format nil "((void (*)(void *, void *, const void **, void *))#0)(#1, #2, args, ~a);"
                         result-pointer))
             returns))
 
-  (defun inline-builtin-result-form (inputs declarations pointers arguments return-type
-                                     &key utility)
+  (defun inline-builtin-result-form (target inputs declarations pointers arguments
+                                     return-type)
     "The rest of INLINE-PTRCALL-FORM for a result of a builtin type made of
 floats: returned as multiple values, one per component, made into the Lisp
 value."
     (let* ((count (length (float-layout return-type)))
            (variables (loop repeat count collect (gensym "COMPONENT")))
-           (code (inline-call-code declarations pointers (length arguments)
+           (code (inline-call-code target declarations pointers (length arguments)
                                    (format nil "float r[~d] = { 0 }; " count)
                                    "r"
                                    (format nil " ~{~a~}"
                                            (loop for i below count
-                                                 collect (format nil "@(return ~d) = r[~d]; " i i)))
-                                   :utility utility)))
+                                                 collect (format nil "@(return ~d) = r[~d]; " i i))))))
       `(multiple-value-bind ,variables
            (ffi:c-inline ,(mapcar #'first (reverse inputs))
                          ,(mapcar #'second (reverse inputs))
@@ -144,14 +156,13 @@ value."
          ,(builtin-construct-form (value-type-lisp-type (find-value-type return-type))
                                   variables))))
 
-  (defun inline-ptrcall-form (method-bind object arguments return-type &key utility)
-    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
-ptrcall in one piece of C code (FFI:C-INLINE), with the raw values and the
-argument array in C variables, so nothing is allocated for them: for methods
-whose ARGUMENTS (ENGINE-ARGUMENTs) and RETURN-TYPE are all simple types (bool,
-int, float, Object, and StringName and NodePath arguments, which are pointers
-already). NIL for other methods. METHOD-BIND, OBJECT and UTILITY are as in
-PTRCALL-METHOD-FORM."
+  (defun inline-ptrcall-form (target arguments return-type)
+    "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
+CALL-TARGET) with ptrcall in one piece of C code (FFI:C-INLINE), with the raw
+values and the argument array in C variables, so nothing is allocated for them:
+for methods whose ARGUMENTS (ENGINE-ARGUMENTs) and RETURN-TYPE are all simple
+types (bool, int, float, Object, and StringName and NodePath arguments, which
+are pointers already). NIL for other methods."
     (let ((inputs '())                  ; (form ffi-type), in order
           (declarations '())            ; C declarations of the raw values
           (pointers '()))               ; the elements of the argument array
@@ -159,11 +170,11 @@ PTRCALL-METHOD-FORM."
                ;; The reference to a new input of the C code
                (push (list form ffi-type) inputs)
                (c-inline-argument-reference (1- (length inputs)))))
-        (if utility
-            (input method-bind :pointer-void)
+        (if (utility-target-p target)
+            (input (call-target-function target) :pointer-void)
             (progn (input '*object-method-bind-ptrcall* :pointer-void)
-                   (input method-bind :pointer-void)
-                   (input object :pointer-void)))
+                   (input (call-target-function target) :pointer-void)
+                   (input (call-target-object target) :pointer-void)))
         (loop for argument in arguments
               for i from 0
               for name = (argument-name argument)
@@ -198,8 +209,8 @@ PTRCALL-METHOD-FORM."
                          (t (return-from inline-ptrcall-form nil)))))
         (when (float-layout return-type)
           (return-from inline-ptrcall-form
-            (inline-builtin-result-form inputs declarations pointers arguments return-type
-                                        :utility utility)))
+            (inline-builtin-result-form target inputs declarations pointers arguments
+                                        return-type)))
         (destructuring-bind (&optional c-type ffi-type)
             (cond ((eql return-type +variant-type-nil+) '())
                   ((eql return-type +variant-type-bool+) '("uint8_t" :uint8-t))
@@ -211,9 +222,8 @@ PTRCALL-METHOD-FORM."
                  ;; Zero, as Godot assigns the result, e.g. to a Ref
                  (result (if c-type (format nil "~a r = 0; " c-type) ""))
                  (result-pointer (if c-type "&r" "0"))
-                 (code (inline-call-code declarations pointers count result result-pointer
-                                         (if c-type " @(return 0) = r;" "")
-                                         :utility utility))
+                 (code (inline-call-code target declarations pointers count result
+                                         result-pointer (if c-type " @(return 0) = r;" "")))
                  (form `(ffi:c-inline ,(mapcar #'first (reverse inputs))
                                       ,(mapcar #'second (reverse inputs))
                                       ,(or ffi-type :void)
@@ -222,17 +232,15 @@ PTRCALL-METHOD-FORM."
                   ((eql return-type +variant-type-object+) `(pointer-lisp-object ,form))
                   (t form)))))))
 
-  (defun ptrcall-method-form (method-bind object arguments return-type &key utility)
-    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND with
-ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. If UTILITY is true,
-METHOD-BIND is a utility function (see DEFINE-UTILITY-FUNCTIONS) instead, and
-OBJECT isn't used. Methods with only simple types are called in one piece of C
-code (see INLINE-PTRCALL-FORM)."
-    (or (inline-ptrcall-form method-bind object arguments return-type :utility utility)
-        (general-ptrcall-method-form method-bind object arguments return-type
-                                     :utility utility)))
+  (defun ptrcall-method-form (target arguments return-type)
+    "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
+CALL-TARGET) with ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. Methods
+with only simple types are called in one piece of C code (see
+INLINE-PTRCALL-FORM)."
+    (or (inline-ptrcall-form target arguments return-type)
+        (general-ptrcall-method-form target arguments return-type)))
 
-  (defun general-ptrcall-method-form (method-bind object arguments return-type &key utility)
+  (defun general-ptrcall-method-form (target arguments return-type)
     "The code of PTRCALL-METHOD-FORM for methods with types that INLINE-PTRCALL-FORM
 doesn't handle: the raw values and the argument array are in foreign memory."
     (let* ((has-return-value (not (eql return-type +variant-type-nil+)))
@@ -252,11 +260,13 @@ doesn't handle: the raw values and the argument array are in foreign memory."
                              collect (argument-write-form argument)
                            collect `(setf (foreign-ref ,args :pointer-void ,i)
                                           ,(argument-pointer-form argument)))
-                   ,(let ((r-ret (if has-return-value r-ret '(ffi:make-null-pointer :void))))
-                      (if utility
-                          `(call-ptr-utility-function ,method-bind ,r-ret ,args
+                   ,(let ((r-ret (if has-return-value r-ret '(ffi:make-null-pointer :void)))
+                          (function (call-target-function target)))
+                      (if (utility-target-p target)
+                          `(call-ptr-utility-function ,function ,r-ret ,args
                                                       ,(length arguments))
-                          `(object-method-bind-ptrcall ,method-bind ,object ,args ,r-ret)))
+                          `(object-method-bind-ptrcall ,function ,(call-target-object target)
+                                                       ,args ,r-ret)))
                    ,@(when has-return-value
                        (list (engine-value-read-form return-type r-ret))))))
       `(with-foreign-memory ((,args '(:array :pointer-void ,(max 1 (length arguments))))
@@ -276,16 +286,18 @@ doesn't handle: the raw values and the argument array are in foreign memory."
               `(unwind-protect (progn ,@body) ,@destroy-forms)
               `(progn ,@body)))))
 
-  (defun variant-call-method-form (method-bind object arguments return-type name rest
-                                   &key utility)
-    "The code of a DEFINE-ENGINE-METHOD function that calls METHOD-BIND, a
-vararg method, with object_method_bind_call, with ARGUMENTS (a list of
-ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the variable
-with the list of further arguments, converted to Variants by their Lisp types
-(see WRITE-VARIANT). If UTILITY is true, METHOD-BIND is a vararg utility
-function (see DEFINE-UTILITY-FUNCTIONS) instead, which takes Variants and
-returns a raw value of its return type, and OBJECT isn't used."
-    (let ((has-return-value (not (eql return-type +variant-type-nil+)))
+  (defun variant-call-method-form (target arguments return-type &key rest name)
+    "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
+CALL-TARGET), a vararg method, with object_method_bind_call, with ARGUMENTS (a
+list of ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the
+variable with the list of further arguments, converted to Variants by their
+Lisp types (see WRITE-VARIANT). A vararg utility function takes Variants too,
+but returns a raw value of its return type. NAME, the function's name, is for
+the error when the call fails."
+    (let ((utility (utility-target-p target))
+          (method-bind (call-target-function target))
+          (object (call-target-object target))
+          (has-return-value (not (eql return-type +variant-type-nil+)))
           (declared-count (length arguments))
           (count (gensym "COUNT"))
           (args (gensym "ARGS"))
@@ -430,6 +442,85 @@ name of an argument or \"the result\", if engine methods support it."
         (unsupported-api-type "Unsupported type ~a of ~a" type what))
       variant-type))
 
+  (defun api-default-form (default variant-type)
+    "A list of one form for the default value DEFAULT of an argument of
+VARIANT-TYPE, a string in GDScript syntax from extension_api.json, or NIL if
+it's not supported (yet)."
+    (labels ((number-or-nil (string)
+               (let ((*read-default-float-format* 'double-float)
+                     (*read-eval* nil))
+                 (let ((number (ignore-errors (read-from-string string))))
+                   (and (realp number) number))))
+             (string-literal (string start)
+               ;; "..." without escapes
+               (let ((end (1- (length string))))
+                 (and (> end start)
+                      (char= (char string start) #\")
+                      (char= (char string end) #\")
+                      (not (find #\\ string))
+                      (subseq string (1+ start) end))))
+             (prefixp (prefix)
+               (eql 0 (search prefix default)))
+             (builtin-default (prefix constructor count)
+               ;; PREFIX is e.g. "Vector2(", and COUNT the number of components
+               (let ((components
+                       (and (prefixp prefix)
+                            (ignore-errors
+                             (let ((*read-default-float-format* 'single-float)
+                                   (*read-eval* nil))
+                               (read-from-string
+                                (substitute #\Space #\, (subseq default (1- (length prefix))))))))))
+                 (and (listp components)
+                      (= (length components) count)
+                      (every #'realp components)
+                      (list `(,constructor ,@(mapcar (lambda (x) (float x 1.0)) components)))))))
+      (cond ((eql variant-type :variant) nil)
+            ((= variant-type +variant-type-bool+)
+             (cond ((string= default "true") (list t))
+                   ((string= default "false") (list nil))))
+            ((= variant-type +variant-type-int+)
+             (let ((number (number-or-nil default)))
+               (and (integerp number) (list number))))
+            ((= variant-type +variant-type-float+)
+             (let ((number (number-or-nil default)))
+               (and number (list (float number 1d0)))))
+            ((= variant-type +variant-type-object+)
+             (and (string= default "null") (list nil)))
+            ((= variant-type +variant-type-string+)
+             (let ((contents (string-literal default 0)))
+               (and contents (list contents))))
+            ((= variant-type +variant-type-string-name+)
+             (let ((contents (and (prefixp "&") (string-literal default 1))))
+               (and contents (list `(sname ,contents)))))
+            ((= variant-type +variant-type-node-path+)
+             (let ((contents (and (prefixp "NodePath(")
+                                  (string= default ")" :start1 (1- (length default)))
+                                  (string-literal (subseq default 0 (1- (length default))) 9))))
+               (and contents (list `(npath ,contents)))))
+            ;; Empty arrays: [], Array[Node]([]) and PackedByteArray(), which
+            ;; can be any empty sequence, as the writers take any sequence
+            ((and (or (= variant-type +variant-type-array+)
+                      (<= +variant-type-packed-byte-array+ variant-type
+                          +variant-type-packed-vector4-array+))
+                  (or (string= default "[]")
+                      (and (prefixp "Array[") (string= default "([])" :start1 (- (length default) 4)))
+                      (and (prefixp "Packed") (string= default "()" :start1 (- (length default) 2)))))
+             (list #()))
+            ;; An empty Dictionary, made when the argument isn't given
+            ((and (= variant-type +variant-type-dictionary+) (string= default "{}"))
+             (list '(make-hash-table :test #'equal)))
+            (t
+             ;; A builtin type whose components are all floats, such as Vector2:
+             ;; Vector2(x, y) is (VECTOR2 X Y)
+             (let* ((value-type (find-value-type variant-type nil))
+                    (name (and value-type (value-type-lisp-type value-type)))
+                    (components (and name (builtin-type-components name))))
+               (when (and components
+                          (every (lambda (component) (eq (second component) :float))
+                                 components))
+                 (builtin-default (format nil "~a(" (car (rassoc variant-type *variant-type-names*)))
+                                  name (length components))))))))
+
   (defun engine-method-arguments (method)
     "The arguments of METHOD (a method from extension_api.json), as a list of
 ENGINE-ARGUMENTs. Only the last arguments with supported default values become
@@ -491,6 +582,38 @@ a call: 1 after an object argument, otherwise 0."
             (or (wrap-literal-names ',name arguments ',positions)
                 form))))))
 
+  (defun engine-function-defun (name documentation arguments return-type
+                                &key function look-up-form not-found-error
+                                     object object-form takes-object vararg rest
+                                     ref-counted-result)
+    "The DEFUN of NAME, the function of an engine method or a utility function,
+and its compiler macro (see LITERAL-NAMES-COMPILER-MACRO), shared by
+DEFINE-ENGINE-METHOD and DEFINE-UTILITY-FUNCTIONS. FUNCTION is the variable for
+the method bind or the utility function's pointer, looked up once with
+LOOK-UP-FORM; NOT-FOUND-ERROR, the arguments of ERROR when it's NULL. OBJECT
+is the variable for the object pointer, bound to OBJECT-FORM, or NIL for a
+utility function; TAKES-OBJECT, true if the function takes the object as its
+first argument. A VARARG function takes REST, a variable or NIL, and is called
+with Variants. A REF-COUNTED-RESULT goes into the autorelease pool."
+    `(progn
+       (defun ,name ,(engine-function-lambda-list (and takes-object object) arguments rest)
+         ,documentation
+         (let (,@(when object `((,object ,object-form)))
+               (,function (initialize-cell-value ,look-up-form)))
+           (unless ,function
+             (error ,@not-found-error))
+           ,(let* ((target (make-call-target function object))
+                   (call (temporary-names-form
+                          arguments
+                          (if vararg
+                              (variant-call-method-form target arguments return-type
+                                                        :rest rest :name name)
+                              (ptrcall-method-form target arguments return-type)))))
+              (if ref-counted-result
+                  `(autorelease-reference ,call)
+                  call))))
+       ,@(literal-names-compiler-macro name arguments (if takes-object 1 0))))
+
   (defun engine-method-defun (name class-name method-name extra-arguments)
     "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
 signature from extension_api.json."
@@ -532,31 +655,26 @@ signature from extension_api.json."
                (object (gensym "OBJECT"))
                (takes-object (not (or static singleton)))
                (method-bind (gensym "METHOD-BIND")))
-          `(progn
-            (defun ,name ,(engine-function-lambda-list (and takes-object object) arguments rest)
-              ,(format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
-                            ~@[ on the singleton ~a~]."
-                       static defining-class method-name
-                       (documented-argument-names method rest)
-                       (and vararg "Variants")
-                       singleton)
-              (let ((,object ,(cond (static '(ffi:make-null-pointer :void))
-                                    (singleton `(object-pointer (singleton ,singleton)))
-                                    (t `(object-pointer ,object))))
-                    (,method-bind (initialize-cell-value
-                                   (look-up-method-bind ,defining-class ,method-name ,hash))))
-                (unless ,method-bind
-                  (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
-                ,(let ((call (temporary-names-form
-                              arguments
-                              (if vararg
-                                  (variant-call-method-form method-bind object arguments
-                                                            return-type name rest)
-                                  (ptrcall-method-form method-bind object arguments return-type)))))
-                   (if ref-counted-result
-                       `(autorelease-reference ,call)
-                       call))))
-            ,@(literal-names-compiler-macro name arguments (if takes-object 1 0))))))))
+          (engine-function-defun
+           name
+           (format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
+                        ~@[ on the singleton ~a~]."
+                   static defining-class method-name
+                   (documented-argument-names method rest)
+                   (and vararg "Variants")
+                   singleton)
+           arguments return-type
+           :function method-bind
+           :look-up-form `(look-up-method-bind ,defining-class ,method-name ,hash)
+           :not-found-error `("The method ~a.~a wasn't found" ,defining-class ,method-name)
+           :object object
+           :object-form (cond (static '(ffi:make-null-pointer :void))
+                              (singleton `(object-pointer (singleton ,singleton)))
+                              (t `(object-pointer ,object)))
+           :takes-object takes-object
+           :vararg vararg
+           :rest rest
+           :ref-counted-result ref-counted-result))))))
 
 (defun look-up-method-bind (class-name method-name hash)
   "The method bind of CLASS-NAME.METHOD-NAME with HASH, for an initialize cell.
