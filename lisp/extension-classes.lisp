@@ -68,11 +68,6 @@ StringName that must stay valid."
                    (error "No extension class named ~s" class-name))))
     (push (cons string-name method-userdata) (extension-class-virtuals class))))
 
-(defun string-name-equal (a b)
-  (with-foreign-memory ((result :uint8-t))
-    (call-ptr-operator-evaluator *string-name-equal-evaluator* a b result)
-    (/= (foreign-ref result :uint8-t) 0)))
-
 (defun virtual-call-data (class-userdata name)
   "The method_userdata of the virtual method of the class identified by
 CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it."

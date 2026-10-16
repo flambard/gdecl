@@ -10,9 +10,11 @@
                  (:file "gd-extension-ffi" :depends-on ("packages" "json"))
                  (:file "builtin-types" :depends-on ("packages"))
                  (:file "gd-extension-types" :depends-on ("gd-extension-ffi" "builtin-types"))
+                 (:file "strings" :depends-on ("gd-extension-types"))
+                 (:file "autorelease-pool" :depends-on ("gd-extension-types"))
                  ;; The package GD-EXTENSION-CALLBACK. instance-bindings adds the
                  ;; first deinitialize hook, so it runs last.
-                 (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "gd-extension-types"))
+                 (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "strings" "autorelease-pool"))
                  (:file "initialize" :depends-on ("gd-extension-callback"))
                  (:file "instance-bindings" :depends-on ("initialize"))
                  (:file "extension-classes" :depends-on ("instance-bindings"))

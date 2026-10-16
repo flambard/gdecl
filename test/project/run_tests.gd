@@ -77,6 +77,10 @@ func test_methods() -> void:
 	check(node.looking_at(Vector3(1, -2, 3)).is_equal_approx(Basis.looking_at(Vector3(1, -2, 3))),
 			"basis-looking-at as Basis.looking_at()")
 	check(node.echo("åäö") == "åäö", "a String argument and result")
+	check(node.echo_name(&"nämn") == &"nämn", "a StringName argument and result")
+	check(node.call("echo_name", &"nämn") == &"nämn", "a StringName result of a Variant call")
+	check(node.echo_path(^"a/bå") == ^"a/bå", "a NodePath argument and result")
+	check(node.call("echo_path", ^"a/bå") == ^"a/bå", "a NodePath result of a Variant call")
 	check(node.is_null(null), "null for an Object argument")
 	check(not node.is_null(node), "an Object argument")
 	check(node.get_self() == node, "a Lisp object as an Object result")

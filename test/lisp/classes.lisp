@@ -50,6 +50,10 @@
   (:method "basis_column" test-node-basis-column
            :arguments (("basis" :basis) ("index" :int)) :return-type :vector3)
   (:method "echo" test-node-echo :arguments (("text" :string)) :return-type :string)
+  (:method "echo_name" test-node-echo :arguments (("name" :string-name))
+           :return-type :string-name)
+  (:method "echo_path" test-node-echo :arguments (("path" :node-path))
+           :return-type :node-path)
   (:method "is_null" test-node-is-null :arguments (("object" :object)) :return-type :bool)
   (:method "get_self" identity :return-type :object)
   (:method "get_child_slot" test-node-child :return-type :object)

@@ -12,7 +12,6 @@
            ;; Interface functions
            #:get-godot-version
            #:variant-get-ptr-destructor
-           #:string-name-new-with-latin1-chars
            #:string-name-new-with-utf8-chars
            #:string-name-destructor
            #:classdb-construct-object
@@ -90,6 +89,7 @@
            #:*string-name-equal-evaluator*
            #:*string-from-string-name-constructor*
            #:*string-from-node-path-constructor*
+           #:*node-path-from-string-constructor*
            #:*type-from-variant-constructors*
            ;; Enums
            #:+variant-op-equal+
@@ -358,10 +358,18 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:builtin-construct-form
            #:read-object
            #:write-object
+           ;; Strings, StringNames and NodePaths
            #:read-godot-string
-           #:read-string-name
-           #:read-node-path
            #:write-godot-string
+           #:with-string
+           #:read-string-name
+           #:write-string-name
+           #:with-string-name
+           #:string-name-equal
+           #:read-node-path
+           #:write-node-path
+           #:make-temporary-name
+           #:destroy-temporary-name
            #:write-variant
            #:variant-value-p
            #:lisp-variant-type
@@ -373,7 +381,6 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:autorelease-reference
            #:release-autoreleased
            #:reference-for-caller
-           #:with-autorelease-pool
            #:release-autorelease-pool
            #:*autorelease-pool*
            #:callable

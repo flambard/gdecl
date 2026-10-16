@@ -13,7 +13,7 @@
 ;;; inside Godot.
 ;;;
 ;;; Each interface function is kept in a variable named after the C function
-;;; (*string-name-new-with-latin1-chars* for string_name_new_with_latin1_chars)
+;;; (*string-name-new-with-utf8-chars* for string_name_new_with_utf8_chars)
 ;;; and called through a Lisp function of the same name without earmuffs.
 ;;;
 
@@ -265,28 +265,28 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
 (define-interface-function variant-get-ptr-destructor "variant_get_ptr_destructor" :pointer-void
   ((variant-type :int)))
 
-;; void string_name_new_with_latin1_chars(GDExtensionUninitializedStringNamePtr r_dest,
-;;                                        const char *p_contents,
-;;                                        GDExtensionBool p_is_static)
-(define-interface-variable *string-name-new-with-latin1-chars* "string_name_new_with_latin1_chars")
-
-(defun string-name-new-with-latin1-chars (dest contents &optional is-static)
-  (ffi:with-cstring (c-contents contents)
-    (call-foreign-pointer *string-name-new-with-latin1-chars* :void
-                          (:pointer-void :cstring :uint8-t)
-                          dest c-contents (if is-static 1 0))))
+;; FFI:WITH-CSTRING only handles base characters, so strings for Godot are
+;; encoded explicitly
+(defmacro with-utf8-chars (bindings &body body)
+  "Evaluate BODY with each variable of BINDINGS, (variable string), bound to a
+pointer to the null-terminated UTF-8 encoding of the Lisp STRING, valid while
+BODY runs."
+  ;; The pointer points to the start of the octets' storage, which keeps them
+  ;; from being collected while it's in use
+  `(let (,@(loop for (variable string) in bindings
+                 collect `(,variable (si:make-foreign-data-from-array
+                                      (ext:string-to-octets ,string :external-format :utf-8
+                                                                    :null-terminate t)))))
+     ,@body))
 
 ;; void string_name_new_with_utf8_chars(GDExtensionUninitializedStringNamePtr r_dest,
 ;;                                      const char *p_contents)
 (define-interface-variable *string-name-new-with-utf8-chars* "string_name_new_with_utf8_chars")
 
 (defun string-name-new-with-utf8-chars (dest contents)
-  ;; FFI:WITH-CSTRING only handles base characters, so encode explicitly
-  (let ((octets (ext:string-to-octets contents :external-format :utf-8
-                                               :null-terminate t)))
+  (with-utf8-chars ((chars contents))
     (call-foreign-pointer *string-name-new-with-utf8-chars* :void
-                          (:pointer-void :pointer-void)
-                          dest (si:make-foreign-data-from-array octets))))
+                          (:pointer-void :pointer-void) dest chars)))
 
 ;; GDExtensionObjectPtr classdb_construct_object(GDExtensionConstStringNamePtr p_classname)
 (define-interface-function classdb-construct-object "classdb_construct_object" :pointer-void
@@ -479,24 +479,21 @@ list of (argument ffi-type), and returns its result, of RETURN-TYPE."
 (define-interface-variable *string-new-with-utf8-chars* "string_new_with_utf8_chars")
 
 (defun string-new-with-utf8-chars (dest contents)
-  ;; FFI:WITH-CSTRING only handles base characters, so encode explicitly
-  (let ((octets (ext:string-to-octets contents :external-format :utf-8
-                                               :null-terminate t)))
-    (call-foreign-pointer *string-new-with-utf8-chars* :void (:pointer-void :pointer-void)
-                          dest (si:make-foreign-data-from-array octets))))
+  (with-utf8-chars ((chars contents))
+    (call-foreign-pointer *string-new-with-utf8-chars* :void
+                          (:pointer-void :pointer-void) dest chars)))
 
 ;; void print_error(const char *p_description, const char *p_function,
 ;;                  const char *p_file, int32_t p_line, GDExtensionBool p_editor_notify)
 (define-interface-variable *print-error* "print_error")
 
 (defun print-error (description function file line &optional editor-notify)
-  (flet ((utf8 (string)
-           ;; FFI:WITH-CSTRING only handles base characters, so encode explicitly
-           (si:make-foreign-data-from-array
-            (ext:string-to-octets string :external-format :utf-8 :null-terminate t))))
+  (with-utf8-chars ((description-chars description)
+                    (function-chars function)
+                    (file-chars file))
     (call-foreign-pointer *print-error* :void
                           (:pointer-void :pointer-void :pointer-void :int32-t :uint8-t)
-                          (utf8 description) (utf8 function) (utf8 file) line
+                          description-chars function-chars file-chars line
                           (if editor-notify 1 0))))
 
 ;; void callable_custom_create2(GDExtensionUninitializedTypePtr r_callable,
@@ -651,10 +648,11 @@ destructor that LOAD-INTERFACE looks up into the variable *NAME*."
 ;; variant_get_ptr_operator_evaluator
 (defvar *string-name-equal-evaluator* nil)
 
-;; The constructors of a String from a StringName and from a NodePath, fetched
-;; with variant_get_ptr_constructor
+;; The constructors of a String from a StringName and from a NodePath, and of a
+;; NodePath from a String, fetched with variant_get_ptr_constructor
 (defvar *string-from-string-name-constructor* nil)
 (defvar *string-from-node-path-constructor* nil)
+(defvar *node-path-from-string-constructor* nil)
 
 ;;;
 ;;; Loading the interface
@@ -675,7 +673,8 @@ other values looked up once."
                                             +variant-type-string-name+))
   ;; Constructors 2 and 3 of String take a StringName and a NodePath
   (setf *string-from-string-name-constructor* (variant-get-ptr-constructor +variant-type-string+ 2)
-        *string-from-node-path-constructor* (variant-get-ptr-constructor +variant-type-string+ 3))
+        *string-from-node-path-constructor* (variant-get-ptr-constructor +variant-type-string+ 3)
+        *node-path-from-string-constructor* (variant-get-ptr-constructor +variant-type-node-path+ 2))
   (setf *variant-from-type-constructors* (make-array +variant-type-variant-max+ :initial-element nil)
         *type-from-variant-constructors* (make-array +variant-type-variant-max+ :initial-element nil))
   ;; There are no constructors for NIL

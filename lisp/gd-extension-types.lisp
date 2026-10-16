@@ -135,13 +135,15 @@ types whose conversion needs a higher layer, such as Callable, and builtin types
         (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
                          :reader 'read-godot-string :writer 'write-godot-string
                          :destructor 'string-destructor)
-        ;; As arguments, they're passed as the pointer to them (see
-        ;; GD-EXTENSION::MAKE-ENGINE-ARGUMENT); as results, read as Lisp strings
+        ;; Read as Lisp strings, and written from them (strings.lisp). An
+        ;; engine method's argument is passed as the pointer to one instead,
+        ;; e.g. from SNAME, or a temporary one made from a Lisp string (see
+        ;; GD-EXTENSION::MAKE-ENGINE-ARGUMENT)
         (make-value-type :variant-type +variant-type-string-name+ :ffi-type 'string-name
-                         :reader 'read-string-name
+                         :reader 'read-string-name :writer 'write-string-name
                          :destructor 'string-name-destructor)
         (make-value-type :variant-type +variant-type-node-path+ :ffi-type 'node-path
-                         :reader 'read-node-path
+                         :reader 'read-node-path :writer 'write-node-path
                          :destructor 'node-path-destructor)
         ;; The reader is for results, see READ-VARIANT-RESULT
         (make-value-type :variant-type :variant :ffi-type 'variant
@@ -403,36 +405,6 @@ the 9 floats of the Basis."
                  (foreign-ref pointer :float (+ 3 j)) (vector3-y column)
                  (foreign-ref pointer :float (+ 6 j)) (vector3-z column))))
 
-(defun read-godot-string (pointer)
-  "The Godot String at POINTER as a Lisp string."
-  (let* ((length (string-to-utf8-chars pointer (ffi:make-null-pointer :void) 0))
-         (octets (make-array length :element-type '(unsigned-byte 8))))
-    (string-to-utf8-chars pointer (si:make-foreign-data-from-array octets) length)
-    (ext:octets-to-string octets :external-format :utf-8)))
-
-(defun read-string-from (constructor pointer)
-  "The Godot String that CONSTRUCTOR, a String constructor, makes from the value
-at POINTER, as a Lisp string."
-  (with-foreign-memory ((string 'godot-string)
-                        (args '(:array :pointer-void 1)))
-    (setf (foreign-ref args :pointer-void 0) pointer)
-    (call-ptr-constructor constructor string args)
-    (unwind-protect (read-godot-string string)
-      (string-destructor string))))
-
-(defun read-string-name (pointer)
-  "The StringName at POINTER as a Lisp string."
-  (read-string-from *string-from-string-name-constructor* pointer))
-
-(defun read-node-path (pointer)
-  "The NodePath at POINTER as a Lisp string."
-  (read-string-from *string-from-node-path-constructor* pointer))
-
-(defun write-godot-string (pointer string)
-  "Construct a Godot String at POINTER, uninitialized memory, from the Lisp
-STRING. Destroy it with STRING-DESTRUCTOR."
-  (string-new-with-utf8-chars pointer string))
-
 (defstruct (callable (:constructor callable (target function)))
   "A Callable that calls the Lisp FUNCTION with the arguments as Lisp values,
 bound to the Godot object TARGET (a pointer): Godot only calls it while TARGET
@@ -571,108 +543,3 @@ Nil, otherwise as in *VALUE-TYPES*."
                  (read-variant-as variant value-type))
                 (t
                  (error "Unsupported type for a Variant: variant type ~s" variant-type)))))))
-
-;;;
-;;; The autorelease pool
-;;;
-;;; A RefCounted object that Lisp gets as the result of a call into Godot comes
-;;; with a reference (like a Ref<T>). During a call from Godot into Lisp, those
-;;; references go into the autorelease pool of that call, and are given back
-;;; when it returns (see GD-EXTENSION-CALLBACK, which makes a pool for each
-;;; callback), so Lisp code doesn't have to. To keep such an object, take a
-;;; reference of its own (GD-EXTENSION:SETF-REFERENCE). Outside a call from
-;;; Godot, e.g. at a REPL, there's no pool, and the caller owns the references.
-;;;
-
-(defvar *autorelease-pool* :none
-  "The references to give back when the call from Godot that's running returns:
-a list of (kind handle address), where KIND is :REFERENCE (HANDLE is a
-RefCounted object with a reference) or :VARIANT (HANDLE is a Variant, in memory
-from MEM-ALLOC, that keeps the reference of an Object result), and ADDRESS is
-the object's address. :NONE when there's no pool.")
-
-(defvar *release-reference-function* nil
-  "The function that gives back a reference to a RefCounted object,
-GD-EXTENSION:RELEASE-REFERENCE, which needs an engine method, so it's set when
-GD-EXTENSION is loaded.")
-
-(defun autorelease-pool-p ()
-  "True if there's an autorelease pool, during a call from Godot."
-  (listp *autorelease-pool*))
-
-(defun autorelease-reference (object)
-  "Put the reference to the RefCounted OBJECT (a pointer or a GODOT-OBJECT, or
-NIL) that the caller got from a call into Godot in the autorelease pool, if
-there's one. Returns OBJECT."
-  (when (and object (autorelease-pool-p))
-    (push (list :reference object (ffi:pointer-address (object-pointer object)))
-          *autorelease-pool*))
-  object)
-
-(defun release-autorelease-entry (entry)
-  (destructuring-bind (kind handle address) entry
-    (declare (ignore address))
-    (ecase kind
-      (:reference (funcall *release-reference-function* handle))
-      (:variant (variant-destroy handle)
-                (mem-free handle)))))
-
-(defun release-autorelease-pool ()
-  "Give back the references in the autorelease pool, the last first, and empty
-it."
-  (loop while (consp *autorelease-pool*)
-        do (release-autorelease-entry (pop *autorelease-pool*))))
-
-(defun release-autoreleased (object)
-  "Give back the reference to OBJECT in the autorelease pool now, and take it out
-of the pool. Returns true if OBJECT was in it."
-  (when (and object (autorelease-pool-p))
-    (let* ((address (ffi:pointer-address (object-pointer object)))
-           (entry (find address *autorelease-pool* :key #'third)))
-      (when entry
-        (setf *autorelease-pool* (delete entry *autorelease-pool* :count 1))
-        (release-autorelease-entry entry)
-        t))))
-
-(defmacro with-autorelease-pool (&body body)
-  "Evaluate BODY with an autorelease pool of its own, and give back the
-references in it when BODY exits, also on a non-local exit."
-  `(let ((*autorelease-pool* '()))
-     (unwind-protect (progn ,@body)
-       (release-autorelease-pool))))
-
-(defun reference-for-caller (object)
-  "Take a reference to OBJECT (a pointer or a GODOT-OBJECT, or NIL) if it's
-RefCounted, for Godot, which calls a method with ptrcall and gets OBJECT as its
-result: Godot puts the object pointer right into a Variant or a Ref<T> without
-taking a reference, and gives one back later, as for the results of engine
-methods. A Variant made from OBJECT and never destroyed keeps the reference, so
-there's no need to ask Godot whether OBJECT is RefCounted."
-  (when object
-    (with-foreign-memory ((variant 'variant)
-                          (raw :pointer-void))
-      (setf (foreign-ref raw :pointer-void) (object-pointer object))
-      (call-variant-from-type-constructor
-       (aref *variant-from-type-constructors* +variant-type-object+) variant raw))))
-
-(defun read-variant-result (variant)
-  "The value of the Variant at VARIANT, the result of a call, as a Lisp value, as
-in READ-VARIANT. If it's an Object, the caller gets the reference the Variant
-has to it, if it's a RefCounted: like the RefCounted result of an engine method
-(a Ref<T>), it goes into the autorelease pool, or without one, the caller gives
-it back with GD-EXTENSION:RELEASE-REFERENCE. The caller destroys the Variant as
-usual."
-  (let ((value (read-variant variant)))
-    ;; A copy of the Variant keeps the reference, without asking Godot whether
-    ;; the object is RefCounted: a Variant with any other object has no
-    ;; reference to give back
-    (when (and value (= (variant-get-type variant) +variant-type-object+))
-      (if (autorelease-pool-p)
-          (let ((copy (mem-alloc +variant-size+)))
-            (variant-new-copy copy variant)
-            (push (list :variant copy (ffi:pointer-address (object-pointer value)))
-                  *autorelease-pool*))
-          ;; Never destroyed
-          (with-foreign-memory ((copy 'variant))
-            (variant-new-copy copy variant))))
-    value))

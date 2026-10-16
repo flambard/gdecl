@@ -199,7 +199,7 @@ after unwinding BODY. Like HANDLER-CASE, but cheaper."
 
 (defmacro with-callback-protection ((where &optional error-value) &body body)
   "Evaluate BODY, the work of a callback, with an autorelease pool of its own
-(see GD-EXTENSION-TYPES:WITH-AUTORELEASE-POOL), and return its value. If BODY
+(see GD-EXTENSION-TYPES:*AUTORELEASE-POOL*), and return its value. If BODY
 signals an error, it's reported with REPORT-ERROR as happening in WHERE (a form
 evaluated only then), and ERROR-VALUE is returned, as a Lisp error must never
 unwind through Godot's C frames. The references in the pool are given back
@@ -211,7 +211,10 @@ so this needs no UNWIND-PROTECT."
     `(let ((*autorelease-pool* '())
            (,result nil))
        (let ((,condition (catching-errors (setf ,result (progn ,@body)))))
-         ;; Give back the references, also if giving back one of them fails
+         ;; Give back the references, going on after one that fails. Measured
+         ;; with `make bench`: this form costs nothing on the per-frame path,
+         ;; unlike a closure for reporting (which makes ECL box the variables
+         ;; WHERE refers to) or a list of conditions.
          (loop while (consp *autorelease-pool*)
                do (let ((,release-condition (catching-errors (release-autorelease-pool))))
                     (when ,release-condition

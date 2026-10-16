@@ -8,8 +8,8 @@
 ;;; Godot and Lisp, and GD-EXTENSION-CALLBACK (gd-extension-callback.lisp and
 ;;; the files after it in gdecl.asd), which handles Godot's calls into Lisp.
 ;;;
-;;; This file has the helpers, the values looked up once (SNAME, NPATH,
-;;; SINGLETON) and the temporary names. The rest of the package is in
+;;; This file has the helpers and the values looked up once (SNAME, NPATH,
+;;; SINGLETON). The rest of the package is in
 ;;; extension-api.lisp (reading extension_api.json), engine-methods.lisp
 ;;; (calling engine methods), engine-objects.lisp (the structs of engine
 ;;; objects), engine-api.lisp (DEFINE-ENGINE-CLASS, the global enums and the
@@ -40,15 +40,6 @@ as +VARIANT-TYPE-FLOAT+), or a keyword named like one, such as :FLOAT, :VECTOR2,
              (symbol-value symbol)
              (error "No variant type ~s" designator)))))))
 
-(defmacro with-string-name ((var contents) &body body)
-  "Evaluate BODY with VAR bound to a pointer to a StringName created from the
-string CONTENTS. The StringName is destroyed when BODY exits, also on a
-non-local exit."
-  `(with-foreign-memory ((,var 'string-name))
-     (string-name-new-with-utf8-chars ,var ,contents)
-     (unwind-protect (progn ,@body)
-       (string-name-destructor ,var))))
-
 (defun get-method-bind (class-name method-name hash)
   "The GDExtensionMethodBindPtr of the method METHOD-NAME of the class
 CLASS-NAME (both strings). HASH is the hash of the method's signature, from
@@ -56,15 +47,6 @@ extension_api.json; the result is NULL if it doesn't match."
   (with-string-name (class-string-name class-name)
     (with-string-name (method-string-name method-name)
       (classdb-get-method-bind class-string-name method-string-name hash))))
-
-(defmacro with-string ((var contents) &body body)
-  "Evaluate BODY with VAR bound to a pointer to a Godot String created from the
-Lisp string CONTENTS. The String is destroyed when BODY exits, also on a
-non-local exit."
-  `(with-foreign-memory ((,var 'godot-string))
-     (string-new-with-utf8-chars ,var ,contents)
-     (unwind-protect (progn ,@body)
-       (string-destructor ,var))))
 
 ;;;
 ;;; Values looked up once
@@ -93,7 +75,7 @@ extension, or when the code is loaded if it already has (e.g. at a REPL)."
   "A StringName created from the string CONTENTS, in memory from MEM-ALLOC. Kept
 until Godot unloads the extension."
   (let ((string-name (mem-alloc +string-name-size+)))
-    (string-name-new-with-utf8-chars string-name contents)
+    (write-string-name string-name contents)
     (push string-name *permanent-string-names*)
     string-name))
 
@@ -103,43 +85,13 @@ created once, like SNAME() in Godot's C++ code, and kept until Godot unloads the
 extension."
   `(initialize-cell-value (new-string-name ,string)))
 
-(defun construct-node-path (pointer path)
-  "Construct a NodePath at POINTER, uninitialized memory, from the string PATH.
-Destroy it with NODE-PATH-DESTRUCTOR."
-  (with-string (string path)
-    (with-foreign-memory ((args '(:array :pointer-void 1)))
-      (setf (foreign-ref args :pointer-void 0) string)
-      ;; Constructor 2 of NodePath takes a String
-      (call-ptr-constructor (initialize-cell-value
-                             (variant-get-ptr-constructor +variant-type-node-path+ 2))
-                            pointer args))))
-
 (defun new-node-path (path)
   "A NodePath created from the string PATH, in memory from MEM-ALLOC. Kept until
 Godot unloads the extension."
   (let ((node-path (mem-alloc +node-path-size+)))
-    (construct-node-path node-path path)
+    (write-node-path node-path path)
     (push node-path *permanent-node-paths*)
     node-path))
-
-(defun make-temporary-name (variant-type string)
-  "A StringName or NodePath (by VARIANT-TYPE) created from the Lisp STRING, in
-memory from MEM-ALLOC, for a call of an engine method with a string that's only
-known at runtime. Destroy it with DESTROY-TEMPORARY-NAME."
-  (if (= variant-type +variant-type-string-name+)
-      (let ((string-name (mem-alloc +string-name-size+)))
-        (string-name-new-with-utf8-chars string-name string)
-        string-name)
-      (let ((node-path (mem-alloc +node-path-size+)))
-        (construct-node-path node-path string)
-        node-path)))
-
-(defun destroy-temporary-name (variant-type name)
-  "Destroy NAME, made by MAKE-TEMPORARY-NAME, and free its memory."
-  (if (= variant-type +variant-type-string-name+)
-      (string-name-destructor name)
-      (node-path-destructor name))
-  (mem-free name))
 
 (defun destroy-permanent-values ()
   "Destroy the StringNames and NodePaths made by NEW-STRING-NAME and
