@@ -112,17 +112,14 @@ The same Godot object always has the same Lisp object."
 
 (defun free-bindings ()
   "Free the bindings of the objects that still exist, so that Godot doesn't call
-FREE-BINDING after Lisp is shut down, e.g. for engine singletons. A
-deinitialize hook: it's added when this file is loaded, before the others, so
-it runs last."
+FREE-BINDING after Lisp is shut down, e.g. for engine singletons. The
+framework's last step at shutdown (see lifecycle.lisp in GD-EXTENSION)."
   (let ((objects (loop for lisp-object across *bindings*
                        when (and (godot-object-p lisp-object)
                                  (godot-object-pointer lisp-object))
                          collect (godot-object-pointer lisp-object))))
     (dolist (object objects)
       (object-free-instance-binding object *class-library*))))
-
-(add-deinitialize-hook 'free-bindings)
 
 (defun pointer-lisp-object (object)
   "The Lisp object of OBJECT, a Godot object pointer (see LISP-OBJECT), or NIL if

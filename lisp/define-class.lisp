@@ -7,8 +7,8 @@
 ;;; instances' Lisp objects (which includes GODOT-OBJECT), and the registration
 ;;; of the class, its properties, signals, methods and virtual methods. The
 ;;; classes are registered when Godot initializes the extension, in the order
-;;; they were defined, by an initialize hook that GD-EXTENSION adds when it's
-;;; loaded, so it runs before the application's hooks.
+;;; they were defined, by REGISTER-DEFINED-CLASSES, a step of the framework's
+;;; startup (see lifecycle.lisp), before the application's initialize hooks.
 ;;;
 
 ;; The registration functions of the classes defined with DEFINE-CLASS: a list
@@ -29,14 +29,13 @@ replaces the function, keeping its place in the order."
   class-name)
 
 (defun register-defined-classes ()
-  "Register the classes defined with DEFINE-CLASS. An initialize hook. A class
-that fails to register is reported, and the others are still registered."
+  "Register the classes defined with DEFINE-CLASS. A step of the framework's
+startup (see lifecycle.lisp). A class that fails to register is reported, and
+the others are still registered."
   (loop for (class-name . function) in *class-definitions*
         do (handler-case (funcall function)
              (error (e)
                (report-error (format nil "registering the class ~a" class-name) e)))))
-
-(add-initialize-hook 'register-defined-classes)
 
 ;; For the :ONREADY slots
 (define-engine-method node-get-node ("Node" "get_node"))

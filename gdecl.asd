@@ -12,8 +12,7 @@
                  (:file "gd-extension-types" :depends-on ("gd-extension-ffi" "builtin-types"))
                  (:file "strings" :depends-on ("gd-extension-types"))
                  (:file "autorelease-pool" :depends-on ("gd-extension-types"))
-                 ;; The package GD-EXTENSION-CALLBACK. instance-bindings adds the
-                 ;; first deinitialize hook, so it runs last.
+                 ;; The package GD-EXTENSION-CALLBACK
                  (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "strings" "autorelease-pool"))
                  (:file "initialize" :depends-on ("gd-extension-callback"))
                  (:file "instance-bindings" :depends-on ("initialize"))
@@ -22,9 +21,7 @@
                  (:file "callables" :depends-on ("bound-methods"))
                  (:file "json" :depends-on ("packages"))
                  (:file "extension-api" :depends-on ("gd-extension-ffi" "json"))
-                 ;; The package GD-EXTENSION. The order matters: each file adds
-                 ;; its deinitialize hooks after those of the files before it,
-                 ;; so they run before them.
+                 ;; The package GD-EXTENSION
                  (:file "gd-extension" :depends-on ("gd-extension-ffi" "gd-extension-types"
                                                     "callables" "extension-api"))
                  (:file "engine-methods" :depends-on ("gd-extension"))
@@ -35,5 +32,7 @@
                  (:file "signals" :depends-on ("engine-methods"))
                  (:file "registration" :depends-on ("gd-extension" "engine-methods" "engine-objects"))
                  (:file "define-class" :depends-on ("registration" "references" "engine-objects"))
+                 ;; The order of the framework's startup and shutdown steps
+                 (:file "lifecycle" :depends-on ("define-class" "registration" "gd-extension"))
                  (:file "godot-engine-classes" :depends-on ("engine-api" "containers"))
                  (:file "godot-utility" :depends-on ("engine-api" "containers"))))

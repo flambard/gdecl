@@ -96,9 +96,8 @@ Godot unloads the extension."
 (defun destroy-permanent-values ()
   "Destroy the StringNames and NodePaths made by NEW-STRING-NAME and
 NEW-NODE-PATH, and free their memory, so that Godot doesn't report them as
-leaked. A deinitialize hook: it's added when this file is loaded, before the
-application adds its hooks, so it runs after them. Afterwards, SNAME and NPATH
-values must not be used any more."
+leaked. A step of the framework's shutdown (see lifecycle.lisp). Afterwards,
+SNAME and NPATH values must not be used any more."
   (dolist (string-name *permanent-string-names*)
     (string-name-destructor string-name)
     (mem-free string-name))
@@ -107,8 +106,6 @@ values must not be used any more."
     (mem-free node-path))
   (setf *permanent-string-names* '()
         *permanent-node-paths* '()))
-
-(add-deinitialize-hook 'destroy-permanent-values)
 
 (defmacro npath (path)
   "A pointer to a NodePath with PATH, a literal string, like ^\"path\" in GDScript.

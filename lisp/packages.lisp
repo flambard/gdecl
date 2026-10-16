@@ -431,6 +431,9 @@ tables and dispatchers behind them")
            #:deinitialize
            #:add-initialize-hook
            #:add-deinitialize-hook
+           #:*framework-initialize*
+           #:*framework-deinitialize*
+           #:free-bindings
            #:make-initialize-cell
            ;; Errors
            #:report-error
@@ -467,6 +470,9 @@ tables and dispatchers behind them")
                 #:call-virtual-with-data
                 #:add-initialize-hook
                 #:add-deinitialize-hook
+                #:*framework-initialize*
+                #:*framework-deinitialize*
+                #:free-bindings
                 #:make-initialize-cell
                 #:report-error
                 #:*wrapper-function*

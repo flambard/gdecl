@@ -208,14 +208,11 @@ script without @tool."
 
 (defun unregister-classes ()
   "Unregister the classes registered with REGISTER-CLASS, in the reverse order,
-so that subclasses go before the classes they inherit from. A deinitialize hook,
-added after DESTROY-PERMANENT-VALUES so that it runs before it, while the class
-names are still there, and after the application's hooks."
+so that subclasses go before the classes they inherit from. A step of the
+framework's shutdown (see lifecycle.lisp)."
   (dolist (string-name *registered-classes*)
     (classdb-unregister-extension-class *class-library* string-name))
   (setf *registered-classes* '()))
-
-(add-deinitialize-hook 'unregister-classes)
 
 ;;;
 ;;; Singletons
@@ -245,14 +242,11 @@ singletons don't keep references."
 
 (defun unregister-singletons ()
   "Unregister and free the singletons registered with REGISTER-SINGLETON, the last
-one first. A deinitialize hook, added after UNREGISTER-CLASSES so that it runs
-before it, while the classes are there, and after the application's hooks."
+one first. A step of the framework's shutdown (see lifecycle.lisp)."
   (loop for (name . object) in *singletons*
         do (engine-unregister-singleton name)
            (object-destroy (object-pointer object)))
   (setf *singletons* '()))
-
-(add-deinitialize-hook 'unregister-singletons)
 
 ;;;
 ;;; Virtual methods

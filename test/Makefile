@@ -20,7 +20,8 @@ project/.godot/extension_list.cfg:
 # The whole output, with --verbose for the details of leaks, is in TEST_LOG;
 # the test results, errors and warnings are shown. An error that a test causes
 # on purpose comes after the line "[test] expect error", and is shown as
-# expected.
+# expected; any other error fails the run, also one at exit, e.g. from the
+# framework's shutdown steps in the wrong order (lifecycle.lisp).
 test: all project/.godot/extension_list.cfg
 	@status=0; \
 	$(GODOT) --headless --verbose --path project -s res://run_tests.gd > $(TEST_LOG) 2>&1 || status=$$?; \
@@ -28,6 +29,12 @@ test: all project/.godot/extension_list.cfg
 	     /^\[test\]/ { print; next } \
 	     /^ERROR: / && expect { sub(/^ERROR: /, ""); print "[test] expected error: " $$0; getline; expect = 0; next } \
 	     /^(ERROR|WARNING|SCRIPT ERROR)/ { print; getline; print }' $(TEST_LOG); \
+	if awk '/^\[test\] expect error$$/ { expect = 1; next } \
+	        /^ERROR: / && expect { expect = 0; next } \
+	        /^(ERROR|SCRIPT ERROR)/ { found = 1 } \
+	        END { exit !found }' $(TEST_LOG); then \
+	  echo "[test] FAIL: Godot reported errors that no test expected (see above)"; status=1; \
+	fi; \
 	if grep -aq 'Leaked instance\|ObjectDB instances leaked\|still in use at exit\|Orphan StringName' $(TEST_LOG); then \
 	  grep -a 'Leaked instance\|still in use\|Orphan StringName' $(TEST_LOG); \
 	  echo "[test] FAIL: Godot reported leaks at exit (see $(TEST_LOG))"; status=1; \
