@@ -11,7 +11,7 @@
 ;; Object.ConnectFlags.CONNECT_ONE_SHOT, for AFTER-SIGNAL. Applications use
 ;; GODOT:+OBJECT-CONNECT-ONE-SHOT+, generated from extension_api.json, which
 ;; GD-EXTENSION can't depend on.
-(defconstant +connect-one-shot+ 4)
+(defconstant +connect-one-shot+ (api-constant "CONNECT_ONE_SHOT" "Object"))
 
 (define-engine-method object-connect ("Object" "connect"))
 

@@ -17,6 +17,48 @@
 ;;; and called through a Lisp function of the same name without earmuffs.
 ;;;
 
+;;;
+;;; extension_api.json, Godot's description of its API, read when the code is
+;;; compiled (see extension-api.lisp in GD-EXTENSION, which uses it the most).
+;;; Here for API-BUILTIN-SIZE, the sizes of Godot's types.
+;;;
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;; extension_api.json is next to gdecl.asd, one directory up from this file.
+  ;; The path is taken when this file is compiled, since the library loaded
+  ;; into Godot has no source files.
+  (defvar *extension-api-file*
+    (let ((this-file #.(or *compile-file-truename* *load-truename*)))
+      (make-pathname :name "extension_api" :type "json"
+                     :directory (butlast (pathname-directory this-file))
+                     :defaults this-file)))
+
+  (defvar *extension-api-json* nil
+    "extension_api.json as JSON, read the first time it's needed.")
+
+  (defun extension-api-json ()
+    "extension_api.json as JSON, read once (about half a second). Only for code
+generation: the library loaded into Godot never reads it."
+    (or *extension-api-json*
+        (setf *extension-api-json* (gdecl-json:read-json-file *extension-api-file*)))))
+
+(defmacro api-builtin-size (class-name)
+  "The size in bytes of the builtin class CLASS-NAME, a literal string such as
+\"StringName\" or \"Variant\", from builtin_class_sizes in extension_api.json
+(build configuration float_64, where real_t is float), when the code is
+compiled."
+  (let* ((configuration (find "float_64" (gdecl-json:json-get (extension-api-json)
+                                                               "builtin_class_sizes")
+                              :key (lambda (sizes)
+                                     (gdecl-json:json-get sizes "build_configuration"))
+                              :test #'string=))
+         (size (find class-name (gdecl-json:json-get configuration "sizes")
+                     :key (lambda (size) (gdecl-json:json-get size "name"))
+                     :test #'string=)))
+    (if size
+        (gdecl-json:json-get size "size")
+        (error "No size of the builtin class ~a in ~a" class-name *extension-api-file*))))
+
 ;; Use this to load other Godot extension interface functions
 (defvar *get-proc-address* nil)
 
@@ -150,13 +192,6 @@ in order, +VARIANT-TYPE-VARIANT-MAX+ after them, and *VARIANT-TYPE-NAMES*."
 (defconstant +call-error-too-few-arguments+ 4)
 (defconstant +call-error-instance-is-null+ 5)
 (defconstant +call-error-method-not-const+ 6)
-
-;; PropertyHint and PropertyUsageFlags (global_enums in extension_api.json).
-;; Only the values used so far.
-(defconstant +property-hint-none+ 0)
-(defconstant +property-hint-resource-type+ 17)
-(defconstant +property-hint-node-type+ 34)
-(defconstant +property-usage-default+ 6)
 
 ;;;
 ;;; Interface functions
@@ -655,13 +690,17 @@ other values looked up once."
 ;;; Structs
 ;;;
 
-;; From builtin_class_sizes in extension_api.json (build configuration float_64)
-(defconstant +string-name-size+ 8)
-(defconstant +string-size+ 8)
-(defconstant +variant-size+ 24)
-(defconstant +node-path-size+ 8)
-(defconstant +callable-size+ 16)
-(defconstant +packed-string-array-size+ 16)
+;; Also when the code is compiled, for the #. below
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defconstant +string-name-size+ (api-builtin-size "StringName"))
+  (defconstant +string-size+ (api-builtin-size "String"))
+  (defconstant +variant-size+ (api-builtin-size "Variant"))
+  (defconstant +node-path-size+ (api-builtin-size "NodePath"))
+  (defconstant +callable-size+ (api-builtin-size "Callable"))
+  (defconstant +packed-string-array-size+ (api-builtin-size "PackedStringArray"))
+  (defconstant +packed-array-size+ (api-builtin-size "PackedByteArray"))
+  (defconstant +array-size+ (api-builtin-size "Array"))
+  (defconstant +dictionary-size+ (api-builtin-size "Dictionary")))
 
 ;;  typedef struct
 ;;  {
@@ -690,17 +729,26 @@ other values looked up once."
 (ffi:def-struct packed-string-array
   (data '(:array :uint8-t #.+packed-string-array-size+)))
 
-;; Any packed array: they're all the same size
+;; Any packed array: they're all the same size, which the build checks
 (ffi:def-struct packed-array
-  (data '(:array :uint8-t #.+packed-string-array-size+)))
+  (data '(:array :uint8-t #.+packed-array-size+)))
 
-;; Godot's Array and Dictionary, both 8 bytes. Named GODOT-ARRAY and
-;; GODOT-DICTIONARY, since ARRAY is taken by CL.
+(eval-when (:compile-toplevel)
+  (assert (every (lambda (class-name)
+                   (= (macroexpand `(api-builtin-size ,class-name)) +packed-array-size+))
+                 '("PackedByteArray" "PackedInt32Array" "PackedInt64Array"
+                   "PackedFloat32Array" "PackedFloat64Array" "PackedStringArray"
+                   "PackedVector2Array" "PackedVector3Array" "PackedVector4Array"
+                   "PackedColorArray"))
+          () "The packed arrays aren't all the same size in ~a" *extension-api-file*))
+
+;; Godot's Array and Dictionary. Named GODOT-ARRAY and GODOT-DICTIONARY, since
+;; ARRAY is taken by CL.
 (ffi:def-struct godot-array
-  (data '(:array :uint8-t 8)))
+  (data '(:array :uint8-t #.+array-size+)))
 
 (ffi:def-struct godot-dictionary
-  (data '(:array :uint8-t 8)))
+  (data '(:array :uint8-t #.+dictionary-size+)))
 
 
 ;;  typedef struct

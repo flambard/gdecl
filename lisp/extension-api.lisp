@@ -9,14 +9,8 @@
 ;;; looked up at runtime.
 ;;;
 
-;; extension_api.json is next to gdecl.asd, one directory up from this file.
-;; The path is taken when this file is compiled, since the library loaded into
-;; Godot has no source files.
-(defvar *extension-api-file*
-  (let ((this-file #.(or *compile-file-truename* *load-truename*)))
-    (make-pathname :name "extension_api" :type "json"
-                   :directory (butlast (pathname-directory this-file))
-                   :defaults this-file)))
+;; The file is *EXTENSION-API-FILE*, read with EXTENSION-API-JSON, both from
+;; GD-EXTENSION-FFI, which also needs it.
 
 ;;;
 ;;; The API
@@ -52,7 +46,7 @@ real one."))
 
 (defun extension-api ()
   (or *extension-api*
-      (let ((json (read-json-file *extension-api-file*))
+      (let ((json (extension-api-json))
             (api (make-extension-api)))
         (dolist (class (json-get json "classes"))
           (setf (gethash (json-get class "name") (extension-api-classes api)) class))
@@ -104,6 +98,34 @@ RefCounted, such as a Resource."
 (defun api-global-enums ()
   "The global enums, such as Error and Key, as JSON objects."
   (extension-api-global-enums (extension-api)))
+
+(defun api-constant-value (name &optional class-name)
+  "The value of NAME (a string, e.g. \"PROPERTY_HINT_NONE\"), a value of a
+global enum, or with CLASS-NAME a value of an enum or a constant of that engine
+class, or NIL if there's none."
+  (flet ((find-value (values)
+           (let ((value (find name values
+                              :key (lambda (value) (json-get value "name"))
+                              :test #'string=)))
+             (and value (list (json-get value "value"))))))
+    (first (if class-name
+               (let ((class (or (api-class class-name)
+                                (error "No engine class ~a in ~a"
+                                       class-name *extension-api-file*))))
+                 (or (some (lambda (enum) (find-value (json-get enum "values")))
+                           (json-get class "enums"))
+                     (find-value (json-get class "constants"))))
+               (some (lambda (enum) (find-value (json-get enum "values")))
+                     (api-global-enums))))))
+
+(defmacro api-constant (name &optional class-name)
+  "The value of NAME, a literal string, as in API-CONSTANT-VALUE, looked up in
+extension_api.json when the code is compiled: for constants that the lower
+layers need, which can't use those that DEFINE-GLOBAL-ENUMS and
+DEFINE-ENGINE-CLASS define in GODOT."
+  (or (api-constant-value name class-name)
+      (error "No constant ~a~@[ in the class ~a~] in ~a" name class-name
+             *extension-api-file*)))
 
 (defun api-method (class-name method-name)
   "The method METHOD-NAME of the engine class CLASS-NAME (both strings) as a JSON

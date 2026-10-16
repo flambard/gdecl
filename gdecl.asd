@@ -7,7 +7,7 @@
     :source-control (:git "https://github.com/flambard/gdecl.git")
     :pathname "lisp/"
     :components ((:file "packages")
-                 (:file "gd-extension-ffi" :depends-on ("packages"))
+                 (:file "gd-extension-ffi" :depends-on ("packages" "json"))
                  (:file "builtin-types" :depends-on ("packages"))
                  (:file "gd-extension-types" :depends-on ("gd-extension-ffi" "builtin-types"))
                  ;; The package GD-EXTENSION-CALLBACK. instance-bindings adds the

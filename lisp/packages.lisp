@@ -3,6 +3,10 @@
   (:nicknames #:gdext-ffi)
   (:use #:cl)
   (:export #:load-interface
+           ;; extension_api.json, when the code is compiled
+           #:*extension-api-file*
+           #:extension-api-json
+           #:api-builtin-size
            #:*class-library*
            #:get-proc-address
            ;; Interface functions
@@ -141,10 +145,6 @@
            #:+call-error-too-few-arguments+
            #:+call-error-instance-is-null+
            #:+call-error-method-not-const+
-           #:+property-hint-none+
-           #:+property-hint-resource-type+
-           #:+property-hint-node-type+
-           #:+property-usage-default+
            ;; Structs
            #:+string-name-size+
            #:+string-size+
@@ -152,6 +152,9 @@
            #:+node-path-size+
            #:+callable-size+
            #:+packed-string-array-size+
+           #:+packed-array-size+
+           #:+array-size+
+           #:+dictionary-size+
            #:string-name
            #:godot-string
            #:variant
@@ -441,7 +444,6 @@ tables and dispatchers behind them")
   (:nicknames #:gdext)
   (:use #:cl #:gd-extension-ffi #:gd-extension-builtins #:gd-extension-types)
   (:import-from #:gdecl-json
-                #:read-json-file
                 #:json-get)
   (:import-from #:gd-extension-callback
                 #:callback-pointer

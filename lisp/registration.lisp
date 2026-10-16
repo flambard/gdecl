@@ -8,6 +8,12 @@
 ;;; and Strings in them when its body exits, also after an error.
 ;;;
 
+;; PropertyHint and PropertyUsageFlags, the values used here
+(defconstant +property-hint-none+ (api-constant "PROPERTY_HINT_NONE"))
+(defconstant +property-hint-resource-type+ (api-constant "PROPERTY_HINT_RESOURCE_TYPE"))
+(defconstant +property-hint-node-type+ (api-constant "PROPERTY_HINT_NODE_TYPE"))
+(defconstant +property-usage-default+ (api-constant "PROPERTY_USAGE_DEFAULT"))
+
 (defun fill-property-info (info name type &key (hint +property-hint-none+) (hint-string "")
                                           (class-name "") (usage +property-usage-default+))
   "Fill in the GDExtensionPropertyInfo at INFO (the C version returns the struct

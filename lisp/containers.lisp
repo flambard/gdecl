@@ -51,13 +51,25 @@ with its constructor 0."
 ;;; Packed arrays of numbers: specialized Lisp vectors, copied as they are
 ;;;
 
-(defmacro define-packed-number-array (class-name variant-type element-type element-size
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun element-type-size (element-type)
+    "The size in bytes of an element of a specialized vector of ELEMENT-TYPE, as
+the packed array of the same element type stores it."
+    (cond ((and (consp element-type)
+                (member (first element-type) '(signed-byte unsigned-byte)))
+           (/ (second element-type) 8))
+          ((eq element-type 'single-float) 4)
+          ((eq element-type 'double-float) 8)
+          (t (error "No size for the element type ~s" element-type)))))
+
+(defmacro define-packed-number-array (class-name variant-type element-type
                                       operator-index destructor &optional (convert 'identity))
   "Add the value type of the packed array CLASS-NAME of numbers: a specialized
-Lisp vector of ELEMENT-TYPE, whose data is copied as it is, ELEMENT-SIZE bytes
-an element; OPERATOR-INDEX gives the pointer to an element. CONVERT, a function
-name, converts the elements of other sequences given as one."
-  (let* ((lisp-name (lisp-style-class-name class-name))
+Lisp vector of ELEMENT-TYPE, whose data is copied as it is; OPERATOR-INDEX
+gives the pointer to an element. CONVERT, a function name, converts the
+elements of other sequences given as one."
+  (let* ((element-size (element-type-size element-type))
+         (lisp-name (lisp-style-class-name class-name))
          (reader (intern (format nil "READ-~a" lisp-name)))
          (writer (intern (format nil "WRITE-~a" lisp-name)))
          (vector-type `(simple-array ,element-type (*))))
@@ -91,16 +103,16 @@ VALUE, best a ~s, which is copied as it is." class-name vector-type)
 (defun to-double-float (x) (float x 1d0))
 
 (define-packed-number-array "PackedByteArray" +variant-type-packed-byte-array+
-  (unsigned-byte 8) 1 packed-byte-array-operator-index packed-byte-array-destructor)
+  (unsigned-byte 8) packed-byte-array-operator-index packed-byte-array-destructor)
 (define-packed-number-array "PackedInt32Array" +variant-type-packed-int32-array+
-  (signed-byte 32) 4 packed-int32-array-operator-index packed-int32-array-destructor)
+  (signed-byte 32) packed-int32-array-operator-index packed-int32-array-destructor)
 (define-packed-number-array "PackedInt64Array" +variant-type-packed-int64-array+
-  (signed-byte 64) 8 packed-int64-array-operator-index packed-int64-array-destructor)
+  (signed-byte 64) packed-int64-array-operator-index packed-int64-array-destructor)
 (define-packed-number-array "PackedFloat32Array" +variant-type-packed-float32-array+
-  single-float 4 packed-float32-array-operator-index packed-float32-array-destructor
+  single-float packed-float32-array-operator-index packed-float32-array-destructor
   to-single-float)
 (define-packed-number-array "PackedFloat64Array" +variant-type-packed-float64-array+
-  double-float 8 packed-float64-array-operator-index packed-float64-array-destructor
+  double-float packed-float64-array-operator-index packed-float64-array-destructor
   to-double-float)
 
 ;;;
