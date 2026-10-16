@@ -29,9 +29,11 @@
   name
   ;; A StringName with the class name, kept for OBJECT-SET-INSTANCE
   string-name
-  ;; A StringName with the name of the parent class, kept for
-  ;; CLASSDB-CONSTRUCT-OBJECT
-  parent-string-name
+  ;; A StringName with the name of the engine class its instances are made
+  ;; from with CLASSDB-CONSTRUCT-OBJECT: the parent class, or for a class that
+  ;; inherits from another extension class, that class's engine class, as Godot
+  ;; can't construct an extension class as the base of another one
+  engine-string-name
   ;; Called with the Godot object pointer; returns the instance's Lisp object
   constructor
   ;; Called with the instance's Lisp object when Godot frees it, or NIL
@@ -51,9 +53,18 @@ and DESTRUCTOR, see GD-EXTENSION:REGISTER-CLASS."
   (add-handle *extension-classes* (make-extension-class
                                    :name name
                                    :string-name string-name
-                                   :parent-string-name parent-string-name
+                                   :engine-string-name (or (look-up-engine-string-name
+                                                            (read-string-name parent-string-name))
+                                                           parent-string-name)
                                    :constructor constructor
                                    :destructor destructor)))
+
+(defun look-up-engine-string-name (name)
+  "The ENGINE-STRING-NAME of the extension class NAME (a string), or NIL if
+there's none of that name."
+  (let ((class (find-handle-value *extension-classes*
+                                  (lambda (class) (string= name (extension-class-name class))))))
+    (and class (extension-class-engine-string-name class))))
 
 (defun userdata-class (userdata)
   (handle-value *extension-classes* userdata))
@@ -89,9 +100,9 @@ bound methods)."
   "Create a Godot object of the class identified by CLASS-USERDATA, with its Lisp
 object, and return the object pointer."
   (let* ((class (userdata-class class-userdata))
-         ;; An object of the parent class, which becomes an object of CLASS
+         ;; An object of the engine class, which becomes an object of CLASS
          ;; through OBJECT-SET-INSTANCE
-         (object (classdb-construct-object (extension-class-parent-string-name class)))
+         (object (classdb-construct-object (extension-class-engine-string-name class)))
          (instance-set nil))
     ;; If the Lisp object can't be made, the Godot object is destroyed again,
     ;; as Godot only gets NULL

@@ -82,3 +82,34 @@ three times, and print the best time and the bytes allocated per run."
       (input-is-action-pressed "ui_up"))
     (benchmark "emit_signal(\"pinged\", 1) (vararg)" count
       (object-emit-signal benchmarks "pinged" 1))))
+
+;;;
+;;; ClosBenchmarks: LispBenchmarks's tick and engine calls, with a class defined
+;;; with GODOT-CLOS, for comparing it with DEFINE-CLASS
+;;;
+
+(defclass clos-benchmarks (node-2d)
+  ((ticks :initform 0 :accessor clos-benchmarks-ticks))
+  (:metaclass godot-class))
+
+(define-godot-generic tick (self (delta :float)))
+
+(defmethod tick ((benchmarks clos-benchmarks) delta)
+  (declare (ignore delta))
+  (incf (clos-benchmarks-ticks benchmarks)))
+
+(define-godot-generic run-clos-benchmarks (self (count :int))
+  (:godot-name "run"))
+
+(defmethod run-clos-benchmarks ((benchmarks clos-benchmarks) count)
+  (let ((position (vector2 1.0 2.0)))
+    (benchmark "CLOS: get_child_count()" count
+      (node-get-child-count benchmarks))
+    (benchmark "CLOS: set_position(v)" count
+      (node-2d-set-position benchmarks position))
+    (benchmark "CLOS: (tick self delta), a generic function" count
+      (tick benchmarks 0.016d0))
+    (benchmark "CLOS: (incf (clos-benchmarks-ticks self)), an accessor" count
+      (incf (clos-benchmarks-ticks benchmarks)))
+    (benchmark "define-class: (incf (lisp-benchmarks-ticks self)), a struct accessor" count
+      (incf (lisp-benchmarks-ticks (load-time-value (make-lisp-benchmarks)))))))

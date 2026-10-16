@@ -87,6 +87,7 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 | `godot-utility` | `gd-util` | Godot's utility functions, the global functions of GDScript, such as `randf-range` |
 | `gd-extension` | `gdext` | gdecl itself: defining classes, signals, references, and the macros that generate Godot's API |
 | `gd-extension-ffi` | `gdext-ffi` | The GDExtension C interface, one-to-one, for what the others don't cover yet |
+| `godot-clos` | | A prototype: classes as CLOS classes, see [Classes as CLOS classes](#classes-as-clos-classes-a-prototype) |
 
 `gd-extension-builtins`, `gd-extension-types` and `gd-extension-callback` are gdecl's internal layers; applications don't need them. `gdecl-json` reads `extension_api.json` when your code is compiled.
 
@@ -139,6 +140,33 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 ```lisp
 (gdext:add-initialize-hook 'start)
 ```
+
+### Classes as CLOS classes (a prototype)
+
+`godot-clos` is a prototype of another way to define classes, with CLOS: a class is a `defclass` with the metaclass `godot-class`, and what Godot calls are generic functions, so they're implemented with `defmethod`, with inheritance, mixins, `:before`/`:after`/`:around` methods and `call-next-method`:
+
+```lisp
+(defclass player (area-2d)                           ; extends Area2D (the struct of define-engine-class)
+  ((speed :initform 400 :export :int :reader speed)  ; @export var speed = 400
+   (sprite :onready "AnimatedSprite2D" :reader sprite))
+  (:metaclass godot-class)                           ; class_name Player
+  (:signals (hit)))
+
+(define-godot-generic start (self (pos :vector2)))   ; func start(pos: Vector2)
+
+(defmethod start ((player player) pos) ...)
+(defmethod ready ((player player)) ...)              ; _ready
+(defmethod process ((player player) delta) ...)      ; _process
+```
+
+- The class's name in Godot is the class name in Godot style (`player` is `Player`), or `(:godot-name "Name")`. `(:tool t)` is as in `define-class`.
+- The slot options `:export`, `:class` and `:onready` are those of `define-class`; the rest of a slot is plain CLOS (`:initform`, `:initarg`, `:accessor`).
+- The class inherits from the struct of an engine class (`define-engine-class`) or from another `godot-class`, and may have mixins, standard classes, which come first in the superclasses. Its instances are Godot objects that engine methods take as they are, and `(make-instance 'player)` makes one in Godot.
+- `define-godot-generic` defines a method that Godot and GDScript call by name, with its name in Godot (`(:godot-name "_on_body_entered")`) and types (`(:return-type :int)`). A class gets it in Godot if it has a method for it.
+- Virtual methods are generic functions too: `ready`, `process`, `physics-process`, `enter-tree`, `exit-tree`, `unhandled-input` and `draw`; `define-virtual-function` defines others. Godot calls one only for the classes that have methods for it.
+- Redefining a class, or adding a method, at a REPL updates the instances and registers what's new with Godot. Godot can't remove anything, change a class's parent, or call a virtual method that a class implemented only after Godot first asked (TODO J).
+
+A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, and an accessor 50–60 ns more than a struct accessor (see TODO P).
 
 ## Calling Godot
 

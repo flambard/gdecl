@@ -215,3 +215,64 @@ func test_autorelease_pool() -> void:
 	holder.free()
 	check(kept.get_reference_count() == 1, "and they're all given back")
 	tests.free()
+
+
+# Classes defined with GODOT-CLOS (../lisp/clos-classes.lisp)
+
+func test_clos_properties_and_methods() -> void:
+	var node := ClosNode.new()
+	check(node.count == 0, "CLOS: an exported slot's initform")
+	node.count = 5
+	check(node.count == 5, "CLOS: an exported slot set")
+	check(node.speed == 1.5, "CLOS: a float property")
+	var resource := property_info(node, "resource")
+	check(resource.hint == PROPERTY_HINT_RESOURCE_TYPE and resource.class_name == &"TestResource",
+			"CLOS: a property of a Resource class")
+	var kept := TestResource.new()
+	node.resource = kept
+	check(kept.get_reference_count() == 2, "CLOS: a RefCounted property keeps a reference")
+	check(node.add(2, 3) == 5, "CLOS: a method")
+	check(node.call("add", 2, 3) == 5, "CLOS: a method called with Variants")
+	check(node.scale_vector(Vector2(1, 2), 2) == Vector2(2, 4), "CLOS: Vector2 and float arguments")
+	check(node.has_signal("pinged"), "CLOS: a signal")
+	var heard := []
+	node.pinged.connect(func(number: int) -> void: heard.append(number))
+	node.emit_pinged()
+	check(heard == [5], "CLOS: a signal emitted from Lisp")
+	node.free()
+	check(kept.get_reference_count() == 1, "CLOS: the reference is given back when it's freed")
+
+
+func test_clos_ready_and_process() -> void:
+	var node := ClosNode.new()
+	var child := Node.new()
+	child.name = "Child"
+	node.add_child(child)
+	root.add_child(node)
+	check(node.get_ready_calls() == 1, "CLOS: ready")
+	check(node.get_child_slot() == child, "CLOS: an :onready slot with a path")
+	check(node.get_parent_class() == "Window", "CLOS: an :onready slot with a function")
+	await process_frame
+	await process_frame
+	check(node.get_process_calls() > 0, "CLOS: process")
+	node.queue_free()
+	await process_frame
+
+
+func test_clos_inheritance() -> void:
+	var node := ClosSubNode.new()
+	check(node is ClosNode, "CLOS: a Lisp class that extends a Lisp class")
+	check(node.count == 0 and node.label == "sub", "CLOS: inherited and own properties")
+	check(node.add(2, 3) == 50, "CLOS: a method that calls the inherited one")
+	check(node.greet() == "hello", "CLOS: a method of a mixin")
+	check(node.has_signal("pinged"), "CLOS: an inherited signal")
+	var child := Node.new()
+	child.name = "Child"
+	node.add_child(child)
+	root.add_child(node)
+	check(node.get_ready_calls() == 1, "CLOS: an inherited virtual method")
+	await process_frame
+	await process_frame
+	check(node.get_process_calls() > 100, "CLOS: a :before method on an inherited virtual method")
+	node.queue_free()
+	await process_frame

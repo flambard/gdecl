@@ -71,4 +71,20 @@ func _init() -> void:
 
 	lisp.run(COUNT)
 	lisp.free()
+
+	# The same with a class defined with GODOT-CLOS
+	var clos: ClosBenchmarks = ClosBenchmarks.new()
+	report("clos.tick(delta) (CLOS generic function, ptrcall)", func(): for i in COUNT: clos.tick(0.016))
+	report("clos.call(\"tick\", delta) (CLOS generic function, Variant call)",
+		func(): for i in COUNT: clos.call("tick", 0.016))
+	clos.run(COUNT)
+	clos.free()
+
+	# Making and freeing objects: an engine class, a Lisp class defined with
+	# DEFINE-CLASS, and one defined with GODOT-CLOS
+	report("Node2D.new().free()", func(): for i in COUNT: Node2D.new().free())
+	report("LispBenchmarks.new().free() (define-class)",
+		func(): for i in COUNT: LispBenchmarks.new().free())
+	report("ClosBenchmarks.new().free() (godot-class)",
+		func(): for i in COUNT: ClosBenchmarks.new().free())
 	quit()

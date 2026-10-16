@@ -483,6 +483,13 @@ tables and dispatchers behind them")
                 #:add-virtual
                 #:instance-object
                 #:lisp-object)
+  ;; Internal, but imported by GODOT-CLOS, the prototype of the high-level
+  ;; layer, which must find them when this is read
+  (:intern #:add-class-definition
+           #:inherits-class-p
+           #:virtual-signatures
+           #:godot-property-name
+           #:*engine-object-types*)
   (:export #:add-initialize-hook
            #:add-deinitialize-hook
            ;; Helpers
@@ -553,3 +560,43 @@ GD-EXTENSION:DEFINE-UTILITY-FUNCTIONS. Those named like Common Lisp's are left
 out; print is GODOT-PRINT.")
   (:nicknames #:gd-util)
   (:use #:cl))
+
+(defpackage #:godot-clos
+  (:documentation "A prototype of the high-level layer (TODO P): Godot classes
+as CLOS classes. The metaclass GODOT-CLASS registers a DEFCLASS with Godot,
+with slots exported as properties, :ONREADY slots and signals, and generic
+functions are what Godot calls: virtual methods such as _process, defined with
+DEFINE-VIRTUAL-FUNCTION, and methods that GDScript can call, defined with
+DEFINE-GODOT-GENERIC. The classes inherit from the structs of engine classes
+(DEFINE-ENGINE-CLASS), so their instances are GODOT-OBJECTs to the layers
+below.")
+  (:use #:cl)
+  (:import-from #:gd-extension-types
+                #:godot-object
+                #:godot-object-pointer)
+  (:import-from #:gd-extension-callback
+                #:ptrcall-invoker-form
+                #:report-error)
+  (:import-from #:gd-extension
+                #:add-class-definition
+                #:inherits-class-p
+                #:virtual-signatures
+                #:variant-type
+                #:godot-property-name
+                #:*engine-object-types*)
+  (:export ;; Classes
+           #:godot-class
+           #:godot-name
+           ;; Generic functions that Godot calls
+           #:virtual-function
+           #:define-virtual-function
+           #:godot-method
+           #:define-godot-generic
+           ;; Virtual methods of engine classes
+           #:ready
+           #:process
+           #:physics-process
+           #:enter-tree
+           #:exit-tree
+           #:unhandled-input
+           #:draw))
