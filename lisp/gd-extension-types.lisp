@@ -281,15 +281,17 @@ FOREIGN-REF, which a compiler macro makes C code of."
 COMPONENTS is a list of (component type) in the order of Godot's layout, where
 the struct's accessor is NAME-<component>, and TYPE is an FFI type such as
 :FLOAT, or a builtin type defined before. Defines the FFI mirror GODOT-<name>,
-READ-<name> and WRITE-<name>, and adds the value type. READER and WRITER name
-functions of your own instead, for a type whose Lisp components aren't Godot's
-layout."
+READ-<name> and WRITE-<name>, exports them, and adds the value type. READER and
+WRITER name functions of your own instead, for a type whose Lisp components
+aren't Godot's layout."
   (let ((mirror (builtin-type-symbol "GODOT-~a" name))
         (reader-name (or reader (builtin-type-symbol "READ-~a" name)))
         (writer-name (or writer (builtin-type-symbol "WRITE-~a" name))))
     (multiple-value-bind (read-form write-forms)
         (builtin-raw-forms name components 'pointer 'value)
       `(progn
+         (eval-when (:compile-toplevel :load-toplevel :execute)
+           (export '(,mirror ,reader-name ,writer-name) '#:gd-extension-types))
          (ffi:def-struct ,mirror
            ,@(loop for (component type) in components
                    collect `(,component ,(builtin-component-ffi-type type))))

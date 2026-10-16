@@ -8,7 +8,7 @@
 ;;; and Strings in them when its body exits, also after an error.
 ;;;
 
-(defun make-property (info name type &key (hint +property-hint-none+) (hint-string "")
+(defun fill-property-info (info name type &key (hint +property-hint-none+) (hint-string "")
                                           (class-name "") (usage +property-usage-default+))
   "Fill in the GDExtensionPropertyInfo at INFO (the C version returns the struct
 by value). DESTRUCT-PROPERTY frees what it allocates."
@@ -40,11 +40,13 @@ by value). DESTRUCT-PROPERTY frees what it allocates."
 (defun call-with-property-infos (properties function)
   (let ((count 0))
     ;; At least one element, so the array is never empty
-    (ffi:with-foreign-object (infos `(:array property-info ,(max (length properties) 1)))
+    (with-foreign-memory ((infos :size (* (max (length properties) 1)
+                                          (load-time-value
+                                           (ffi:size-of-foreign-type 'property-info)))))
       (unwind-protect
            (progn
              (dolist (property properties)
-               (apply #'make-property (element-pointer infos 'property-info count) property)
+               (apply #'fill-property-info (element-pointer infos 'property-info count) property)
                (incf count))
              (funcall function infos))
         (dotimes (i count)
@@ -53,7 +55,7 @@ by value). DESTRUCT-PROPERTY frees what it allocates."
 (defmacro with-property-infos ((variable properties) &body body)
   "Evaluate BODY with VARIABLE bound to a pointer to an array of
 GDExtensionPropertyInfo, one for each of PROPERTIES, a list of argument lists of
-MAKE-PROPERTY without the INFO: (name type &key hint hint-string class-name
+FILL-PROPERTY-INFO without the INFO: (name type &key hint hint-string class-name
 usage). The property infos are destroyed when BODY exits, also on a non-local
 exit."
   `(call-with-property-infos ,properties (lambda (,variable) ,@body)))
@@ -75,8 +77,10 @@ REGISTER-METHOD; DEFINE-CLASS generates it."
       (with-property-infos (return-info (and has-return-value `(("" ,return-type))))
         (with-property-infos (args-info arguments)
           ;; At least one element, so the array is never empty
-          (ffi:with-foreign-objects ((args-metadata `(:array :int ,(max argument-count 1)))
-                                     (method-info 'class-method-info))
+          (with-foreign-memory ((args-metadata :size (* (max argument-count 1)
+                                                        (load-time-value
+                                                         (ffi:size-of-foreign-type :int))))
+                                (method-info 'class-method-info))
             (dotimes (i argument-count)
               (setf (foreign-ref args-metadata :int i) +method-argument-metadata-none+))
             ;; All slots not set below are NULL/0
@@ -102,9 +106,6 @@ REGISTER-METHOD; DEFINE-CLASS generates it."
                                                        method-info))))))))
 
 (define-engine-method class-db-is-parent-class ("ClassDB" "is_parent_class"))
-
-;; For the :ONREADY slots of DEFINE-CLASS
-(define-engine-method node-get-node ("Node" "get_node"))
 
 (defun inherits-class-p (class-name parent-class-name)
   "True if the class CLASS-NAME is PARENT-CLASS-NAME or inherits from it (both
@@ -163,22 +164,23 @@ without arguments has none."
 ;; the last one first
 (defvar *registered-classes* '())
 
-(defun register-class (class-name parent-class-name
-                       &key (constructor (lambda (pointer)
-                                           (make-godot-object :pointer pointer)))
-                            destructor tool)
+(defun register-class (class-name parent-class-name &key constructor destructor tool)
   "Register the class CLASS-NAME, which inherits from the class
 PARENT-CLASS-NAME (both strings). When Godot creates an instance, CONSTRUCTOR
 is called with the Godot object pointer, and returns the instance's Lisp object
 (see INSTANCE-OBJECT), a GODOT-OBJECT: usually a struct that includes
-GODOT-OBJECT, made with the pointer as its POINTER. The default makes a plain
-GODOT-OBJECT. When Godot
-frees the instance, DESTRUCTOR, if given, is called with the Lisp object.
+GODOT-OBJECT, made with the pointer as its POINTER. The default makes one of
+the type of the engine class it inherits from (see DEFINE-ENGINE-CLASS), as
+for an object of that class. When Godot frees the instance, DESTRUCTOR, if
+given, is called with the Lisp object.
 
 Unless TOOL is true, the class is a runtime class: in the editor, its instances
 are placeholders that keep their properties but run no code, like a GDScript
 script without @tool."
-  (let* ((string-name (new-string-name class-name))
+  (let* ((constructor (or constructor
+                          (let ((make (class-constructor parent-class-name)))
+                            (lambda (pointer) (funcall make :pointer pointer)))))
+         (string-name (new-string-name class-name))
          (parent-string-name (new-string-name parent-class-name))
          (class-userdata (add-extension-class class-name string-name parent-string-name
                                               constructor destructor)))

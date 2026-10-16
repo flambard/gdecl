@@ -69,11 +69,10 @@ PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
 ;; arguments, not keywords, which ECL's inlined code would parse at runtime.
 (declaim (inline set-call-error))
 (defun set-call-error (r-error error &optional (argument 0) (expected 0))
-  ;; GDExtensionCallError's members are three 32-bit ints: error, argument and
-  ;; expected
-  (setf (foreign-ref r-error :int32-t 0) error
-        (foreign-ref r-error :int32-t 1) argument
-        (foreign-ref r-error :int32-t 2) expected))
+  (set-foreign-slots (r-error call-error)
+    error error
+    argument argument
+    expected expected))
 
 (defun ptrcall-bound-method (method-userdata instance args r-ret)
   "Call the method identified by METHOD-USERDATA, with ARGS and R-RET as in

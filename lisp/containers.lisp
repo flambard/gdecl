@@ -157,10 +157,10 @@ sequence VALUE." class-name)
   +variant-type-vector3+ godot-vector3
   packed-vector3-array-operator-index packed-vector3-array-destructor)
 (define-packed-element-array "PackedVector4Array" +variant-type-packed-vector4-array+
-  +variant-type-vector4+ gd-extension-types::godot-vector4
+  +variant-type-vector4+ godot-vector4
   packed-vector4-array-operator-index packed-vector4-array-destructor)
 (define-packed-element-array "PackedColorArray" +variant-type-packed-color-array+
-  +variant-type-color+ gd-extension-types::godot-color
+  +variant-type-color+ godot-color
   packed-color-array-operator-index packed-color-array-destructor)
 (define-packed-element-array "PackedStringArray" +variant-type-packed-string-array+
   +variant-type-string+ godot-string

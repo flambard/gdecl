@@ -544,7 +544,7 @@ signature from extension_api.json."
                                     (singleton `(object-pointer (singleton ,singleton)))
                                     (t `(object-pointer ,object))))
                     (,method-bind (initialize-cell-value
-                                   (lookup-method-bind ,defining-class ,method-name ,hash))))
+                                   (look-up-method-bind ,defining-class ,method-name ,hash))))
                 (unless ,method-bind
                   (error "The method ~a.~a wasn't found" ,defining-class ,method-name))
                 ,(let ((call (temporary-names-form
@@ -558,7 +558,7 @@ signature from extension_api.json."
                        call))))
             ,@(literal-names-compiler-macro name arguments (if takes-object 1 0))))))))
 
-(defun lookup-method-bind (class-name method-name hash)
+(defun look-up-method-bind (class-name method-name hash)
   "The method bind of CLASS-NAME.METHOD-NAME with HASH, for an initialize cell.
 Signals an error if Godot has no such method, which INITIALIZE reports like
 Godot's own errors."

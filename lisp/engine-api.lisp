@@ -171,7 +171,7 @@ becomes GODOT:+OK+ and KEY_ESCAPE GODOT:+KEY-ESCAPE+."
 ;;; that of engine methods.
 ;;;
 
-(defun lookup-utility-function (function-name hash)
+(defun look-up-utility-function (function-name hash)
   "The function pointer of the utility function FUNCTION-NAME with HASH, for an
 initialize cell. Signals an error if Godot has no such function."
   (let ((function (with-string-name (string-name function-name)
@@ -203,7 +203,7 @@ JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
                     (documented-argument-names function rest)
                     (and vararg "Variants"))
            (let ((,function-pointer (initialize-cell-value
-                                     (lookup-utility-function ,function-name ,hash))))
+                                     (look-up-utility-function ,function-name ,hash))))
              (unless ,function-pointer
                (error "The utility function ~a wasn't found" ,function-name))
              ,(temporary-names-form

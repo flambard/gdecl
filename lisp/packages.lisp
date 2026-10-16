@@ -353,18 +353,6 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:builtin-type-components
            #:builtin-layout
            #:builtin-construct-form
-           #:godot-vector2
-           #:godot-rect2
-           #:godot-vector3
-           #:godot-basis
-           #:read-vector2
-           #:write-vector2
-           #:read-rect2
-           #:write-rect2
-           #:read-vector3
-           #:write-vector3
-           #:read-basis
-           #:write-basis
            #:read-object
            #:write-object
            #:read-godot-string

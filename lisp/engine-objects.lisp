@@ -23,7 +23,9 @@ class name. Also known when the code is compiled.")
     "The Lisp type for objects of the engine class CLASS-NAME (a string, or NIL):
 the struct of the class or of the nearest class it inherits from that's defined
 with DEFINE-ENGINE-CLASS, or GODOT-OBJECT. For code generation: the classes
-the class inherits from are looked up in extension_api.json."
+the class inherits from are looked up in extension_api.json. CLASS-CONSTRUCTOR
+walks the same classes at runtime, from *ENGINE-CLASS-PARENTS*, and finds the
+constructor of this type."
     (loop for name = class-name then (json-get class "inherits")
           for class = (and name (api-class name))
           while class
@@ -61,7 +63,9 @@ class name, from extension_api.json when the code is compiled."
 
 (defun class-constructor (class-name)
   "The constructor of the Lisp objects of the objects of the class CLASS-NAME: of
-the class, or of the nearest class it inherits from, that has one."
+the class, or of the nearest class it inherits from, that has one. The runtime
+counterpart of ENGINE-OBJECT-TYPE, which finds the same struct when the code is
+compiled, from extension_api.json."
   (loop for name = class-name then (gethash name *engine-class-parents*)
         while name
         do (let ((constructor (gethash name *engine-object-constructors*)))

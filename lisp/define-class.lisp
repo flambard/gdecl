@@ -38,6 +38,9 @@ that fails to register is reported, and the others are still registered."
 
 (add-initialize-hook 'register-defined-classes)
 
+;; For the :ONREADY slots
+(define-engine-method node-get-node ("Node" "get_node"))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-arguments (return-type-form argument-type-forms)
     "The arguments :INVOKER and the invoker's form (see PTRCALL-INVOKER-FORM) for

@@ -447,3 +447,8 @@ types of Godot objects.")
     (let ((count (test-singleton-count singleton)))
       (object-call singleton "next")
       (check (eql (1+ count) (test-singleton-count singleton))))))
+
+(deftest register-class-default-constructor
+  ;; Its Lisp objects have the type of the engine class it inherits from
+  (let ((node (new-node "TestPlainNode")))
+    (check (eq 'node-2d (type-of node)))))

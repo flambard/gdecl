@@ -92,6 +92,13 @@ func test_errors() -> void:
 	print("[test] expect error")
 	# A typed call is a ptrcall, which returns 0 for an int
 	check(node.fail() == 0, "a method that signals an error returns 0 with ptrcall")
+	# Call errors, which Godot reports with the expected count or type
+	print("[test] expect error")
+	check(node.callv("add", [1]) == null, "too few arguments")
+	print("[test] expect error")
+	check(node.callv("add", [1, 2, 3]) == null, "too many arguments")
+	print("[test] expect error")
+	check(node.callv("add", ["one", 2]) == null, "an argument of the wrong type")
 	node.free()
 
 

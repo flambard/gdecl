@@ -143,6 +143,15 @@ arguments and returns how many there were."
   ((broken (error "A constructor error, expected by the tests"))))
 
 ;;;
+;;; TestPlainNode: registered with REGISTER-CLASS and its default constructor
+;;;
+
+(defun register-test-plain-node ()
+  (gdext:register-class "TestPlainNode" "Node2D"))
+
+(gdext:add-initialize-hook 'register-test-plain-node)
+
+;;;
 ;;; TestSingleton: an engine singleton, which GDScript uses by name like Input
 ;;;
 
