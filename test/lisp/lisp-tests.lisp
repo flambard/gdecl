@@ -452,3 +452,30 @@ types of Godot objects.")
   ;; Its Lisp objects have the type of the engine class it inherits from
   (let ((node (new-node "TestPlainNode")))
     (check (eq 'node-2d (type-of node)))))
+
+(deftest lisp-variant-types
+  ;; The variant type that WRITE-VARIANT makes from each kind of Lisp value
+  (flet ((variant-type (value) (gd-extension-types:lisp-variant-type value)))
+    (check (eql +type-bool+ (variant-type t)))
+    (check (eql +type-bool+ (variant-type nil)))
+    (check (eql +type-int+ (variant-type 3)))
+    (check (eql +type-float+ (variant-type 1.5)))
+    (check (eql +type-string+ (variant-type "text")))
+    (check (eql +type-object+ (variant-type *root*)))
+    (check (eql +type-vector2+ (variant-type (vector2 1 2))))
+    (check (eql +type-packed-byte-array+
+                (variant-type (make-array 1 :element-type '(unsigned-byte 8)))))
+    (check (eql +type-packed-int32-array+
+                (variant-type (make-array 1 :element-type '(signed-byte 32)))))
+    (check (eql +type-packed-int64-array+
+                (variant-type (make-array 1 :element-type '(signed-byte 64)))))
+    (check (eql +type-packed-float32-array+
+                (variant-type (make-array 1 :element-type 'single-float))))
+    (check (eql +type-packed-float64-array+
+                (variant-type (make-array 1 :element-type 'double-float))))
+    (check (eql +type-array+ (variant-type (vector 1 "two"))))
+    (check (eql +type-dictionary+ (variant-type (make-hash-table))))
+    ;; Not Variants: a list, a symbol, a vector that isn't simple
+    (check (null (variant-type '(1 2))))
+    (check (null (variant-type 'symbol)))
+    (check (null (variant-type (make-array 1 :adjustable t))))))

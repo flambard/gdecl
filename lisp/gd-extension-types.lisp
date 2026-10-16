@@ -58,8 +58,7 @@ can't be checked)."
 (defstruct value-type
   ;; The variant type, or :VARIANT for any Variant
   variant-type
-  ;; The FFI type of the raw value, or NIL if the value is passed as a pointer to
-  ;; it, which is then also its Lisp value (StringName, NodePath)
+  ;; The FFI type of the raw value; its C type is C-TYPE-NAME's
   ffi-type
   ;; Names of functions that read the raw value at a pointer as a Lisp value,
   ;; and that store a Lisp value as a raw value at a pointer
@@ -67,8 +66,10 @@ can't be checked)."
   writer
   ;; The name of a function that destroys a raw value written by WRITER, or NIL
   destructor
-  ;; The struct type of the Lisp values, for WRITE-VARIANT (see
-  ;; LISP-VARIANT-TYPE), or NIL for the other types
+  ;; The type specifier of the Lisp values that become Variants of this type in
+  ;; WRITE-VARIANT (see LISP-VARIANT-TYPE): a struct name, HASH-TABLE, or a
+  ;; vector type (SIMPLE-ARRAY element-type (*)), or SIMPLE-VECTOR. NIL for
+  ;; the types LISP-VARIANT-TYPE knows itself, such as integers.
   lisp-type
   ;; The size of the raw value in bytes, set by ADD-VALUE-TYPE, so it isn't
   ;; looked up at every conversion
@@ -77,7 +78,26 @@ can't be checked)."
   ;; that construct one from a Lisp value, faster than through a raw value in
   ;; foreign memory (see READ-VARIANT-AS and WRITE-VARIANT-AS), or NIL
   (variant-reader nil)
-  (variant-writer nil))
+  (variant-writer nil)
+  ;; For a simple type, whose raw value is a C number or pointer, so that code
+  ;; generators convert it in C: functions of a form that make a form for the
+  ;; raw value from the Lisp value of the form, e.g. (IF X 1 0) for a bool,
+  ;; and for the Lisp value from the raw value of the form, e.g. (/= 0 X).
+  ;; NIL for other types. See DEFINE-SIMPLE-VALUE-TYPE.
+  (to-raw nil)
+  (from-raw nil)
+  ;; True for StringName and NodePath: an engine method's argument is passed
+  ;; as a pointer to one, such as an SNAME, or to a temporary one made from a
+  ;; Lisp string (see GD-EXTENSION::TEMPORARY-NAMES-FORM)
+  (by-pointer nil)
+  ;; The name of a macro that makes a value made once from a literal string,
+  ;; such as GD-EXTENSION:SNAME, or NIL. Set by GD-EXTENSION, which defines the
+  ;; macros.
+  (literal-macro nil)
+  ;; A function of the default value of an argument in extension_api.json, a
+  ;; string in GDScript syntax, and the value type, that returns a list of one
+  ;; form for it, or NIL if it isn't supported (yet)
+  (default-parser nil))
 
 (defparameter *value-types*
   (make-array (1+ +variant-type-variant-max+) :initial-element nil)
@@ -85,8 +105,14 @@ can't be checked)."
 values: the VALUE-TYPE of each variant type, by variant type, and that of
 :VARIANT, any Variant, last.")
 
-(defparameter *struct-variant-types* (make-hash-table :test #'eq)
-  "The variant types of the value types with a LISP-TYPE, by the struct type.")
+(defparameter *type-of-variant-types* (make-hash-table :test #'eq)
+  "The variant types of the value types whose LISP-TYPE is a symbol (a struct
+name, or HASH-TABLE), by that symbol, which TYPE-OF gives for their values.")
+
+(defparameter *element-type-variant-types* (make-hash-table :test #'equal)
+  "The variant types of the value types whose LISP-TYPE is a vector type, by
+the element type as ARRAY-ELEMENT-TYPE gives it for their values (the upgraded
+element type, T for SIMPLE-VECTOR).")
 
 ;; Inline: called for every Variant converted, and a call of a function in
 ;; another file costs about 50 ns in ECL
@@ -114,37 +140,119 @@ types whose conversion needs a higher layer, such as Callable, and builtin types
           (ffi:size-of-foreign-type (value-type-ffi-type value-type))))
   (setf (aref *value-types* (value-type-index (value-type-variant-type value-type)))
         value-type)
-  (when (value-type-lisp-type value-type)
-    (setf (gethash (value-type-lisp-type value-type) *struct-variant-types*)
-          (value-type-variant-type value-type)))
+  (let ((lisp-type (value-type-lisp-type value-type))
+        (variant-type (value-type-variant-type value-type)))
+    (cond ((null lisp-type))
+          ((eq lisp-type 'simple-vector)
+           (setf (gethash t *element-type-variant-types*) variant-type))
+          ((and (consp lisp-type) (eq (first lisp-type) 'simple-array))
+           ;; As ARRAY-ELEMENT-TYPE gives it: in ECL, EXT:BYTE8 for
+           ;; (UNSIGNED-BYTE 8)
+           (setf (gethash (upgraded-array-element-type (second lisp-type))
+                          *element-type-variant-types*)
+                 variant-type))
+          ((symbolp lisp-type)
+           (setf (gethash lisp-type *type-of-variant-types*) variant-type))
+          (t (error "Unsupported LISP-TYPE ~s of a value type" lisp-type))))
   value-type)
 
+(defun literal-macro-form (value-type string)
+  "The form for a value of VALUE-TYPE made once from the literal STRING, with
+its LITERAL-MACRO, such as (GD-EXTENSION:SNAME \"x\")."
+  `(,(or (value-type-literal-macro value-type)
+         (error "No literal macro for variant type ~s" (value-type-variant-type value-type)))
+    ,string))
+
+;;; Parsing default values of arguments in extension_api.json, strings in
+;;; GDScript syntax, for the DEFAULT-PARSER of value types
+
+(defun default-number (string)
+  "The number STRING is, or NIL."
+  (let ((*read-default-float-format* 'double-float)
+        (*read-eval* nil))
+    (let ((number (ignore-errors (read-from-string string))))
+      (and (realp number) number))))
+
+(defun default-string-literal (string start)
+  "The contents of the string literal \"...\" in STRING from START to the end,
+without escapes, or NIL."
+  (let ((end (1- (length string))))
+    (and (> end start)
+         (char= (char string start) #\")
+         (char= (char string end) #\")
+         (not (find #\\ string))
+         (subseq string (1+ start) end))))
+
+(defun parse-bool-default (default value-type)
+  (declare (ignore value-type))
+  (cond ((string= default "true") (list t))
+        ((string= default "false") (list nil))))
+
+(defun parse-int-default (default value-type)
+  (declare (ignore value-type))
+  (let ((number (default-number default)))
+    (and (integerp number) (list number))))
+
+(defun parse-float-default (default value-type)
+  (declare (ignore value-type))
+  (let ((number (default-number default)))
+    (and number (list (float number 1d0)))))
+
+(defun parse-string-default (default value-type)
+  (declare (ignore value-type))
+  (let ((contents (default-string-literal default 0)))
+    (and contents (list contents))))
+
+(defun parse-string-name-default (default value-type)
+  ;; &"name"
+  (let ((contents (and (eql 0 (search "&" default)) (default-string-literal default 1))))
+    (and contents (list (literal-macro-form value-type contents)))))
+
+(defun parse-node-path-default (default value-type)
+  ;; NodePath("path")
+  (let ((contents (and (eql 0 (search "NodePath(" default))
+                       (string= default ")" :start1 (1- (length default)))
+                       (default-string-literal (subseq default 0 (1- (length default))) 9))))
+    (and contents (list (literal-macro-form value-type contents)))))
+
+(defun parse-builtin-default (default value-type)
+  "For a builtin type whose components are all floats, such as Vector2:
+Vector2(x, y) is (VECTOR2 X Y)."
+  (let* ((name (value-type-lisp-type value-type))
+         (prefix (format nil "~a(" (car (rassoc (value-type-variant-type value-type)
+                                                *variant-type-names*))))
+         (count (length (builtin-type-components name)))
+         (components
+           (and (eql 0 (search prefix default))
+                (ignore-errors
+                 (let ((*read-default-float-format* 'single-float)
+                       (*read-eval* nil))
+                   (read-from-string
+                    (substitute #\Space #\, (subseq default (1- (length prefix))))))))))
+    (and (listp components)
+         (= (length components) count)
+         (every #'realp components)
+         (list `(,name ,@(mapcar (lambda (x) (float x 1.0)) components))))))
+
+;; bool, int and float are defined with DEFINE-SIMPLE-VALUE-TYPE below, and
+;; Object, whose values are Lisp objects, in GD-EXTENSION-CALLBACK
+;; (instance-bindings.lisp)
 (dolist (value-type
-         (list (make-value-type :variant-type +variant-type-bool+ :ffi-type :uint8-t
-                         :reader 'read-bool :writer 'write-bool
-                         :variant-reader 'read-bool-variant :variant-writer 'write-bool-variant)
-        (make-value-type :variant-type +variant-type-int+ :ffi-type :int64-t
-                         :reader 'read-int :writer 'write-int
-                         :variant-reader 'read-int-variant :variant-writer 'write-int-variant)
-        (make-value-type :variant-type +variant-type-float+ :ffi-type :double
-                         :reader 'read-float :writer 'write-float
-                         :variant-reader 'read-float-variant :variant-writer 'write-float-variant)
-        (make-value-type :variant-type +variant-type-object+ :ffi-type :pointer-void
-                         :reader 'read-object :writer 'write-object
-                         :variant-writer 'write-object-variant)
-        (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
+         (list (make-value-type :variant-type +variant-type-string+ :ffi-type 'godot-string
                          :reader 'read-godot-string :writer 'write-godot-string
-                         :destructor 'string-destructor)
-        ;; Read as Lisp strings, and written from them (strings.lisp). An
-        ;; engine method's argument is passed as the pointer to one instead,
-        ;; e.g. from SNAME, or a temporary one made from a Lisp string (see
-        ;; GD-EXTENSION::MAKE-ENGINE-ARGUMENT)
+                         :destructor 'string-destructor
+                         :default-parser 'parse-string-default)
+        ;; Read as Lisp strings, and written from them (strings.lisp)
         (make-value-type :variant-type +variant-type-string-name+ :ffi-type 'string-name
                          :reader 'read-string-name :writer 'write-string-name
-                         :destructor 'string-name-destructor)
+                         :destructor 'string-name-destructor
+                         :by-pointer t
+                         :default-parser 'parse-string-name-default)
         (make-value-type :variant-type +variant-type-node-path+ :ffi-type 'node-path
                          :reader 'read-node-path :writer 'write-node-path
-                         :destructor 'node-path-destructor)
+                         :destructor 'node-path-destructor
+                         :by-pointer t
+                         :default-parser 'parse-node-path-default)
         ;; The reader is for results, see READ-VARIANT-RESULT
         (make-value-type :variant-type :variant :ffi-type 'variant
                          :reader 'read-variant-result :writer 'write-variant
@@ -165,20 +273,6 @@ String)."
   (let ((destructor (value-type-destructor value-type)))
     (when destructor
       (funcall destructor pointer))))
-
-;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
-;; when a method's metadata says they're smaller). The raw value of an Object
-;; is the object pointer.
-
-(defun read-bool (pointer) (/= (foreign-ref pointer :uint8-t) 0))
-(defun write-bool (pointer value) (setf (foreign-ref pointer :uint8-t) (if value 1 0)))
-(defun read-int (pointer) (foreign-ref pointer :int64-t))
-(defun write-int (pointer value) (setf (foreign-ref pointer :int64-t) value))
-(defun read-float (pointer) (foreign-ref pointer :double))
-(defun write-float (pointer value) (setf (foreign-ref pointer :double) (float value 1d0)))
-(defun read-object (pointer) (foreign-ref pointer :pointer-void))
-(defun write-object (pointer value)
-  (setf (foreign-ref pointer :pointer-void) (object-pointer value)))
 
 ;;;
 ;;; Builtin types, see GD-EXTENSION-BUILTINS
@@ -309,7 +403,12 @@ aren't Godot's layout."
                                           :ffi-type ',mirror
                                           :reader ',reader-name
                                           :writer ',writer-name
-                                          :lisp-type ',name))
+                                          :lisp-type ',name
+                                          ;; Defaults such as Vector2(0, 0)
+                                          ,@(when (every (lambda (component)
+                                                           (eq (second component) :float))
+                                                         components)
+                                              '(:default-parser 'parse-builtin-default))))
          (eval-when (:compile-toplevel :load-toplevel :execute)
            (setf (gethash ',name *builtin-type-components*) ',components)
            ,@(when (or reader writer)
@@ -427,21 +526,16 @@ are found by the LISP-TYPE of their value types."
     (real +variant-type-float+)
     ;; Before other vectors
     (string +variant-type-string+)
-    ;; Specialized vectors are packed arrays (see containers.lisp in
-    ;; GD-EXTENSION)
-    ((simple-array (unsigned-byte 8) (*)) +variant-type-packed-byte-array+)
-    ((simple-array (signed-byte 32) (*)) +variant-type-packed-int32-array+)
-    ((simple-array (signed-byte 64) (*)) +variant-type-packed-int64-array+)
-    ((simple-array single-float (*)) +variant-type-packed-float32-array+)
-    ((simple-array double-float (*)) +variant-type-packed-float64-array+)
-    ;; Other vectors are Arrays, and hash tables Dictionaries
-    (simple-vector +variant-type-array+)
-    (hash-table +variant-type-dictionary+)
     ;; Before other structs, as the Lisp objects of instances include it. Not
     ;; raw pointers, which might point to something else than an Object, such
     ;; as a StringName.
     (godot-object +variant-type-object+)
-    (structure-object (values (gethash (type-of value) *struct-variant-types*)))))
+    ;; By element type: specialized vectors are packed arrays, and simple
+    ;; vectors Arrays (see containers.lisp in GD-EXTENSION)
+    ((simple-array * (*))
+     (values (gethash (array-element-type value) *element-type-variant-types*)))
+    ;; Structs, such as VECTOR2, and hash tables, which are Dictionaries
+    (t (values (gethash (type-of value) *type-of-variant-types*)))))
 
 (defun variant-value-p (value)
   "True if WRITE-VARIANT can make a Variant from VALUE."
@@ -508,26 +602,59 @@ VARIANT, with Godot's constructor."
                  ,(format nil "{ ~a value; ((void (*)(void *, void *))#0)(&value, #1); @(return 0) = value; }"
                           c-type)))
 
-(defun write-bool-variant (variant value)
-  (variant-from-raw variant +variant-type-bool+ :uint8-t "uint8_t" (if value 1 0)))
+(defmacro define-simple-value-type (variant-type ffi-type
+                                    &key reader writer variant-reader variant-writer
+                                         to-raw from-raw default-parser)
+  "Define the value type of VARIANT-TYPE, a simple type whose raw value is of
+FFI-TYPE, a C number or pointer: the functions READER and WRITER of the raw
+value at a pointer, VARIANT-READER and VARIANT-WRITER of a Variant, converted
+in one piece of C code, and the value type, whose TO-RAW and FROM-RAW (LAMBDA
+forms, see VALUE-TYPE) make the conversions between the Lisp and the raw value
+here and in the code generators."
+  (let ((c-type (c-type-name ffi-type))
+        (to-raw-function (coerce (eval to-raw) 'function))
+        (from-raw-function (coerce (eval from-raw) 'function)))
+    `(progn
+       (defun ,reader (pointer)
+         ,(funcall from-raw-function `(foreign-ref pointer ,ffi-type)))
+       (defun ,writer (pointer value)
+         (setf (foreign-ref pointer ,ffi-type) ,(funcall to-raw-function 'value)))
+       (defun ,variant-reader (variant)
+         ,(funcall from-raw-function
+                   `(raw-from-variant variant ,variant-type ,ffi-type ,c-type)))
+       (defun ,variant-writer (variant value)
+         (variant-from-raw variant ,variant-type ,ffi-type ,c-type
+                           ,(funcall to-raw-function 'value)))
+       (add-value-type (make-value-type :variant-type ,variant-type :ffi-type ,ffi-type
+                                        :reader ',reader :writer ',writer
+                                        :variant-reader ',variant-reader
+                                        :variant-writer ',variant-writer
+                                        :to-raw ,to-raw :from-raw ,from-raw
+                                        :default-parser ,default-parser)))))
 
-(defun read-bool-variant (variant)
-  (/= 0 (raw-from-variant variant +variant-type-bool+ :uint8-t "uint8_t")))
+;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
+;; when a method's metadata says they're smaller)
 
-(defun write-int-variant (variant value)
-  (variant-from-raw variant +variant-type-int+ :int64-t "int64_t" value))
+(define-simple-value-type +variant-type-bool+ :uint8-t
+  :reader read-bool :writer write-bool
+  :variant-reader read-bool-variant :variant-writer write-bool-variant
+  :to-raw (lambda (form) `(if ,form 1 0))
+  :from-raw (lambda (form) `(/= 0 ,form))
+  :default-parser 'parse-bool-default)
 
-(defun read-int-variant (variant)
-  (raw-from-variant variant +variant-type-int+ :int64-t "int64_t"))
+(define-simple-value-type +variant-type-int+ :int64-t
+  :reader read-int :writer write-int
+  :variant-reader read-int-variant :variant-writer write-int-variant
+  :to-raw (lambda (form) form)
+  :from-raw (lambda (form) form)
+  :default-parser 'parse-int-default)
 
-(defun write-float-variant (variant value)
-  (variant-from-raw variant +variant-type-float+ :double "double" (float value 1d0)))
-
-(defun read-float-variant (variant)
-  (raw-from-variant variant +variant-type-float+ :double "double"))
-
-(defun write-object-variant (variant value)
-  (variant-from-raw variant +variant-type-object+ :pointer-void "void *" (object-pointer value)))
+(define-simple-value-type +variant-type-float+ :double
+  :reader read-float :writer write-float
+  :variant-reader read-float-variant :variant-writer write-float-variant
+  :to-raw (lambda (form) `(float ,form 1d0))
+  :from-raw (lambda (form) form)
+  :default-parser 'parse-float-default)
 
 (defun read-variant (variant)
   "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for

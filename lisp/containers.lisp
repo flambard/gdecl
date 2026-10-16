@@ -42,6 +42,23 @@ with its constructor 0."
   `(call-ptr-constructor (initialize-cell-value (variant-get-ptr-constructor ,variant-type 0))
                          ,pointer (load-time-value (ffi:make-null-pointer :void))))
 
+(defun parse-empty-array-default (default value-type)
+  "An empty array, [], Array[Node]([]) or PackedByteArray(), as a default value
+(see VALUE-TYPE-DEFAULT-PARSER): any empty sequence, as the writers take any
+sequence."
+  (declare (ignore value-type))
+  (flet ((prefixp (prefix) (eql 0 (search prefix default))))
+    (when (or (string= default "[]")
+              (and (prefixp "Array[") (string= default "([])" :start1 (- (length default) 4)))
+              (and (prefixp "Packed") (string= default "()" :start1 (- (length default) 2))))
+      (list #()))))
+
+(defun parse-empty-dictionary-default (default value-type)
+  "An empty Dictionary, {}, as a default value, made when the argument isn't
+given."
+  (declare (ignore value-type))
+  (and (string= default "{}") (list '(make-hash-table :test #'equal))))
+
 (defun copy-memory (to from bytes)
   "Copy BYTES bytes from the pointer FROM to the pointer TO."
   (ffi:c-inline (to from bytes) (:pointer-void :pointer-void :unsigned-long) :void
@@ -97,7 +114,9 @@ VALUE, best a ~s, which is copied as it is." class-name vector-type)
                                         :ffi-type 'packed-array
                                         :reader ',reader
                                         :writer ',writer
-                                        :destructor ',destructor)))))
+                                        :destructor ',destructor
+                                        :lisp-type ',vector-type
+                                        :default-parser 'parse-empty-array-default)))))
 
 (defun to-single-float (x) (float x 1.0))
 (defun to-double-float (x) (float x 1d0))
@@ -156,11 +175,13 @@ sequence VALUE." class-name)
                    ,@(when destroy-before-write
                        `((,destroy-before-write element)))
                    (,(value-type-writer element-type) element (svref vector i))))))))
+       ;; No LISP-TYPE: a simple vector is an Array as a Variant
        (add-value-type (make-value-type :variant-type ,variant-type
                                         :ffi-type 'packed-array
                                         :reader ',reader
                                         :writer ',writer
-                                        :destructor ',destructor)))))
+                                        :destructor ',destructor
+                                        :default-parser 'parse-empty-array-default)))))
 
 (define-packed-element-array "PackedVector2Array" +variant-type-packed-vector2-array+
   +variant-type-vector2+ godot-vector2
@@ -208,7 +229,9 @@ sequence VALUE." class-name)
                                  :ffi-type 'godot-array
                                  :reader 'read-array
                                  :writer 'write-array
-                                 :destructor 'array-destructor))
+                                 :destructor 'array-destructor
+                                 :lisp-type 'simple-vector
+                                 :default-parser 'parse-empty-array-default))
 
 (defun read-dictionary (pointer)
   "The Dictionary at POINTER as an EQUAL hash table."
@@ -245,4 +268,6 @@ VALUE."
                                  :ffi-type 'godot-dictionary
                                  :reader 'read-dictionary
                                  :writer 'write-dictionary
-                                 :destructor 'dictionary-destructor))
+                                 :destructor 'dictionary-destructor
+                                 :lisp-type 'hash-table
+                                 :default-parser 'parse-empty-dictionary-default))

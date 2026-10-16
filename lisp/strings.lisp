@@ -81,19 +81,15 @@ PATH. Destroy it with NODE-PATH-DESTRUCTOR."
 ;;;
 
 (defun make-temporary-name (variant-type string)
-  "A StringName or NodePath (by VARIANT-TYPE) created from the Lisp STRING, in
-memory from MEM-ALLOC. Destroy it with DESTROY-TEMPORARY-NAME."
-  (if (= variant-type +variant-type-string-name+)
-      (let ((string-name (mem-alloc +string-name-size+)))
-        (write-string-name string-name string)
-        string-name)
-      (let ((node-path (mem-alloc +node-path-size+)))
-        (write-node-path node-path string)
-        node-path)))
+  "A value of VARIANT-TYPE, a type passed by pointer such as StringName or
+NodePath (see VALUE-TYPE-BY-POINTER), created from the Lisp STRING, in memory
+from MEM-ALLOC. Destroy it with DESTROY-TEMPORARY-NAME."
+  (let* ((value-type (find-value-type variant-type))
+         (name (mem-alloc (value-type-size value-type))))
+    (write-value name value-type string)
+    name))
 
 (defun destroy-temporary-name (variant-type name)
   "Destroy NAME, made by MAKE-TEMPORARY-NAME, and free its memory."
-  (if (= variant-type +variant-type-string-name+)
-      (string-name-destructor name)
-      (node-path-destructor name))
+  (destroy-value name (find-value-type variant-type))
   (mem-free name))

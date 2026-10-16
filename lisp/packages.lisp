@@ -234,7 +234,8 @@
            #:cast-pointer
            #:element-pointer
            #:foreign-ref
-           #:set-foreign-slots))
+           #:set-foreign-slots
+           #:c-type-name))
 
 (defpackage #:gd-extension-builtins
   (:documentation "Lisp versions of Godot's builtin types, such as Vector2 and
@@ -356,8 +357,6 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:builtin-type-components
            #:builtin-layout
            #:builtin-construct-form
-           #:read-object
-           #:write-object
            ;; Strings, StringNames and NodePaths
            #:read-godot-string
            #:write-godot-string
@@ -393,12 +392,18 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:value-type-ffi-type
            #:value-type-reader
            #:value-type-writer
+           #:value-type-to-raw
+           #:value-type-from-raw
+           #:value-type-by-pointer
+           #:value-type-literal-macro
+           #:value-type-default-parser
+           #:define-simple-value-type
+           #:parse-builtin-default
            #:value-type-destructor
            #:value-type-lisp-type
            #:value-type-variant-reader
            #:value-type-variant-writer
            #:raw-from-variant
-           #:write-object-variant
            #:find-value-type
            #:add-value-type
            #:read-value

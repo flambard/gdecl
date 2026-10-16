@@ -115,6 +115,12 @@ values must not be used any more."
 The NodePath is created once and kept until Godot unloads the extension."
   `(initialize-cell-value (new-node-path ,path)))
 
+;; A literal string given for a StringName or NodePath, as an argument of an
+;; engine method or a default value, becomes an SNAME or NPATH (see
+;; GD-EXTENSION::LITERAL-NAMES-COMPILER-MACRO)
+(setf (value-type-literal-macro (find-value-type +variant-type-string-name+)) 'sname
+      (value-type-literal-macro (find-value-type +variant-type-node-path+)) 'npath)
+
 (defun look-up-singleton (name)
   "The Lisp object of the engine singleton NAME, a string, or NIL."
   (with-string-name (string-name name)

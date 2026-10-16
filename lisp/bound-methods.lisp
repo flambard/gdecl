@@ -98,19 +98,16 @@ where the raw return value goes."
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-argument-form (value-type args index)
     "A form that reads argument INDEX, of VALUE-TYPE, from ARGS, the array of
-pointers to raw values of ptrcall_func. bool, int and float are read with C
-code, without a pointer object in between."
-    (let ((c-type (case (value-type-ffi-type value-type)
-                    (:uint8-t "uint8_t")
-                    (:int64-t "int64_t")
-                    (:double "double"))))
-      (if c-type
-          (let ((form `(ffi:c-inline (,args) (:pointer-void) ,(value-type-ffi-type value-type)
-                                     ,(format nil "*(~a *)((void **)#0)[~d]" c-type index)
-                                     :one-liner t)))
-            (if (eq (value-type-ffi-type value-type) :uint8-t)
-                `(/= 0 ,form)
-                form))
+pointers to raw values of ptrcall_func. The raw values of simple types (see
+VALUE-TYPE-FROM-RAW) are read with C code, without a pointer object in between."
+    (let ((from-raw (value-type-from-raw value-type))
+          (ffi-type (value-type-ffi-type value-type)))
+      (if from-raw
+          (funcall from-raw
+                   `(ffi:c-inline (,args) (:pointer-void) ,ffi-type
+                                  ,(format nil "*(~a *)((void **)#0)[~d]"
+                                           (c-type-name ffi-type) index)
+                                  :one-liner t))
           `(,(value-type-reader value-type) (foreign-ref ,args :pointer-void ,index)))))
 
   (defun ptrcall-invoker-form (return-type argument-types)

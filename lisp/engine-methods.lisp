@@ -40,11 +40,15 @@ needs no destroying."
       (when destructor
         `(,destructor ,pointer))))
 
+  (defun by-pointer-type-p (variant-type)
+    "True if an argument of VARIANT-TYPE is passed as the pointer to its value,
+such as a StringName (see VALUE-TYPE-BY-POINTER)."
+    (value-type-by-pointer (find-value-type variant-type)))
+
   (defun argument-ffi-type-of (variant-type)
     "The FFI type of the raw value of an argument of VARIANT-TYPE, or NIL for a
-StringName or NodePath, which is passed as the pointer to it."
-    (unless (or (eql variant-type +variant-type-string-name+)
-                (eql variant-type +variant-type-node-path+))
+type passed as the pointer to its value, such as a StringName."
+    (unless (by-pointer-type-p variant-type)
       (engine-value-ffi-type variant-type)))
 
   (defstruct (engine-argument
@@ -179,45 +183,45 @@ are pointers already). NIL for other methods."
               for i from 0
               for name = (argument-name argument)
               for type = (argument-variant-type argument)
-              do (flet ((raw (c-type form ffi-type)
-                          (push (format nil "~a a~d = ~a;" c-type i (input form ffi-type))
+              for value-type = (find-value-type type)
+              do (cond ((value-type-to-raw value-type)
+                        ;; A simple type: the raw value in a C variable. An
+                        ;; Object argument is a pointer to the object pointer.
+                        (let ((ffi-type (value-type-ffi-type value-type)))
+                          (push (format nil "~a a~d = ~a;" (c-type-name ffi-type) i
+                                        (input (funcall (value-type-to-raw value-type) name)
+                                               ffi-type))
                                 declarations)
                           (push (format nil "&a~d" i) pointers)))
-                   (cond ((eql type +variant-type-bool+) (raw "uint8_t" `(if ,name 1 0) :uint8-t))
-                         ((eql type +variant-type-int+) (raw "int64_t" name :int64-t))
-                         ((eql type +variant-type-float+) (raw "double" `(float ,name 1d0) :double))
-                         ;; An Object argument is a pointer to the object pointer
-                         ((eql type +variant-type-object+)
-                          (raw "void *" `(object-pointer ,name) :pointer-void))
-                         ;; Pointers to the StringName or NodePath already
-                         ((or (eql type +variant-type-string-name+)
-                              (eql type +variant-type-node-path+))
-                          (push (input name :pointer-void) pointers))
-                         ;; A builtin type made of floats, such as Vector2: an
-                         ;; array of its components
-                         ((float-layout type)
-                          (push (format nil "float a~d[] = { ~{~a~^, ~} };" i
-                                        (loop for accessors in (float-layout type)
-                                              ;; The outermost accessor applies first
-                                              collect (input (reduce (lambda (form accessor)
-                                                                       `(,accessor ,form))
-                                                                     accessors
-                                                                     :initial-value name)
-                                                             :float)))
-                                declarations)
-                          (push (format nil "a~d" i) pointers))
-                         (t (return-from inline-ptrcall-form nil)))))
+                       ;; Pointers to the StringName or NodePath already
+                       ((value-type-by-pointer value-type)
+                        (push (input name :pointer-void) pointers))
+                       ;; A builtin type made of floats, such as Vector2: an
+                       ;; array of its components
+                       ((float-layout type)
+                        (push (format nil "float a~d[] = { ~{~a~^, ~} };" i
+                                      (loop for accessors in (float-layout type)
+                                            ;; The outermost accessor applies first
+                                            collect (input (reduce (lambda (form accessor)
+                                                                     `(,accessor ,form))
+                                                                   accessors
+                                                                   :initial-value name)
+                                                           :float)))
+                              declarations)
+                        (push (format nil "a~d" i) pointers))
+                       (t (return-from inline-ptrcall-form nil))))
         (when (float-layout return-type)
           (return-from inline-ptrcall-form
             (inline-builtin-result-form target inputs declarations pointers arguments
                                         return-type)))
-        (destructuring-bind (&optional c-type ffi-type)
-            (cond ((eql return-type +variant-type-nil+) '())
-                  ((eql return-type +variant-type-bool+) '("uint8_t" :uint8-t))
-                  ((eql return-type +variant-type-int+) '("int64_t" :int64-t))
-                  ((eql return-type +variant-type-float+) '("double" :double))
-                  ((eql return-type +variant-type-object+) '("void *" :pointer-void))
-                  (t (return-from inline-ptrcall-form nil)))
+        (let* ((result-type (and (not (eql return-type +variant-type-nil+))
+                                 (find-value-type return-type)))
+               (from-raw (and result-type (value-type-from-raw result-type)))
+               (ffi-type (and from-raw (value-type-ffi-type result-type)))
+               (c-type (and ffi-type (c-type-name ffi-type))))
+          ;; A result of a simple type, or none
+          (when (and result-type (not from-raw))
+            (return-from inline-ptrcall-form nil))
           (let* ((count (length arguments))
                  ;; Zero, as Godot assigns the result, e.g. to a Ref
                  (result (if c-type (format nil "~a r = 0; " c-type) ""))
@@ -228,9 +232,9 @@ are pointers already). NIL for other methods."
                                       ,(mapcar #'second (reverse inputs))
                                       ,(or ffi-type :void)
                                       ,code)))
-            (cond ((eql return-type +variant-type-bool+) `(/= 0 ,form))
-                  ((eql return-type +variant-type-object+) `(pointer-lisp-object ,form))
-                  (t form)))))))
+            (if from-raw
+                (funcall from-raw form)
+                form))))))
 
   (defun ptrcall-method-form (target arguments return-type)
     "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
@@ -400,7 +404,7 @@ string at runtime into a temporary one, destroyed after the call."
     (loop for argument in (reverse arguments)
           for arg-name = (argument-name argument)
           for type = (argument-variant-type argument)
-          when (or (eql type +variant-type-string-name+) (eql type +variant-type-node-path+))
+          when (by-pointer-type-p type)
             do (let ((temporary (gensym "TEMPORARY")))
                  (setf form
                        `(let* ((,temporary (and (stringp ,arg-name)
@@ -445,81 +449,11 @@ name of an argument or \"the result\", if engine methods support it."
   (defun api-default-form (default variant-type)
     "A list of one form for the default value DEFAULT of an argument of
 VARIANT-TYPE, a string in GDScript syntax from extension_api.json, or NIL if
-it's not supported (yet)."
-    (labels ((number-or-nil (string)
-               (let ((*read-default-float-format* 'double-float)
-                     (*read-eval* nil))
-                 (let ((number (ignore-errors (read-from-string string))))
-                   (and (realp number) number))))
-             (string-literal (string start)
-               ;; "..." without escapes
-               (let ((end (1- (length string))))
-                 (and (> end start)
-                      (char= (char string start) #\")
-                      (char= (char string end) #\")
-                      (not (find #\\ string))
-                      (subseq string (1+ start) end))))
-             (prefixp (prefix)
-               (eql 0 (search prefix default)))
-             (builtin-default (prefix constructor count)
-               ;; PREFIX is e.g. "Vector2(", and COUNT the number of components
-               (let ((components
-                       (and (prefixp prefix)
-                            (ignore-errors
-                             (let ((*read-default-float-format* 'single-float)
-                                   (*read-eval* nil))
-                               (read-from-string
-                                (substitute #\Space #\, (subseq default (1- (length prefix))))))))))
-                 (and (listp components)
-                      (= (length components) count)
-                      (every #'realp components)
-                      (list `(,constructor ,@(mapcar (lambda (x) (float x 1.0)) components)))))))
-      (cond ((eql variant-type :variant) nil)
-            ((= variant-type +variant-type-bool+)
-             (cond ((string= default "true") (list t))
-                   ((string= default "false") (list nil))))
-            ((= variant-type +variant-type-int+)
-             (let ((number (number-or-nil default)))
-               (and (integerp number) (list number))))
-            ((= variant-type +variant-type-float+)
-             (let ((number (number-or-nil default)))
-               (and number (list (float number 1d0)))))
-            ((= variant-type +variant-type-object+)
-             (and (string= default "null") (list nil)))
-            ((= variant-type +variant-type-string+)
-             (let ((contents (string-literal default 0)))
-               (and contents (list contents))))
-            ((= variant-type +variant-type-string-name+)
-             (let ((contents (and (prefixp "&") (string-literal default 1))))
-               (and contents (list `(sname ,contents)))))
-            ((= variant-type +variant-type-node-path+)
-             (let ((contents (and (prefixp "NodePath(")
-                                  (string= default ")" :start1 (1- (length default)))
-                                  (string-literal (subseq default 0 (1- (length default))) 9))))
-               (and contents (list `(npath ,contents)))))
-            ;; Empty arrays: [], Array[Node]([]) and PackedByteArray(), which
-            ;; can be any empty sequence, as the writers take any sequence
-            ((and (or (= variant-type +variant-type-array+)
-                      (<= +variant-type-packed-byte-array+ variant-type
-                          +variant-type-packed-vector4-array+))
-                  (or (string= default "[]")
-                      (and (prefixp "Array[") (string= default "([])" :start1 (- (length default) 4)))
-                      (and (prefixp "Packed") (string= default "()" :start1 (- (length default) 2)))))
-             (list #()))
-            ;; An empty Dictionary, made when the argument isn't given
-            ((and (= variant-type +variant-type-dictionary+) (string= default "{}"))
-             (list '(make-hash-table :test #'equal)))
-            (t
-             ;; A builtin type whose components are all floats, such as Vector2:
-             ;; Vector2(x, y) is (VECTOR2 X Y)
-             (let* ((value-type (find-value-type variant-type nil))
-                    (name (and value-type (value-type-lisp-type value-type)))
-                    (components (and name (builtin-type-components name))))
-               (when (and components
-                          (every (lambda (component) (eq (second component) :float))
-                                 components))
-                 (builtin-default (format nil "~a(" (car (rassoc variant-type *variant-type-names*)))
-                                  name (length components))))))))
+it's not supported (yet): parsed by the value type's DEFAULT-PARSER."
+    (let* ((value-type (and (not (eql variant-type :variant))
+                            (find-value-type variant-type nil)))
+           (parser (and value-type (value-type-default-parser value-type))))
+      (and parser (funcall parser default value-type))))
 
   (defun engine-method-arguments (method)
     "The arguments of METHOD (a method from extension_api.json), as a list of
@@ -571,12 +505,10 @@ StringName or NodePath ARGUMENTS in SNAME or NPATH (see WRAP-LITERAL-NAMES), or
 NIL if it has none. FIRST-POSITION is the position of the first of ARGUMENTS in
 a call: 1 after an object argument, otherwise 0."
     (let ((positions (loop for argument in arguments
-                           for variant-type = (argument-variant-type argument)
+                           for value-type = (find-value-type (argument-variant-type argument))
                            for i from first-position
-                           when (eql variant-type +variant-type-string-name+)
-                             collect (cons i 'sname)
-                           when (eql variant-type +variant-type-node-path+)
-                             collect (cons i 'npath))))
+                           when (value-type-literal-macro value-type)
+                             collect (cons i (value-type-literal-macro value-type)))))
       (when positions
         `((define-compiler-macro ,name (&whole form &rest arguments)
             (or (wrap-literal-names ',name arguments ',positions)

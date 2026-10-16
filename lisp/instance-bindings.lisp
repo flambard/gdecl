@@ -130,21 +130,17 @@ it's NULL."
   (and (not (ffi:null-pointer-p object))
        (lisp-object object)))
 
-(defun read-lisp-object (pointer)
-  "The Object at POINTER (as in READ-OBJECT) as a Lisp value: NIL for null,
-otherwise its Lisp object (see LISP-OBJECT)."
-  (pointer-lisp-object (read-object pointer)))
-
-;; Objects that Godot gives Lisp (results of engine methods, arguments of
-;; bound methods and Callables) are instances' Lisp objects where there are
-;; any
-(defun read-lisp-object-variant (variant)
-  "The Object in the Variant at VARIANT as a Lisp value, as in READ-LISP-OBJECT."
-  (pointer-lisp-object (raw-from-variant variant +variant-type-object+ :pointer-void "void *")))
-
-(add-value-type (make-value-type :variant-type +variant-type-object+
-                                 :ffi-type :pointer-void
-                                 :reader 'read-lisp-object
-                                 :writer 'write-object
-                                 :variant-reader 'read-lisp-object-variant
-                                 :variant-writer 'write-object-variant))
+;; The Object value type. The raw value of an Object is the object pointer, and
+;; its Lisp value the object's Lisp object (NIL for null): objects that Godot
+;; gives Lisp, as results of engine methods and arguments of bound methods and
+;; Callables, are read with LISP-OBJECT. Wherever an Object is passed to Godot,
+;; OBJECT-POINTER takes a Lisp object or a raw pointer.
+(define-simple-value-type +variant-type-object+ :pointer-void
+  :reader read-lisp-object :writer write-lisp-object
+  :variant-reader read-lisp-object-variant :variant-writer write-lisp-object-variant
+  :to-raw (lambda (form) `(object-pointer ,form))
+  :from-raw (lambda (form) `(pointer-lisp-object ,form))
+  ;; Only null can be an Object's default value
+  :default-parser (lambda (default value-type)
+                    (declare (ignore value-type))
+                    (and (string= default "null") (list nil))))

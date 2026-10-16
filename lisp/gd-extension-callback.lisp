@@ -97,15 +97,6 @@ about to be shut down."
                 :one-liner t))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun callback-c-type (ffi-type)
-    "The C type of FFI-TYPE, a type of a callback's argument or result."
-    (ecase ffi-type
-      (:void "void")
-      (:pointer-void "void *")
-      (:int64-t "ecl_int64_t")
-      (:unsigned-byte "unsigned char")
-      (:unsigned-int "unsigned int")))
-
   (defun callback-c-name (name)
     "The name of the C function in front of the callback NAME, a symbol."
     (format nil "gdecl_callback_~a"
@@ -119,8 +110,8 @@ gives that function's address. If the thread can't, the C function returns
 0 (NULL), or nothing if RETURN-TYPE is :VOID."
   (let* ((c-name (callback-c-name name))
          (target (format nil "~a_target" c-name))
-         (c-return-type (callback-c-type return-type))
-         (c-argument-types (mapcar (lambda (argument) (callback-c-type (second argument)))
+         (c-return-type (c-type-name return-type))
+         (c-argument-types (mapcar (lambda (argument) (c-type-name (second argument)))
                                    arguments))
          (parameters (loop for type in c-argument-types
                            for i from 0
