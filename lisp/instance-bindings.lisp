@@ -6,8 +6,8 @@
 ;;; Every Godot object that Lisp gets has one Lisp object, a GODOT-OBJECT, so
 ;;; the same object is always the same (EQ) Lisp object. It's found through
 ;;; Godot's instance bindings: object_get_instance_binding, with the class
-;;; library as the token, gives the binding, which is (1+ index) into
-;;; *BINDINGS*, the table of the Lisp objects. An instance of an extension
+;;; library as the token, gives the binding, a handle of *BINDINGS*, the table
+;;; of the Lisp objects (see handle-tables.lisp). An instance of an extension
 ;;; class gets its binding when it's created (the Lisp object made by its
 ;;; class's constructor); any other object the first time Lisp gets it, from
 ;;; CREATE-BINDING. When Godot frees the object, it calls FREE-BINDING, which
@@ -15,29 +15,8 @@
 ;;; OBJECT-POINTER) instead of passing Godot a dangling pointer.
 ;;;
 
-(defvar *bindings* (make-array 0 :adjustable t :fill-pointer t))
-(defvar *free-bindings* '())
-
-(defun add-binding (lisp-object)
-  "Keep LISP-OBJECT in *BINDINGS* and return the binding for it."
-  (let ((index (if *free-bindings*
-                   (let ((index (pop *free-bindings*)))
-                     (setf (aref *bindings* index) lisp-object)
-                     index)
-                   (vector-push-extend lisp-object *bindings*))))
-    (ffi:make-pointer (1+ index) :void)))
-
-(defun binding-object (binding)
-  "The Lisp object of BINDING."
-  (aref *bindings* (1- (ffi:pointer-address binding))))
-
-(defun remove-binding (binding)
-  "Forget the Lisp object of BINDING, and return it."
-  (let* ((index (1- (ffi:pointer-address binding)))
-         (lisp-object (aref *bindings* index)))
-    (setf (aref *bindings* index) nil)
-    (push index *free-bindings*)
-    lisp-object))
+(define-handle-table *bindings*
+  "The Lisp objects of Godot objects, by instance binding.")
 
 (defvar *wrapper-function* (lambda (object) (make-godot-object :pointer object))
   "The function that makes the Lisp object of a Godot object (a pointer) that
@@ -50,7 +29,7 @@ the type of the object's class (see GD-EXTENSION:DEFINE-ENGINE-CLASS).")
     ((token :pointer-void) (object :pointer-void))
   (declare (ignore token))
   (with-callback-protection ("create binding" (ffi:make-null-pointer :void))
-    (add-binding (funcall *wrapper-function* object))))
+    (add-handle *bindings* (funcall *wrapper-function* object))))
 
 ;; void (*GDExtensionInstanceBindingFreeCallback)(void *p_token, void *p_instance,
 ;;                                                void *p_binding)
@@ -58,7 +37,7 @@ the type of the object's class (see GD-EXTENSION:DEFINE-ENGINE-CLASS).")
     ((token :pointer-void) (object :pointer-void) (binding :pointer-void))
   (declare (ignore token object))
   (with-callback-protection ("free binding")
-    (let ((lisp-object (remove-binding binding)))
+    (let ((lisp-object (remove-handle *bindings* binding)))
       ;; Freed: using it is an error from now on
       (when (godot-object-p lisp-object)
         (setf (godot-object-pointer lisp-object) nil)))))
@@ -108,16 +87,16 @@ The same Godot object always has the same Lisp object."
     (if (zerop binding)
         ;; Making the binding failed, which has been reported
         godot-object
-        (aref *bindings* (1- binding)))))
+        (address-handle-value *bindings* binding))))
 
 (defun free-bindings ()
   "Free the bindings of the objects that still exist, so that Godot doesn't call
 FREE-BINDING after Lisp is shut down, e.g. for engine singletons. The
 framework's last step at shutdown (see lifecycle.lisp in GD-EXTENSION)."
-  (let ((objects (loop for lisp-object across *bindings*
-                       when (and (godot-object-p lisp-object)
-                                 (godot-object-pointer lisp-object))
-                         collect (godot-object-pointer lisp-object))))
+  (let ((objects '()))
+    (do-handle-values (lisp-object *bindings*)
+      (when (and (godot-object-p lisp-object) (godot-object-pointer lisp-object))
+        (push (godot-object-pointer lisp-object) objects)))
     (dolist (object objects)
       (object-free-instance-binding object *class-library*))))
 

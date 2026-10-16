@@ -12,7 +12,8 @@
 ;;; CALL-VIRTUAL-WITH-DATA, at the end of this file (see extension-classes.lisp).
 ;;;
 ;;; A Lisp function can't be passed to C, so the BOUND-METHODs are kept in
-;;; *BOUND-METHODS* and method_userdata is (1+ index), so that it's never NULL.
+;;; *BOUND-METHODS*, a handle table (see handle-tables.lisp), whose handles are
+;;; the method_userdata.
 ;;;
 ;;; The functions get the instance's Lisp object (see INSTANCE-OBJECT), like
 ;;; self in GDScript.
@@ -42,7 +43,8 @@ NIL if ERRORP is false."
   ;; method's signature (see PTRCALL-INVOKER-FORM), or NIL
   (invoker nil))
 
-(defvar *bound-methods* (make-array 0 :adjustable t :fill-pointer t))
+(define-handle-table *bound-methods*
+  "The BOUND-METHODs, by method_userdata.")
 
 (defun register-method (function &key name (return-type +variant-type-nil+) argument-types
                                       invoker)
@@ -51,19 +53,17 @@ called with the instance's Lisp object and one Lisp value per argument.
 RETURN-TYPE and ARGUMENT-TYPES are variant types. NAME, e.g. \"Player.start\",
 is used in error messages. INVOKER, if given, is the function of
 PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
-  (ffi:make-pointer (1+ (vector-push-extend
-                         (make-bound-method :name name
-                                            :function function
-                                            :return-type (unless (= return-type +variant-type-nil+)
-                                                           (method-value-type return-type))
-                                            :argument-types (mapcar #'method-value-type
-                                                                    argument-types)
-                                            :invoker invoker)
-                         *bound-methods*))
-                    :void))
+  (add-handle *bound-methods*
+              (make-bound-method :name name
+                                 :function function
+                                 :return-type (unless (= return-type +variant-type-nil+)
+                                                (method-value-type return-type))
+                                 :argument-types (mapcar #'method-value-type argument-types)
+                                 :invoker invoker)))
 
+(declaim (inline userdata-method))
 (defun userdata-method (userdata)
-  (aref *bound-methods* (1- (ffi:pointer-address userdata))))
+  (handle-value *bound-methods* userdata))
 
 ;; Inline: CALLABLE-CALL (callables.lisp) calls it at every call. With optional
 ;; arguments, not keywords, which ECL's inlined code would parse at runtime.

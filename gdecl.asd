@@ -14,8 +14,9 @@
                  (:file "autorelease-pool" :depends-on ("gd-extension-types"))
                  ;; The package GD-EXTENSION-CALLBACK
                  (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "strings" "autorelease-pool"))
+                 (:file "handle-tables" :depends-on ("gd-extension-callback"))
                  (:file "initialize" :depends-on ("gd-extension-callback"))
-                 (:file "instance-bindings" :depends-on ("initialize"))
+                 (:file "instance-bindings" :depends-on ("initialize" "handle-tables"))
                  (:file "extension-classes" :depends-on ("instance-bindings"))
                  (:file "bound-methods" :depends-on ("extension-classes"))
                  (:file "callables" :depends-on ("bound-methods"))

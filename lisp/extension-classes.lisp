@@ -4,13 +4,13 @@
 ;;; Classes, see GD-EXTENSION:REGISTER-CLASS
 ;;;
 ;;; All classes share the same two callbacks, CREATE-INSTANCE and
-;;; FREE-INSTANCE. The class_userdata of a class is (1+ index) into
-;;; *EXTENSION-CLASSES*.
+;;; FREE-INSTANCE. The class_userdata of a class is its handle in
+;;; *EXTENSION-CLASSES* (see handle-tables.lisp).
 ;;;
 ;;; Each instance of an extension class has a Lisp object, made by the class's
 ;;; constructor. Godot only holds a pointer to the instance, so the Lisp objects
 ;;; are kept in *INSTANCES*, which keeps them reachable for the GC, and the
-;;; GDExtensionClassInstancePtr is (1+ index) into it. INSTANCE-OBJECT gives
+;;; GDExtensionClassInstancePtr is the handle there. INSTANCE-OBJECT gives
 ;;; the Lisp object of an instance pointer, and LISP-OBJECT
 ;;; (instance-bindings.lisp) that of a Godot object pointer.
 ;;;
@@ -40,31 +40,31 @@
   ;; name . method_userdata)
   (virtuals '()))
 
-(defvar *extension-classes* (make-array 0 :adjustable t :fill-pointer t))
+(define-handle-table *extension-classes*
+  "The EXTENSION-CLASSes, by class_userdata.")
 
 (defun add-extension-class (name string-name parent-string-name constructor destructor)
   "Add the class NAME (a string) to *EXTENSION-CLASSES* and return its
 class_userdata. STRING-NAME and PARENT-STRING-NAME are StringNames with the
 names of the class and its parent class, and must stay valid. For CONSTRUCTOR
 and DESTRUCTOR, see GD-EXTENSION:REGISTER-CLASS."
-  (ffi:make-pointer (1+ (vector-push-extend (make-extension-class
-                                             :name name
-                                             :string-name string-name
-                                             :parent-string-name parent-string-name
-                                             :constructor constructor
-                                             :destructor destructor)
-                                            *extension-classes*))
-                    :void))
+  (add-handle *extension-classes* (make-extension-class
+                                   :name name
+                                   :string-name string-name
+                                   :parent-string-name parent-string-name
+                                   :constructor constructor
+                                   :destructor destructor)))
 
 (defun userdata-class (userdata)
-  (aref *extension-classes* (1- (ffi:pointer-address userdata))))
+  (handle-value *extension-classes* userdata))
 
 (defun add-virtual (class-name string-name method-userdata)
   "Make the method identified by METHOD-USERDATA (see REGISTER-METHOD) the
 virtual method of the class CLASS-NAME (a string) named by STRING-NAME, a
 StringName that must stay valid."
-  (let ((class (or (find class-name *extension-classes*
-                         :key #'extension-class-name :test #'string=)
+  (let ((class (or (find-handle-value *extension-classes*
+                                      (lambda (class)
+                                        (string= class-name (extension-class-name class))))
                    (error "No extension class named ~s" class-name))))
     (push (cons string-name method-userdata) (extension-class-virtuals class))))
 
@@ -75,34 +75,15 @@ CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it.
                   :test #'string-name-equal))
       (ffi:make-null-pointer :void)))
 
-;; The Lisp objects of the instances, and the indices of the free elements
-(defvar *instances* (make-array 0 :adjustable t :fill-pointer t))
-(defvar *free-instances* '())
-
-(defun add-instance (lisp-object)
-  "Keep LISP-OBJECT, the Lisp object of an instance, in *INSTANCES* and return its
-GDExtensionClassInstancePtr."
-  (let ((index (if *free-instances*
-                   (let ((index (pop *free-instances*)))
-                     (setf (aref *instances* index) lisp-object)
-                     index)
-                   (vector-push-extend lisp-object *instances*))))
-    (ffi:make-pointer (1+ index) :void)))
-
-(defun remove-instance (instance)
-  "Forget the Lisp object of INSTANCE, and return it."
-  (let* ((index (1- (ffi:pointer-address instance)))
-         (lisp-object (aref *instances* index)))
-    (setf (aref *instances* index) nil)
-    (push index *free-instances*)
-    lisp-object))
+(define-handle-table *instances*
+  "The Lisp objects of the instances, by GDExtensionClassInstancePtr.")
 
 ;; Inline: bound methods (bound-methods.lisp) call it at every call
 (declaim (inline instance-object))
 (defun instance-object (instance)
   "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
 bound methods)."
-  (aref *instances* (1- (ffi:pointer-address instance))))
+  (handle-value *instances* instance))
 
 (defun create-class-instance (class-userdata)
   "Create a Godot object of the class identified by CLASS-USERDATA, with its Lisp
@@ -117,10 +98,10 @@ object, and return the object pointer."
     (unwind-protect
          (let ((lisp-object (funcall (extension-class-constructor class) object)))
            (object-set-instance object (extension-class-string-name class)
-                                (add-instance lisp-object))
+                                (add-handle *instances* lisp-object))
            (setf instance-set t)
            ;; So LISP-OBJECT finds it
-           (object-set-instance-binding object *class-library* (add-binding lisp-object)
+           (object-set-instance-binding object *class-library* (add-handle *bindings* lisp-object)
                                         (binding-callbacks))
            object)
       (unless instance-set
@@ -128,7 +109,7 @@ object, and return the object pointer."
 
 (defun free-class-instance (class-userdata instance)
   (let ((destructor (extension-class-destructor (userdata-class class-userdata)))
-        (object (remove-instance instance)))
+        (object (remove-handle *instances* instance)))
     (when destructor
       (funcall destructor object))))
 

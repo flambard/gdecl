@@ -5,24 +5,20 @@
 ;;;
 ;;; WRITE-CALLABLE makes a custom Godot Callable that calls a Lisp function. All
 ;;; custom Callables share the same two callbacks, CALLABLE-CALL and
-;;; CALLABLE-FREE. Their callable_userdata is (1+ index) into *CALLABLES*, which
-;;; keeps the functions; CALLABLE-FREE forgets the function when Godot frees the
-;;; last copy of the Callable.
+;;; CALLABLE-FREE. Their callable_userdata is the handle in *CALLABLES* (see
+;;; handle-tables.lisp), which keeps the functions; CALLABLE-FREE forgets the
+;;; function when Godot frees the last copy of the Callable.
 ;;;
 
-(defvar *callables* (make-array 0 :adjustable t :fill-pointer t))
-(defvar *free-callables* '())
+(define-handle-table *callables*
+  "The functions of the Callables, by callable_userdata.")
 
 (defun add-callable-function (function)
-  (let ((index (if *free-callables*
-                   (let ((index (pop *free-callables*)))
-                     (setf (aref *callables* index) function)
-                     index)
-                   (vector-push-extend function *callables*))))
-    (ffi:make-pointer (1+ index) :void)))
+  (add-handle *callables* function))
 
+(declaim (inline userdata-callable-function))
 (defun userdata-callable-function (userdata)
-  (aref *callables* (1- (ffi:pointer-address userdata))))
+  (handle-value *callables* userdata))
 
 (defun write-callable (pointer callable)
   "Construct a custom Godot Callable at POINTER, uninitialized memory, from the
@@ -75,6 +71,4 @@ until the last copy of the Callable is destroyed."
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (define-callback callable-free :void ((callable-userdata :pointer-void))
   (with-callback-protection ("free Lisp callable")
-    (let ((index (1- (ffi:pointer-address callable-userdata))))
-      (setf (aref *callables* index) nil)
-      (push index *free-callables*))))
+    (remove-handle *callables* callable-userdata)))

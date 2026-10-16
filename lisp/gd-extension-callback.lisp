@@ -12,6 +12,7 @@
 ;;;
 ;;; This file has the machinery: DEFINE-CALLBACK, the threads, and errors. The
 ;;; rest of the package GD-EXTENSION-CALLBACK, in the order it's loaded:
+;;; handle-tables.lisp (the tables of the Lisp values Godot has handles to),
 ;;; initialize.lisp (INITIALIZE and DEINITIALIZE, their hooks, and initialize
 ;;; cells), instance-bindings.lisp (the Lisp object of every Godot object, and
 ;;; the Object value type), extension-classes.lisp (classes, their instances
