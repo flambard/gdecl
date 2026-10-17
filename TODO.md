@@ -42,7 +42,6 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 
 ## Small things
 
-- [ ] **AJ. Check the builtin types' layouts against Godot's sizes.** `define-builtin-type` (`gd-extension-types.lisp`) writes the FFI mirror of each builtin type's layout by hand, such as `godot-vector2`, and `CLAUDE.md` says to check new mirrors against C with `sizeof`. `types` now imports `api-builtin-size`, so `define-builtin-type` could check each mirror's size against `extension_api.json` when the code is compiled, as `opaque-values.lisp` checks the packed arrays.
 - [ ] **AK. Expansions that don't depend on exports.** `make expansions-check` compares the expansions as text, printed with `gd-extension` as the current package, so a symbol that stops being accessible there, such as one no longer exported from `types`, prints with its package prefix and shows as a change though the code is the same (it happened when unused exports were removed). Print every symbol with its home package in `canonical-form` (`test/expansions.lisp`), so that only real changes, and moves between packages, show.
 
 ## Suggested order
@@ -54,7 +53,7 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 5. J with the REPL work, and R when an application uses threads.
 6. X when there's a reason to extend the editor.
 7. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
-8. AJ and AK any time; both are small.
+8. AK any time; it's small.
 
 ## Done
 
@@ -63,3 +62,4 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 - Singletons: `(:singleton t)` in `define-class` and `register-singleton` (from X).
 - From the review of the code's structure on 2026-10-16: the out-of-date documentation (Y), splitting `gd-extension-callback.lisp` (AB), the misplaced code and exports (AG), the constants copied by hand from `extension_api.json` (AF), strings, names and the autorelease pool in the types layer (AD), the code generators' call targets and shared builder (AE), what's known about each type in its value type (AC), the framework's startup and shutdown order in one place (Z), and one handle table abstraction for the callbacks' tables (AA). With them: `make expansions-baseline`/`expansions-check` for checking generator changes, and `make test` failing on unexpected Godot errors.
 - From the restructuring of 2026-10-17: the layers as directories of `lisp/`, each a module of `gdecl.asd` that lists the layers it uses, with its packages in its own `package.lisp`; `define-class` in a layer of its own, `godot-dsl`, beside `godot-clos`, which gives the high-level layer packages of its own (from P); `extension_api.json` read into Lisp structs in one layer, `extension-api`, which `ffi` no longer depends on (the sizes of Godot's opaque values moved to `types`); the class layers built on `gd-extension` and `godot` only (`invoker-form`, `report-error`, and where a `godot-object` keeps its pointer); unused exports and imports removed; the game ported to `godot-clos`.
+- AJ: `define-builtin-type` checks, when the code is compiled, that a builtin type's components add up to its size in `extension_api.json`.

@@ -151,7 +151,7 @@ The measured costs behind the code's design; check them with `make bench` (see B
 - **ECL FFI:**
   - A `:pointer-void` returned by a foreign function, and pointers from `with-foreign-memory` and `c-inline`, have no size, so cast them before accessing slots with `get-slot-value` (`cast-pointer`), or use `foreign-ref` and `set-foreign-slots`.
   - `defcallback` rejects `:uint8-t`, so declare `GDExtensionBool` as `:unsigned-byte`.
-  - Check new struct mirrors against C with `sizeof`/`offsetof`.
+  - Check new struct mirrors against C with `sizeof`/`offsetof`. The mirrors of builtin types are checked for you: `define-builtin-type` signals an error when the code is compiled if their components don't add up to the type's size in `extension_api.json`.
   - C code in `c-inline` can't rely on headers, so use `__builtin_memset` and the like.
   - C code in `ffi:clines` belongs to its file: ASDF compiles each file into a library of its own to load into the build image, so another file can't call a C function or use a variable defined there, not even a non-static one. Pass an address through Lisp instead, as `define-callback` does with `enter-lisp-address`.
   - `array-element-type` gives ECL's names for upgraded types, such as `ext:byte8` for `(unsigned-byte 8)`; compare with `upgraded-array-element-type`.

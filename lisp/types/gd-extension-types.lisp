@@ -372,6 +372,26 @@ as :FLOAT, or the mirror of a builtin type defined before."
     (intern (format nil "~a-~a" (symbol-name name) (symbol-name component))
             (symbol-package name)))
 
+  (defun builtin-layout-size (components)
+    "The size in bytes of a builtin type with COMPONENTS (as in
+DEFINE-BUILTIN-TYPE) in Godot's layout, which has no padding."
+    (loop for (nil type) in components
+          sum (if (keywordp type)
+                  (ffi:size-of-foreign-type type)
+                  (builtin-layout-size (builtin-type-components type)))))
+
+  (defun check-builtin-layout (name variant-type components)
+    "Signal an error unless the builtin type NAME of VARIANT-TYPE (a form, such as
++VARIANT-TYPE-VECTOR2+) with COMPONENTS (as in DEFINE-BUILTIN-TYPE) has the
+size that extension_api.json gives the type, when the code is compiled:
+otherwise its components don't match Godot's layout."
+    (let* ((godot-name (car (rassoc (eval variant-type) *variant-type-names*)))
+           (size (builtin-layout-size components))
+           (godot-size (macroexpand `(api-builtin-size ,godot-name))))
+      (unless (= size godot-size)
+        (error "The components of the builtin type ~s take ~d bytes, but a ~a takes ~d ~
+                in ~a" name size godot-name godot-size *extension-api-file*))))
+
   (defun builtin-raw-forms (name components pointer value)
     "The form that reads a NAME with COMPONENTS (as in DEFINE-BUILTIN-TYPE) from
 its raw value at POINTER, and the forms that write the NAME VALUE there. Each
@@ -406,7 +426,9 @@ the struct's accessor is NAME-<component>, and TYPE is an FFI type such as
 :FLOAT, or a builtin type defined before. Defines the FFI mirror GODOT-<name>,
 READ-<name> and WRITE-<name>, exports them, and adds the value type. READER and
 WRITER name functions of your own instead, for a type whose Lisp components
-aren't Godot's layout."
+aren't Godot's layout. Signals an error, when the code is compiled, if the
+components don't add up to the size of the type in extension_api.json."
+  (check-builtin-layout name variant-type components)
   (let ((mirror (builtin-type-symbol "GODOT-~a" name))
         (reader-name (or reader (builtin-type-symbol "READ-~a" name)))
         (writer-name (or writer (builtin-type-symbol "WRITE-~a" name))))
