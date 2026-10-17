@@ -66,7 +66,7 @@ $(BUILD_DIR)/%.o: $(GDECL)/src/%.c $(GDECL)/src/gdextension_interface.h
 # :monolithic t includes the systems SYSTEM depends on (gdecl); the output is
 # then named SYSTEM--all-systems.a. Changing SYSTEM doesn't make application.a
 # out of date, so use make -B SYSTEM=... The Lisp code is compiled with
-# extension_api.json (see lisp/gd-extension/extension-api.lisp), so it depends
+# extension_api.json (see lisp/api/extension-api.lisp), so it depends
 # on it too.
 $(APPLICATION_LIB): $(GDECL)/extension_api.json $(wildcard $(GDECL)/*.asd $(GDECL)/lisp/*/*.lisp $(foreach dir,$(LISP_DIRS),$(dir)/*.asd $(dir)/*.lisp))
 	@mkdir -p $(BUILD_DIR)

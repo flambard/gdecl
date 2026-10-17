@@ -1,32 +1,59 @@
-(in-package :gd-extension)
+;;;; extension_api.json, Godot's description of its API (generated with
+;;;; `make godot-api`), read when the code is compiled, so that the layers above
+;;;; can look up what they need in it instead of having it given by hand: the
+;;;; sizes of Godot's builtin types for GD-EXTENSION-FFI (API-BUILTIN-SIZE), and
+;;;; the classes, methods, enums and utility functions for the code generators
+;;;; of GD-EXTENSION, such as DEFINE-ENGINE-METHOD. Only used at compile time:
+;;;; the file is read the first time a macro needs it, in the image that
+;;;; compiles the code, and nothing from it is looked up at runtime. The API's
+;;;; types as gdecl's variant types are in api-types.lisp in GD-EXTENSION, as
+;;;; they need the variant types of GD-EXTENSION-FFI.
+
+(in-package :gd-extension-api)
 
 ;;;
-;;; Reading extension_api.json, Godot's description of its API (generated with
-;;; `make godot-api`), so that macros such as DEFINE-ENGINE-METHOD can look up a
-;;; method's hash and signature when they're expanded instead of having them
-;;; given by hand. Only used at compile time: the file is read the first time a
-;;; macro needs it, in the image that compiles the code, and nothing from it is
-;;; looked up at runtime.
+;;; The file
 ;;;
 
-;; The file is *EXTENSION-API-FILE*, read with EXTENSION-API-JSON, both from
-;; GD-EXTENSION-FFI, which also needs it.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;; extension_api.json is next to gdecl.asd, two directories up from this file
+  ;; (lisp/api/). The path is taken when this file is compiled, since the
+  ;; library loaded into Godot has no source files.
+  (defvar *extension-api-file*
+    (let ((this-file #.(or *compile-file-truename* *load-truename*)))
+      (make-pathname :name "extension_api" :type "json"
+                     :directory (butlast (pathname-directory this-file) 2)
+                     :defaults this-file)))
+
+  (defvar *extension-api-json* nil
+    "extension_api.json as JSON, read the first time it's needed.")
+
+  (defun extension-api-json ()
+    "extension_api.json as JSON, read once (about half a second). Only for code
+generation: the library loaded into Godot never reads it."
+    (or *extension-api-json*
+        (setf *extension-api-json* (read-json-file *extension-api-file*)))))
+
+(defmacro api-builtin-size (class-name)
+  "The size in bytes of the builtin class CLASS-NAME, a literal string such as
+\"StringName\" or \"Variant\", from builtin_class_sizes in extension_api.json
+(build configuration float_64, where real_t is float), when the code is
+compiled."
+  (let* ((configuration (find "float_64" (json-get (extension-api-json)
+                                                   "builtin_class_sizes")
+                              :key (lambda (sizes)
+                                     (json-get sizes "build_configuration"))
+                              :test #'string=))
+         (size (find class-name (json-get configuration "sizes")
+                     :key (lambda (size) (json-get size "name"))
+                     :test #'string=)))
+    (if size
+        (json-get size "size")
+        (error "No size of the builtin class ~a in ~a" class-name *extension-api-file*))))
 
 ;;;
 ;;; The API
 ;;;
-
-(define-condition unsupported-api-type (simple-error)
-  ()
-  (:documentation "Signaled while generating code from extension_api.json for a
-type that gdecl can't convert yet. DEFINE-ENGINE-CLASS and
-DEFINE-UTILITY-FUNCTIONS skip the methods that signal it; any other error is a
-real one."))
-
-(defun unsupported-api-type (format-control &rest format-arguments)
-  "Signal UNSUPPORTED-API-TYPE with a message made by FORMAT."
-  (error 'unsupported-api-type :format-control format-control
-                               :format-arguments format-arguments))
 
 (defstruct extension-api
   ;; The classes (JSON objects) by name
@@ -154,16 +181,3 @@ class name."
               when (and method (json-get method "is_virtual"))
                 collect (cons (json-get class "name") method))
         #'string< :key #'car))
-
-(defun api-variant-type (type)
-  "The variant type of TYPE, a type name from extension_api.json: an int for an
-enum or bitfield, Object for an engine class, :VARIANT for Variant."
-  (let ((builtin (assoc type *variant-type-names* :test #'string=)))
-    (cond (builtin (cdr builtin))
-          ((string= type "Variant") :variant)
-          ((or (eql 0 (search "enum::" type))
-               (eql 0 (search "bitfield::" type)))
-           +variant-type-int+)
-          ((eql 0 (search "typedarray::" type)) +variant-type-array+)
-          ((api-class type) +variant-type-object+)
-          (t (unsupported-api-type "Unsupported type in extension_api.json: ~a" type)))))

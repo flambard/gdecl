@@ -13,9 +13,14 @@
     :components ((:module "util"
                   :components ((:file "package")
                                (:file "json" :depends-on ("package"))))
+                 ;; extension_api.json, read when the code is compiled
+                 (:module "api"
+                  :depends-on ("util")
+                  :components ((:file "package")
+                               (:file "extension-api" :depends-on ("package"))))
                  ;; The GDExtension C interface
                  (:module "ffi"
-                  :depends-on ("util")
+                  :depends-on ("api")
                   :components ((:file "package")
                                (:file "gd-extension-ffi" :depends-on ("package"))))
                  ;; Godot's builtin types in plain Lisp
@@ -43,10 +48,10 @@
                  ;; The public, Lisp-style layer, and the code generators of
                  ;; Godot's API
                  (:module "gd-extension"
-                  :depends-on ("util" "ffi" "builtins" "types" "callback")
+                  :depends-on ("api" "ffi" "builtins" "types" "callback")
                   :components ((:file "package")
-                               (:file "extension-api" :depends-on ("package"))
-                               (:file "gd-extension" :depends-on ("package" "extension-api"))
+                               (:file "api-types" :depends-on ("package"))
+                               (:file "gd-extension" :depends-on ("package" "api-types"))
                                (:file "engine-methods" :depends-on ("gd-extension"))
                                (:file "engine-objects" :depends-on ("gd-extension"))
                                (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))

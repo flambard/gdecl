@@ -1,16 +1,14 @@
-;;;; The package GD-EXTENSION-FFI, the lowest layer: the GDExtension C interface,
-;;;; one-to-one. It uses GDECL-JSON (util/).
+;;;; The package GD-EXTENSION-FFI: the GDExtension C interface, one-to-one. It
+;;;; uses GD-EXTENSION-API (api/), for the sizes of Godot's builtin types.
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gd-extension-ffi
   (:documentation "The Godot GDExtension C interface, mapped 1-to-1")
   (:nicknames #:gdext-ffi)
   (:use #:cl)
+  (:import-from #:gd-extension-api
+                #:api-builtin-size)
   (:export #:load-interface
-           ;; extension_api.json, when the code is compiled
-           #:*extension-api-file*
-           #:extension-api-json
-           #:api-builtin-size
            #:*class-library*
            #:get-proc-address
            ;; Interface functions
