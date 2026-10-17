@@ -211,7 +211,18 @@ types of Godot objects.")
       (check (equalp (vector3 1.0 2.0 3.0) (round-trip (vector3 1.0 2.0 3.0))))
       (let ((basis (basis (vector3 1.0 2.0 3.0) (vector3 4.0 5.0 6.0) (vector3 7.0 8.0 9.0))))
         (check (equalp basis (round-trip basis))))
-      (check (same-object-p *root* (round-trip *root*))))))
+      (check (same-object-p *root* (round-trip *root*))))
+    ;; null is :NULL, as NIL is false; set_meta removes the entry for null
+    (check (eql +type-nil+ (typeof :null)))
+    (check (eql +type-bool+ (typeof nil)))
+    (object-set-meta node "value" nil)
+    (check (eq t (object-has-meta node "value")))
+    (object-set-meta node "value" :null)
+    (check (eq nil (object-has-meta node "value")))
+    ;; A Variant argument whose default is null, left out
+    (check (equal '(:null) (gd-extension::api-default-form "null" :variant)))
+    (object-set-meta node "count" 3)
+    (check (eql 3 (object-get-meta node "count")))))
 
 (deftest more-builtin-types
   ;; Through Variants
@@ -481,6 +492,7 @@ types of Godot objects.")
   (flet ((variant-type (value) (gd-extension-types:lisp-variant-type value)))
     (check (eql +type-bool+ (variant-type t)))
     (check (eql +type-bool+ (variant-type nil)))
+    (check (eql +type-nil+ (variant-type :null)))
     (check (eql +type-int+ (variant-type 3)))
     (check (eql +type-float+ (variant-type 1.5)))
     (check (eql +type-string+ (variant-type "text")))

@@ -450,8 +450,7 @@ name of an argument or \"the result\", if engine methods support it."
     "A list of one form for the default value DEFAULT of an argument of
 VARIANT-TYPE, a string in GDScript syntax from extension_api.json, or NIL if
 it's not supported (yet): parsed by the value type's DEFAULT-PARSER."
-    (let* ((value-type (and (not (eql variant-type :variant))
-                            (find-value-type variant-type nil)))
+    (let* ((value-type (find-value-type variant-type nil))
            (parser (and value-type (value-type-default-parser value-type))))
       (and parser (funcall parser default value-type))))
 

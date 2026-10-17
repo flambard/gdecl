@@ -197,6 +197,7 @@ Supported types, converted between Godot and Lisp:
 
 | Godot | Lisp |
 |---|---|
+| null | as a Variant, `:null` (`nil` is false); read as `nil` |
 | bool, int (also enums), float | `t`/`nil`, integers, floats |
 | String | strings |
 | Vector2, Vector2i, Vector3, Vector3i, Vector4, Vector4i, Rect2, Rect2i, Color, Plane, Quaternion, AABB, Basis, Transform2D, Transform3D, Projection | Lisp structs: `vector2`, `vector2i`, …, `transform3d`, `projection` (see Builtin types) |

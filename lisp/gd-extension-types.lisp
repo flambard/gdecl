@@ -198,6 +198,14 @@ without escapes, or NIL."
   (let ((number (default-number default)))
     (and number (list (float number 1d0)))))
 
+(defun parse-variant-default (default value-type)
+  ;; null is :NULL, not NIL, which is false as a Variant (see LISP-VARIANT-TYPE)
+  (declare (ignore value-type))
+  (if (string= default "null")
+      (list :null)
+      (let ((number (default-number default)))
+        (and number (list number)))))
+
 (defun parse-string-default (default value-type)
   (declare (ignore value-type))
   (let ((contents (default-string-literal default 0)))
@@ -256,7 +264,8 @@ Vector2(x, y) is (VECTOR2 X Y)."
         ;; The reader is for results, see READ-VARIANT-RESULT
         (make-value-type :variant-type :variant :ffi-type 'variant
                          :reader 'read-variant-result :writer 'write-variant
-                         :destructor 'variant-destroy)))
+                         :destructor 'variant-destroy
+                         :default-parser 'parse-variant-default)))
   (add-value-type value-type))
 
 (defun read-value (pointer value-type)
@@ -518,10 +527,12 @@ exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK."
 (defun lisp-variant-type (value)
   "The variant type of the Variant that WRITE-VARIANT makes from VALUE, by its
 Lisp type, or NIL if it can't make one. Structs, such as VECTOR2 and CALLABLE,
-are found by the LISP-TYPE of their value types."
+are found by the LISP-TYPE of their value types. NIL is false, so null is
+:NULL."
   (typecase value
     ;; Before integers, as NIL is also a list
     (boolean +variant-type-bool+)
+    ((eql :null) +variant-type-nil+)
     (integer +variant-type-int+)
     (real +variant-type-float+)
     ;; Before other vectors
@@ -547,11 +558,13 @@ of the variant type LISP-VARIANT-TYPE gives by its Lisp type: e.g. T or NIL is a
 bool, a string a String, a VECTOR2 a Vector2, a specialized vector a packed
 array, a simple vector an Array, a hash table a Dictionary, and a GODOT-OBJECT
 an Object (but not a raw pointer, which might point to something else, such as
-a StringName). Destroy it with VARIANT-DESTROY."
-  (write-variant-as variant
-                    (find-value-type (or (lisp-variant-type value)
-                                         (error "Can't make a Variant from ~s" value)))
-                    value))
+a StringName), and :NULL null. Destroy it with VARIANT-DESTROY."
+  (let ((variant-type (or (lisp-variant-type value)
+                          (error "Can't make a Variant from ~s" value))))
+    (if (= variant-type +variant-type-nil+)
+        ;; A Variant of all zeros is null, as Variant() in C++ makes it
+        (clear-foreign-object variant 'variant)
+        (write-variant-as variant (find-value-type variant-type) value))))
 
 (defun write-variant-as (variant value-type value)
   "Construct a Variant of VALUE-TYPE at VARIANT, uninitialized memory, from the
