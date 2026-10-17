@@ -11,13 +11,18 @@
 ;;; reference of its own (GD-EXTENSION:SETF-REFERENCE). Outside a call from
 ;;; Godot, e.g. at a REPL, there's no pool, and the caller owns the references.
 ;;;
+;;; The copies of Godot Callables that Lisp gets (ENGINE-CALLABLEs) go into the
+;;; pool too, and are destroyed when the call returns; GD-EXTENSION:KEEP-CALLABLE
+;;; makes a copy that isn't in it.
+;;;
 
 (defvar *autorelease-pool* :none
   "The references to give back when the call from Godot that's running returns:
 a list of (kind handle address), where KIND is :REFERENCE (HANDLE is a
-RefCounted object with a reference) or :VARIANT (HANDLE is a Variant, in memory
-from MEM-ALLOC, that keeps the reference of an Object result), and ADDRESS is
-the object's address. :NONE when there's no pool.")
+RefCounted object with a reference), :VARIANT (HANDLE is a Variant, in memory
+from MEM-ALLOC, that keeps the reference of an Object result) or :CALLABLE
+(HANDLE is an ENGINE-CALLABLE), and ADDRESS is the object's or the Callable's
+address. :NONE when there's no pool.")
 
 (defvar *release-reference-function* nil
   "The function that gives back a reference to a RefCounted object,
@@ -43,7 +48,8 @@ there's one. Returns OBJECT."
     (ecase kind
       (:reference (funcall *release-reference-function* handle))
       (:variant (variant-destroy handle)
-                (mem-free handle)))))
+                (mem-free handle))
+      (:callable (destroy-engine-callable handle)))))
 
 (defun release-autorelease-pool ()
   "Give back the references in the autorelease pool, the last first, and empty
@@ -62,6 +68,31 @@ of the pool. Returns true if OBJECT was in it."
         (setf *autorelease-pool* (delete entry *autorelease-pool* :count 1))
         (release-autorelease-entry entry)
         t))))
+
+(defun destroy-engine-callable (callable)
+  "Destroy the copy of a Godot Callable that the ENGINE-CALLABLE CALLABLE has, and
+free its memory. Using CALLABLE afterwards signals an error."
+  (let ((pointer (engine-callable-pointer callable)))
+    (when pointer
+      (setf (engine-callable-pointer callable) nil)
+      (callable-destructor pointer)
+      (mem-free pointer))))
+
+(defun autorelease-callable (callable)
+  "Put the ENGINE-CALLABLE CALLABLE into the autorelease pool, if there's one, so
+that its copy of the Godot Callable is destroyed when the call from Godot
+returns. Returns CALLABLE."
+  (when (autorelease-pool-p)
+    (push (list :callable callable (ffi:pointer-address (engine-callable-pointer callable)))
+          *autorelease-pool*))
+  callable)
+
+(defun release-engine-callable (callable)
+  "Destroy the copy of a Godot Callable that the ENGINE-CALLABLE CALLABLE has now,
+and take it out of the autorelease pool if it's there."
+  (when (autorelease-pool-p)
+    (setf *autorelease-pool* (delete callable *autorelease-pool* :key #'second :count 1)))
+  (destroy-engine-callable callable))
 
 (defun reference-for-caller (object)
   "Take a reference to OBJECT (a pointer or a GODOT-OBJECT, or NIL) if it's

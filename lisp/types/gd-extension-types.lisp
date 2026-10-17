@@ -85,9 +85,10 @@ can't be checked)."
   ;; The name of a function that destroys a raw value written by WRITER, or NIL
   destructor
   ;; The type specifier of the Lisp values that become Variants of this type in
-  ;; WRITE-VARIANT (see LISP-VARIANT-TYPE): a struct name, HASH-TABLE, or a
-  ;; vector type (SIMPLE-ARRAY element-type (*)), or SIMPLE-VECTOR. NIL for
-  ;; the types LISP-VARIANT-TYPE knows itself, such as integers.
+  ;; WRITE-VARIANT (see LISP-VARIANT-TYPE): a struct name, (OR struct-name...),
+  ;; HASH-TABLE, or a vector type (SIMPLE-ARRAY element-type (*)), or
+  ;; SIMPLE-VECTOR. NIL for the types LISP-VARIANT-TYPE knows itself, such as
+  ;; integers.
   lisp-type
   ;; The size of the raw value in bytes, set by ADD-VALUE-TYPE, so it isn't
   ;; looked up at every conversion
@@ -171,6 +172,10 @@ types whose conversion needs a higher layer, such as Callable, and builtin types
                  variant-type))
           ((symbolp lisp-type)
            (setf (gethash lisp-type *type-of-variant-types*) variant-type))
+          ;; Several structs, such as CALLABLE and ENGINE-CALLABLE
+          ((and (consp lisp-type) (eq (first lisp-type) 'or) (every #'symbolp (rest lisp-type)))
+           (dolist (type (rest lisp-type))
+             (setf (gethash type *type-of-variant-types*) variant-type)))
           (t (error "Unsupported LISP-TYPE ~s of a value type" lisp-type))))
   value-type)
 
@@ -556,9 +561,36 @@ the 9 floats of the Basis."
 (defstruct (callable (:constructor callable (target function)))
   "A Callable that calls the Lisp FUNCTION with the arguments as Lisp values,
 bound to the Godot object TARGET (a pointer): Godot only calls it while TARGET
-exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK."
+exists. Converted to a Godot Callable by GD-EXTENSION-CALLBACK, and back to the
+same CALLABLE."
   target
   function)
+
+(defstruct (engine-callable (:constructor make-engine-callable (pointer))
+                            (:copier nil))
+  "A Godot Callable that Lisp got from Godot, other than one of Lisp's own (which
+come back as their CALLABLE), such as a method of an object or a GDScript
+lambda. POINTER is a copy of the Callable, in memory from MEM-ALLOC, or NIL
+once it's been destroyed: when the call from Godot it came in returns (it's in
+the autorelease pool, see autorelease-pool.lisp), or with
+GD-EXTENSION:FREE-CALLABLE for a copy from GD-EXTENSION:KEEP-CALLABLE."
+  pointer)
+
+(defun engine-callable-memory (callable)
+  "The pointer to the Godot Callable of the ENGINE-CALLABLE CALLABLE. Signals an
+error if it's been destroyed."
+  (or (engine-callable-pointer callable)
+      (error "The Callable ~s has been destroyed: it's valid only until the call from ~
+              Godot it came in returns, unless kept with GD-EXTENSION:KEEP-CALLABLE"
+             callable)))
+
+(defstruct (engine-signal (:constructor engine-signal (object name))
+                          (:copier nil))
+  "A Godot Signal: the signal NAME (a string) of the Godot OBJECT (its Lisp
+object, or NIL), like object.name in GDScript. A Lisp value of its own, so it
+needs nothing destroyed."
+  object
+  name)
 
 ;;;
 ;;; Variants

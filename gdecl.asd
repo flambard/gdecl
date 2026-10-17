@@ -53,7 +53,8 @@
                                (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))
                                (:file "containers" :depends-on ("gd-extension" "engine-api"))
                                (:file "references" :depends-on ("engine-methods"))
-                               (:file "signals" :depends-on ("engine-methods"))
+                               (:file "signals" :depends-on ("engine-methods" "containers"))
+                               (:file "callables" :depends-on ("containers"))
                                (:file "registration" :depends-on ("gd-extension" "engine-methods"
                                                                   "engine-objects"))
                                (:file "objects" :depends-on ("registration" "references"

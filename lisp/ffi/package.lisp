@@ -49,10 +49,12 @@
            #:string-destructor
            #:node-path-destructor
            #:callable-destructor
+           #:signal-destructor
            #:packed-string-array-destructor
            #:string-to-utf8-chars
            #:print-error
            #:callable-custom-create2
+           #:callable-custom-get-userdata
            #:object-get-instance-id
            #:*print-error*
            #:variant-get-ptr-builtin-method
@@ -84,6 +86,8 @@
            #:dictionary-destructor
            #:*variant-from-type-constructors*
            #:*string-name-equal-evaluator*
+           #:*callable-equal-evaluator*
+           #:*callable-copy-constructor*
            #:*string-from-string-name-constructor*
            #:*string-from-node-path-constructor*
            #:*node-path-from-string-constructor*

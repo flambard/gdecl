@@ -17,6 +17,7 @@
   (defconstant +variant-size+ (api-builtin-size "Variant"))
   (defconstant +node-path-size+ (api-builtin-size "NodePath"))
   (defconstant +callable-size+ (api-builtin-size "Callable"))
+  (defconstant +signal-size+ (api-builtin-size "Signal"))
   (defconstant +packed-string-array-size+ (api-builtin-size "PackedStringArray"))
   (defconstant +packed-array-size+ (api-builtin-size "PackedByteArray"))
   (defconstant +array-size+ (api-builtin-size "Array"))
@@ -45,6 +46,10 @@
 ;; type CALLABLE.
 (ffi:def-struct godot-callable
   (data '(:array :uint8-t #.+callable-size+)))
+
+;; Godot's Signal. Named GODOT-SIGNAL, since SIGNAL is taken by CL.
+(ffi:def-struct godot-signal
+  (data '(:array :uint8-t #.+signal-size+)))
 
 (ffi:def-struct packed-string-array
   (data '(:array :uint8-t #.+packed-string-array-size+)))

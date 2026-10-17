@@ -34,4 +34,7 @@ tables and dispatchers behind them")
            #:add-virtual
            #:set-class-notifications
            #:notification-filter-pointer
-           #:lisp-object))
+           #:lisp-object
+           ;; Callables
+           #:keep-callable
+           #:free-callable))

@@ -430,12 +430,20 @@ types of Godot objects.")
   ;; which signal UNSUPPORTED-API-TYPE, but not other errors, such as bugs in
   ;; the code generator
   (check (eq :unsupported
-             (handler-case (gdext::engine-method-variant-type "Signal" "signal")
+             (handler-case (gdext::engine-method-variant-type "const void*" "data")
                (gdext::unsupported-api-type () :unsupported))))
   (check (eq :other
              (handler-case (gdext::engine-method-variant-type 42 "points")
                (gdext::unsupported-api-type () :unsupported)
                (error () :other)))))
+
+(deftest callable-results
+  ;; A Callable result of an engine method: a Lisp callable comes back as itself
+  (let ((spawner (class-db-instantiate "MultiplayerSpawner"))
+        (callable (gdext:callable *root* (lambda (data) data))))
+    (node-add-child *root* spawner)
+    (multiplayer-spawner-set-spawn-function spawner callable)
+    (check (eq callable (multiplayer-spawner-get-spawn-function spawner)))))
 
 (deftest autorelease-pool
   ;; RefCounted results stay alive until the call from Godot returns

@@ -207,14 +207,15 @@ Supported types, converted between Godot and Lisp:
 | RID | `rid`, with the ID as `rid-id` |
 | Object | its Lisp object (see Objects); `nil` is null |
 | StringName, NodePath | arguments: a string, or `(gdext:sname "x")` and `(gdext:npath "a/b")` (see below); results: strings |
-| Callable (arguments only) | a `callable` from `gd-extension-types`: a target object and a Lisp function |
+| Callable | a `gdext:callable` (a target object and a Lisp function), which comes back as itself, or a `gdext:engine-callable` for any other Callable, valid until the call from Godot returns (see Callables and Signals as values) |
+| Signal | a `gdext:engine-signal`: the object and the signal's name |
 | PackedByteArray, PackedInt32Array, PackedInt64Array, PackedFloat32Array, PackedFloat64Array | specialized vectors, such as `(simple-array single-float (*))`, copied as they are; arguments can be any sequence |
 | PackedStringArray, PackedVector2Array, PackedVector3Array, PackedVector4Array, PackedColorArray | simple vectors of strings and structs; arguments can be any sequence |
 | Array (also typed, `Array[Node]`) | a simple vector; arguments can be any sequence |
 | Dictionary | an `equal` hash table |
 | Variant | converted by its type, as above |
 
-Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn't change Godot's. As Variants, a simple vector becomes an Array, a specialized vector the matching packed array, and a hash table a Dictionary. A few methods with other types (Callable results) are skipped for now, and give an error when your code is compiled if you ask for them with `define-engine-method`.
+Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn't change Godot's. As Variants, a simple vector becomes an Array, a specialized vector the matching packed array, and a hash table a Dictionary. A few methods with other types (raw pointers) are skipped, and give an error when your code is compiled if you ask for them with `define-engine-method`.
 
 `define-engine-method` defines a function for one method, under a name you choose. Its hash and signature are looked up in `extension_api.json` when your code is compiled. It can also give a vararg method's extra arguments fixed types:
 
@@ -265,6 +266,23 @@ A literal string given for a StringName or NodePath argument, as in `(input-is-a
 ```
 
 The connection is bound to a target object, by default the one emitting the signal, and goes away when that object is freed.
+
+## Callables and Signals as values
+
+A Callable that Lisp makes, `(gdext:callable target function)`, comes back from Godot as the same `callable`. Any other Callable that Lisp gets, such as a method of an object or a GDScript lambda passed to a Lisp method, is an `engine-callable`. Both are called with `call-callable` and compared with `callable=`:
+
+```lisp
+(define-godot-generic apply-twice (self (function :callable) (value :int))
+  (:return-type :int))
+
+;; From GDScript: node.apply_twice(func(x): return x * 2, 3) is 12
+(defmethod apply-twice ((node my-node) function value)
+  (gdext:call-callable function (gdext:call-callable function value)))
+```
+
+An `engine-callable` holds a copy of Godot's Callable, which is destroyed when the call from Godot it came in returns, like the references in the autorelease pool (see References); using it afterwards signals an error. To keep one longer, e.g. in a slot, take a copy of your own with `keep-callable`, and destroy it with `free-callable` when it's no longer needed. Outside a call from Godot, e.g. at a REPL, there's no pool, and you free them yourself.
+
+A Signal is an `engine-signal`, the signal's object and name (`engine-signal-object`, `engine-signal-name`), made with `(gdext:engine-signal object "name")`. `emit-engine-signal` emits it and `connect-engine-signal` connects it to a Lisp function, as `connect-signal` does.
 
 ## References
 

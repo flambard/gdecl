@@ -125,6 +125,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:variant
            #:node-path
            #:godot-callable
+           #:godot-signal
+           #:+callable-size+
            #:packed-array
            #:godot-array
            #:godot-dictionary
@@ -157,13 +159,24 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            ;; The autorelease pool
            #:*release-reference-function*
            #:autorelease-reference
+           #:autorelease-callable
+           #:release-engine-callable
            #:release-autoreleased
            #:reference-for-caller
            #:release-autorelease-pool
            #:*autorelease-pool*
            #:callable
+           #:callable-p
            #:callable-target
            #:callable-function
+           #:engine-callable
+           #:engine-callable-p
+           #:make-engine-callable
+           #:engine-callable-memory
+           #:engine-signal
+           #:engine-signal-p
+           #:engine-signal-object
+           #:engine-signal-name
            ;; Value types
            #:value-type
            #:value-type-variant-type

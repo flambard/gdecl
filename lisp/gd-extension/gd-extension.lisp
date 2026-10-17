@@ -15,7 +15,8 @@
 ;;; (calling engine methods), engine-objects.lisp (the structs of engine
 ;;; objects), engine-api.lisp (DEFINE-ENGINE-CLASS, the global enums and the
 ;;; utility functions), containers.lisp (packed arrays, Arrays and
-;;; Dictionaries), references.lisp, signals.lisp, registration.lisp
+;;; Dictionaries), references.lisp, signals.lisp (also Signals as values),
+;;; callables.lisp (Callables as values), registration.lisp
 ;;; (registering classes, methods, properties, signals, virtual methods and
 ;;; singletons, and the classes registered when Godot initializes the
 ;;; extension) and objects.lisp (making and freeing objects). DEFINE-CLASS is

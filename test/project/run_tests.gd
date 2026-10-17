@@ -8,6 +8,9 @@ extends SceneTree
 var checks := 0
 var failures := 0
 
+# Emitted and connected to from Lisp by test_callables_and_signals
+signal tested(value: int)
+
 
 func check(condition: bool, message: String) -> void:
 	checks += 1
@@ -84,6 +87,44 @@ func test_methods() -> void:
 	check(node.is_null(null), "null for an Object argument")
 	check(not node.is_null(node), "an Object argument")
 	check(node.get_self() == node, "a Lisp object as an Object result")
+	node.free()
+
+
+func test_callables_and_signals() -> void:
+	var node := TestNode.new()
+	# A Callable from GDScript is an ENGINE-CALLABLE in Lisp, which can call it
+	check(node.call_callable(func(x): return x * 3, 5) == 15, "Lisp calls a GDScript lambda")
+	check(node.call_callable(node.add.bind(10), 5) == 15, "Lisp calls a bound method")
+	check(node.callables_equal(node.add, node.add), "equal method Callables")
+	check(not node.callables_equal(node.add, node.echo), "different method Callables")
+	check(node.count_engine_callables([func(): pass, 1, node.add]) == 2, "Callables in an Array")
+	check(node.echo_callable(node.add) == node.add, "an ENGINE-CALLABLE back to Godot")
+	check(node.call("echo_callable", node.add) == node.add, "and as a Variant")
+	# A Lisp callable comes back to Lisp as itself
+	var own: Callable = node.make_lisp_callable()
+	check(own.call(4) == 40, "GDScript calls a Lisp callable")
+	check(node.is_own_callable(own), "a Lisp callable comes back as itself")
+	# Valid until the call from Godot returns, unless kept
+	node.store_callable(func(x): return x)
+	# Fails, so a Variant call returns null
+	print("[test] expect error")
+	check(node.call("call_stored", 1) == null, "a Callable used after the call it came in")
+	node.keep_callable(func(x): return x + 1)
+	check(node.call_kept(1) == 2, "a kept Callable")
+	node.free_kept()
+	# A Signal is an ENGINE-SIGNAL in Lisp
+	var heard := []
+	var listener := func(value): heard.append(value)
+	tested.connect(listener)
+	node.emit_signal_value(tested, 7)
+	check(heard == [7], "Lisp emits a Signal")
+	check(node.signal_name(tested) == "tested" and node.signal_object(tested) == self,
+			"a Signal's name and object")
+	check(node.own_signal() == node.pinged, "a Signal from Lisp")
+	node.connect_signal_value(tested)
+	tested.emit(9)
+	check(node.heard_value() == 9, "Lisp connects to a Signal")
+	tested.disconnect(listener)
 	node.free()
 
 

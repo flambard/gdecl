@@ -461,6 +461,11 @@ BODY runs."
 (define-interface-function callable-custom-create2 "callable_custom_create2" :void
   ((callable :pointer-void) (info :pointer-void)))
 
+;; void *callable_custom_get_userdata(GDExtensionConstTypePtr p_callable, void *p_token)
+(define-interface-function callable-custom-get-userdata "callable_custom_get_userdata"
+  :pointer-void
+  ((callable :pointer-void) (token :pointer-void)))
+
 ;; GDObjectInstanceID object_get_instance_id(GDExtensionConstObjectPtr p_object)
 (define-interface-function object-get-instance-id "object_get_instance_id" :uint64-t
   ((object :pointer-void)))
@@ -582,6 +587,7 @@ destructor that LOAD-INTERFACE looks up into the variable *NAME*."
 (define-type-destructor string-destructor +variant-type-string+)
 (define-type-destructor node-path-destructor +variant-type-node-path+)
 (define-type-destructor callable-destructor +variant-type-callable+)
+(define-type-destructor signal-destructor +variant-type-signal+)
 (define-type-destructor packed-string-array-destructor +variant-type-packed-string-array+)
 (define-type-destructor packed-byte-array-destructor +variant-type-packed-byte-array+)
 (define-type-destructor packed-int32-array-destructor +variant-type-packed-int32-array+)
@@ -608,6 +614,12 @@ destructor that LOAD-INTERFACE looks up into the variable *NAME*."
 ;; variant_get_ptr_operator_evaluator
 (defvar *string-name-equal-evaluator* nil)
 
+;; The operator evaluator for Callable == Callable
+(defvar *callable-equal-evaluator* nil)
+
+;; The constructor of a Callable from a Callable, which copies it
+(defvar *callable-copy-constructor* nil)
+
 ;; The constructors of a String from a StringName and from a NodePath, and of a
 ;; NodePath from a String, fetched with variant_get_ptr_constructor
 (defvar *string-from-string-name-constructor* nil)
@@ -631,6 +643,11 @@ other values looked up once."
   (setf *string-name-equal-evaluator*
         (variant-get-ptr-operator-evaluator +variant-op-equal+ +variant-type-string-name+
                                             +variant-type-string-name+))
+  (setf *callable-equal-evaluator*
+        (variant-get-ptr-operator-evaluator +variant-op-equal+ +variant-type-callable+
+                                            +variant-type-callable+)
+        ;; Constructor 1 of Callable takes a Callable
+        *callable-copy-constructor* (variant-get-ptr-constructor +variant-type-callable+ 1))
   ;; Constructors 2 and 3 of String take a StringName and a NodePath
   (setf *string-from-string-name-constructor* (variant-get-ptr-constructor +variant-type-string+ 2)
         *string-from-node-path-constructor* (variant-get-ptr-constructor +variant-type-string+ 3)

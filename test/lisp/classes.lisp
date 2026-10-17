@@ -37,7 +37,12 @@
    ;; The arguments of the last pinged signal heard with LISTEN, and the object
    ;; that emitted it
    heard
-   emitter)
+   emitter
+   ;; Callables from Godot: one stored as it came, which is destroyed when the
+   ;; call returns, and one kept with KEEP-CALLABLE; and a Lisp callable
+   stored-callable
+   kept-callable
+   own-callable)
   (:signal "pinged" ("number" :int) ("text" :string) ("vector" :vector2) ("object" :object)
            ("flag" :bool))
   (:method "add" test-node-add :arguments (("a" :int) ("b" :int)) :return-type :int)
@@ -64,6 +69,31 @@
   (:method "listen" test-node-listen :arguments (("emitter" :object)))
   (:method "heard_pinged" test-node-heard-pinged-p :return-type :bool)
   (:method "fail" test-node-fail :return-type :int)
+  ;; Callables and Signals as values
+  (:method "call_callable" test-node-call-callable
+           :arguments (("callable" :callable) ("argument" :int)) :return-type :int)
+  (:method "echo_callable" test-node-echo :arguments (("callable" :callable))
+           :return-type :callable)
+  (:method "callables_equal" test-node-callables-equal
+           :arguments (("a" :callable) ("b" :callable)) :return-type :bool)
+  (:method "store_callable" test-node-store-callable :arguments (("callable" :callable)))
+  (:method "call_stored" test-node-call-stored :arguments (("argument" :int)) :return-type :int)
+  (:method "keep_callable" test-node-keep-callable :arguments (("callable" :callable)))
+  (:method "call_kept" test-node-call-kept :arguments (("argument" :int)) :return-type :int)
+  (:method "free_kept" test-node-free-kept)
+  (:method "make_lisp_callable" test-node-make-lisp-callable :return-type :callable)
+  (:method "is_own_callable" test-node-own-callable-p
+           :arguments (("callable" :callable)) :return-type :bool)
+  (:method "count_engine_callables" test-node-count-engine-callables
+           :arguments (("values" :array)) :return-type :int)
+  (:method "emit_signal_value" test-node-emit-signal-value
+           :arguments (("signal" :signal) ("value" :int)))
+  (:method "connect_signal_value" test-node-connect-signal-value :arguments (("signal" :signal)))
+  (:method "heard_value" test-node-heard-value :return-type :int)
+  (:method "signal_name" test-node-signal-name :arguments (("signal" :signal)) :return-type :string)
+  (:method "signal_object" test-node-signal-object
+           :arguments (("signal" :signal)) :return-type :object)
+  (:method "own_signal" test-node-own-signal :return-type :signal)
   (:virtual "_ready" test-node-ready)
   (:virtual "_process" test-node-process))
 
@@ -118,6 +148,63 @@ arguments and returns how many there were."
   "True if the arguments heard are those TEST-NODE-EMIT-PINGED emits."
   (equalp (test-node-heard node)
           (list 42 "text" (vector2 1.0 2.0) (test-node-emitter node) t)))
+
+(defun test-node-call-callable (node callable argument)
+  (declare (ignore node))
+  (gdext:call-callable callable argument))
+
+(defun test-node-callables-equal (node a b)
+  (declare (ignore node))
+  (gdext:callable= a b))
+
+(defun test-node-store-callable (node callable)
+  (setf (test-node-stored-callable node) callable))
+
+(defun test-node-call-stored (node argument)
+  ;; Signals an error: the Callable was destroyed when STORE_CALLABLE returned
+  (gdext:call-callable (test-node-stored-callable node) argument))
+
+(defun test-node-keep-callable (node callable)
+  (setf (test-node-kept-callable node) (gdext:keep-callable callable)))
+
+(defun test-node-call-kept (node argument)
+  (gdext:call-callable (test-node-kept-callable node) argument))
+
+(defun test-node-free-kept (node)
+  (gdext:free-callable (test-node-kept-callable node)))
+
+(defun test-node-make-lisp-callable (node)
+  (setf (test-node-own-callable node)
+        (gdext:callable node (lambda (x) (* 10 x)))))
+
+(defun test-node-own-callable-p (node callable)
+  (eq callable (test-node-own-callable node)))
+
+(defun test-node-count-engine-callables (node values)
+  (declare (ignore node))
+  (count-if #'gdext:engine-callable-p values))
+
+(defun test-node-emit-signal-value (node signal value)
+  (declare (ignore node))
+  (gdext:emit-engine-signal signal value))
+
+(defun test-node-connect-signal-value (node signal)
+  (gdext:connect-engine-signal signal (lambda (value) (setf (test-node-heard node) (list value)))
+                               :target node))
+
+(defun test-node-heard-value (node)
+  (first (test-node-heard node)))
+
+(defun test-node-signal-name (node signal)
+  (declare (ignore node))
+  (gdext:engine-signal-name signal))
+
+(defun test-node-signal-object (node signal)
+  (declare (ignore node))
+  (gdext:engine-signal-object signal))
+
+(defun test-node-own-signal (node)
+  (gdext:engine-signal node "pinged"))
 
 (defun test-node-fail (node)
   (declare (ignore node))

@@ -30,7 +30,9 @@
                 #:add-virtual
                 #:set-class-notifications
                 #:notification-filter-pointer
-                #:lisp-object)
+                #:lisp-object
+                #:keep-callable
+                #:free-callable)
   ;; Internal, but imported by the layers above that define classes,
   ;; GODOT-DSL and GODOT-CLOS
   (:intern #:add-class-definition
@@ -75,6 +77,21 @@
            ;; Signals
            #:connect-signal
            #:after-signal
+           ;; Callables and Signals as values
+           #:callable
+           #:callable-p
+           #:engine-callable
+           #:engine-callable-p
+           #:call-callable
+           #:callable=
+           #:keep-callable
+           #:free-callable
+           #:engine-signal
+           #:engine-signal-p
+           #:engine-signal-object
+           #:engine-signal-name
+           #:emit-engine-signal
+           #:connect-engine-signal
            ;; References
            #:add-reference
            #:release-reference
