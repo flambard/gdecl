@@ -71,6 +71,7 @@
            #:singleton
            ;; Calling engine methods
            #:define-engine-method
+           #:define-signal-emitter
            #:define-engine-class
            #:define-utility-functions
            #:define-global-enums

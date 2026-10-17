@@ -386,6 +386,20 @@ types of Godot objects.")
       (object-call node "signal_condition")
       (check (= 1 heard)))))
 
+(deftest signal-emitters
+  (let ((test-node (new-test-node))
+        (heard nil))
+    (gdext:connect-signal test-node "pinged" (lambda (&rest arguments) (setf heard arguments)))
+    ;; From :EMITTER in DEFINE-CLASS, with a String, so through the general path
+    (check (eql +ok+ (emit-test-pinged test-node 3 "three" (vector2 3.0 4.0) test-node t)))
+    (check (equal '(3 "three") (subseq heard 0 2)))
+    (check (equalp (vector2 3.0 4.0) (third heard)))
+    (check (same-object-p test-node (fourth heard)))
+    (check (eq t (fifth heard)))
+    ;; From DEFINE-SIGNAL-EMITTER, of a simple type, in one piece of C code
+    (check (eql +ok+ (emit-pinged-number test-node 7)))
+    (check (equal '(7) heard))))
+
 (deftest vararg-methods-with-extra-arguments
   ;; Extra arguments of simple types and a builtin type made of floats: the
   ;; call is made in one piece of C code, with the Variants on the C stack

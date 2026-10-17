@@ -43,8 +43,9 @@
    stored-callable
    kept-callable
    own-callable)
+  ;; With an emitter, which takes the general path, as a String isn't simple
   (:signal "pinged" ("number" :int) ("text" :string) ("vector" :vector2) ("object" :object)
-           ("flag" :bool))
+           ("flag" :bool) :emitter emit-test-pinged)
   (:method "add" test-node-add :arguments (("a" :int) ("b" :int)) :return-type :int)
   (:method "describe" test-node-describe
            :arguments (("flag" :bool) ("count" :int) ("scale" :float) ("object" :object))

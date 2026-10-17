@@ -145,12 +145,32 @@ SLOTS that keep them. NIL if there's neither."
             (destructor (function-form destructor))
             (release-forms `(lambda (object) ,@release-forms)))))
 
+  (defun parse-signal-option (arguments)
+    "The name, the arguments and the :EMITTER of the ARGUMENTS of a :SIGNAL option
+of DEFINE-CLASS: (name (argument-name type)... [:emitter emitter])."
+    (destructuring-bind (signal-name &rest rest) arguments
+      (let ((emitter-position (position :emitter rest)))
+        (values signal-name
+                (subseq rest 0 emitter-position)
+                (and emitter-position (nth (1+ emitter-position) rest))))))
+
+  (defun define-class-emitter-forms (option)
+    "The DEFINE-SIGNAL-EMITTER of the :SIGNAL option OPTION of DEFINE-CLASS, as a
+list, if it has an :EMITTER."
+    (when (eq (first option) :signal)
+      (multiple-value-bind (signal-name signal-arguments emitter)
+          (parse-signal-option (rest option))
+        (when emitter
+          `((define-signal-emitter ,emitter ,signal-name
+              ,(loop for (argument-name type) in signal-arguments
+                     collect (list (engine-method-argument-symbol argument-name) type))))))))
+
   (defun define-class-option-forms (class-name option)
     "The forms that bind what the class option OPTION of DEFINE-CLASS defines."
     (destructuring-bind (kind &rest arguments) option
       (ecase kind
         (:signal
-         (destructuring-bind (signal-name &rest signal-arguments) arguments
+         (multiple-value-bind (signal-name signal-arguments) (parse-signal-option arguments)
            `((bind-signal ,class-name ,signal-name ,(arguments-form signal-arguments)))))
         (:method
          (destructuring-bind (method-name function &key arguments (return-type :nil))
@@ -188,7 +208,9 @@ path ONREADY, a string, as with $Path, or to the result of the function ONREADY,
 called with the Lisp object.
 
 OPTIONS are:
-  (:signal name (argument-name type)...), see BIND-SIGNAL
+  (:signal name (argument-name type)... [:emitter emitter]), see BIND-SIGNAL;
+    EMITTER, a symbol, is defined as a function that emits the signal, fast
+    for arguments of simple types, see DEFINE-SIGNAL-EMITTER
   (:method name function &key arguments return-type), see BIND-METHOD
   (:virtual name function), see BIND-VIRTUAL
   (:destructor function), called with the Lisp object when Godot frees it
@@ -247,4 +269,6 @@ initialize hooks of the application run."
             ,@(when singleton
                 `((register-singleton ,class-name
                                       ,@(when (stringp singleton) `(,singleton))))))))
+       ,@(loop for option in options
+               append (define-class-emitter-forms option))
        ',name)))

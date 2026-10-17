@@ -131,7 +131,7 @@ Class options:
 
 | Option | |
 |---|---|
-| `(:signal name (argument type)...)` | A signal, like `signal hit(damage: int)` |
+| `(:signal name (argument type)... :emitter emitter)` | A signal, like `signal hit(damage: int)`. With `:emitter emit-hit`, `(emit-hit object 5)` emits it, fast (see Signals); `:emitter` is optional |
 | `(:method name function :arguments ((name type)...) :return-type type)` | A method Godot can call |
 | `(:virtual name function)` | A virtual method such as `"_ready"`, `"_process"` or `"_input"`. Its signature comes from the engine class you inherit from, so `_process` gets `delta` as a float |
 | `(:destructor function)` | Called with the instance when Godot frees it, as the Godot object is destroyed, so it mustn't call Godot with it |
@@ -167,6 +167,7 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 - The class's name in Godot is the class name in Godot style (`player` is `Player`), or `(:godot-name "Name")`. `(:tool t)` is as in `define-class`.
 - The slot options `:export`, `:class` and `:onready` are those of `define-class`; the rest of a slot is plain CLOS (`:initform`, `:initarg`, `:accessor`).
 - The class inherits from the struct of an engine class (`define-engine-class`) or from another `godot-class`, and may have mixins, standard classes, which come first in the superclasses. Its instances are Godot objects that engine methods take as they are, and `(make-instance 'player)` makes one in Godot. An object of a RefCounted class, such as a Resource, comes with a reference, as with `make-object` (see References).
+- A signal emitted often gets a fast emitter with `define-signal-emitter`, next to the class: `(gdext:define-signal-emitter emit-hit "hit" ((damage :int)))` (see Signals).
 - `define-godot-generic` defines a method that Godot and GDScript call by name, with its name in Godot (`(:godot-name "_on_body_entered")`) and types (`(:return-type :int)`). A class gets it in Godot if it has a method for it.
 - Virtual methods are generic functions too: `ready`, `process`, `physics-process`, `enter-tree`, `exit-tree`, `unhandled-input` and `draw`; `define-virtual-function` defines others. Godot calls one only for the classes that have methods for it.
 - `notification` is `_notification`, with the notifications as constants in `godot`. A class gets only the notifications its methods specialize `what` on with `eql`; the others don't call into Lisp. A method that doesn't specialize `what` gets all of them, including those Godot sends every frame. To clean up before an object is freed:
@@ -249,11 +250,11 @@ Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn
 `define-engine-method` defines a function for one method, under a name you choose. Its hash and signature are looked up in `extension_api.json` when your code is compiled. It can also give a vararg method's extra arguments fixed types:
 
 ```lisp
-(gdext:define-engine-method emit-hit ("Object" "emit_signal")
-  :extra-arguments ((damage :int)))
+(gdext:define-engine-method emit-with-int ("Object" "emit_signal")
+  :extra-arguments ((value :int)))
 ```
 
-That's also faster for a call made every frame: when the arguments are simple types (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`) and the result is none, a bool, an int or a float, the call is made in one piece of C code without allocating anything. `(emit-hit player "hit" 5)` takes about 0.16 µs, against 0.27 µs for `(object-emit-signal player "hit" 5)`, whose further arguments are converted by their Lisp types. Put such definitions in a file of their own, loaded before the code that calls them: ECL doesn't apply the compiler macro that makes a literal name such as `"hit"` a StringName once to calls in the same file, and then every call makes a temporary one.
+That's also faster for a call made every frame: when the arguments are simple types (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`) and the result is none, a bool, an int or a float, the call is made in one piece of C code without allocating anything. `(emit-with-int player "hit" 5)` takes about 0.16 µs, against 0.27 µs for `(object-emit-signal player "hit" 5)`, whose further arguments are converted by their Lisp types. For a signal, `define-signal-emitter` is simpler, as it fixes the signal's name too (see Signals). Put such definitions in a file of their own, loaded before the code that calls them: ECL doesn't apply the compiler macro that makes a literal name such as `"hit"` a StringName once to calls in the same file, and then every call makes a temporary one.
 
 ## Objects
 
@@ -286,6 +287,16 @@ A `basis` is made from its columns, `(basis x y z)`, and `basis-x` etc. are its 
 A literal string given for a StringName or NodePath argument, as in `(input-is-action-pressed "ui_up")`, becomes a StringName created once, when the code is compiled. A string that's only known at runtime becomes a temporary one for the call. To make your own, `(gdext:sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(gdext:npath "AnimatedSprite2D")` a NodePath created once. `(gdext:singleton "Input")` is an engine singleton, looked up the first time it's used.
 
 ## Signals
+
+`object-emit-signal` emits a signal, with its further arguments converted to Variants by their Lisp types: `(object-emit-signal player "hit" 5)`, about 0.27 µs. For a signal emitted often, define an emitter, which knows the types when your code is compiled:
+
+```lisp
+(gdext:define-signal-emitter emit-hit "hit" ((damage :int)))
+
+(emit-hit player 5)
+```
+
+When the types are simple (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`), the call is made in one piece of C code without allocating anything, about 0.12 µs. In `define-class`, `:emitter` on the signal defines one: `(:signal "hit" ("damage" :int) :emitter emit-hit)`. An emitter returns the `Error` of `emit_signal`, like `object-emit-signal`.
 
 `connect-signal` connects a signal to a Lisp function. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
 

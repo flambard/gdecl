@@ -20,6 +20,8 @@ instance.")
                 #:bind-method
                 #:bind-property
                 #:bind-signal
+                #:define-signal-emitter
+                #:engine-method-argument-symbol
                 #:bind-virtual
                 #:add-reference
                 #:setf-reference

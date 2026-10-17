@@ -23,6 +23,9 @@
 (gdext:define-engine-method emit-int ("Object" "emit_signal")
   :extra-arguments ((value :int)))
 
+;; A signal emitter of a simple type, called in one piece of C code
+(gdext:define-signal-emitter emit-pinged-number "pinged" ((number :int)))
+
 ;; A static method whose Variant argument comes before a String
 (gdext:define-engine-method json-stringify ("JSON" "stringify"))
 

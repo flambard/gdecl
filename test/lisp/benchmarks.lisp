@@ -48,7 +48,7 @@ three times, and print the best time and the bytes allocated per run."
    ;; A property, for timing its getter and setter (run_benchmarks.gd)
    (speed 1d0 :export :float))
   ;; Without connections, for timing emit_signal, a vararg method
-  (:signal "pinged" ("value" :int))
+  (:signal "pinged" ("value" :int) :emitter emit-benchmark-pinged)
   ;; For timing signal handlers, in GDScript and in Lisp (connect_lisp_handler)
   (:signal "handled" ("value" :int))
   (:method "connect_lisp_handler" lisp-benchmarks-connect-lisp-handler)
@@ -102,6 +102,8 @@ three times, and print the best time and the bytes allocated per run."
       (object-emit-signal benchmarks "pinged" 1))
     (benchmark "emit_signal(\"pinged\", 1) (vararg, :extra-arguments ((value :int)))" count
       (emit-int benchmarks "pinged" 1))
+    (benchmark "emit-benchmark-pinged (an emitter, :emitter in define-class)" count
+      (emit-benchmark-pinged benchmarks 1))
     ;; Converting Variants, for signal arguments, Variant calls and the further
     ;; arguments of vararg calls
     (gd-extension-ffi:with-foreign-memory ((variant 'gd-extension-types:variant))

@@ -666,7 +666,7 @@ a call: 1 after an object argument, otherwise 0."
   (defun engine-function-defun (name documentation arguments return-type
                                 &key function look-up-form not-found-error
                                      object object-form takes-object vararg rest
-                                     ref-counted-result)
+                                     ref-counted-result fixed-arguments)
     "The DEFUN of NAME, the function of an engine method or a utility function,
 and its compiler macro (see LITERAL-NAMES-COMPILER-MACRO), shared by
 DEFINE-ENGINE-METHOD and DEFINE-UTILITY-FUNCTIONS. FUNCTION is the variable for
@@ -675,32 +675,42 @@ LOOK-UP-FORM; NOT-FOUND-ERROR, the arguments of ERROR when it's NULL. OBJECT
 is the variable for the object pointer, bound to OBJECT-FORM, or NIL for a
 utility function; TAKES-OBJECT, true if the function takes the object as its
 first argument. A VARARG function takes REST, a variable or NIL, and is called
-with Variants. A REF-COUNTED-RESULT goes into the autorelease pool."
-    `(progn
-       (defun ,name ,(engine-function-lambda-list (and takes-object object) arguments rest)
-         ,documentation
-         (let (,@(when object `((,object ,object-form)))
-               (,function (initialize-cell-value ,look-up-form)))
-           (unless ,function
-             (error ,@not-found-error))
-           ,(let* ((target (make-call-target function object))
-                   (call (temporary-names-form
-                          arguments
-                          (if vararg
-                              (or (and (not rest)
-                                       (inline-variant-call-form target arguments return-type
-                                                                 name))
-                                  (variant-call-method-form target arguments return-type
-                                                            :rest rest :name name))
-                              (ptrcall-method-form target arguments return-type)))))
-              (if ref-counted-result
-                  `(autorelease-reference ,call)
-                  call))))
-       ,@(literal-names-compiler-macro name arguments (if takes-object 1 0))))
+with Variants. A REF-COUNTED-RESULT goes into the autorelease pool.
+FIXED-ARGUMENTS, an alist of (ENGINE-ARGUMENT . form), are arguments the
+function doesn't take, bound to the forms instead."
+    (let ((taken-arguments (remove-if (lambda (argument) (assoc argument fixed-arguments))
+                                      arguments)))
+      `(progn
+         (defun ,name ,(engine-function-lambda-list (and takes-object object) taken-arguments rest)
+           ,documentation
+           (let (,@(when object `((,object ,object-form)))
+                 (,function (initialize-cell-value ,look-up-form))
+                 ,@(loop for (argument . form) in fixed-arguments
+                         collect `(,(argument-name argument) ,form)))
+             (unless ,function
+               (error ,@not-found-error))
+             ,(let* ((target (make-call-target function object))
+                     (call (temporary-names-form
+                            taken-arguments
+                            (if vararg
+                                (or (and (not rest)
+                                         (inline-variant-call-form target arguments return-type
+                                                                   name))
+                                    (variant-call-method-form target arguments return-type
+                                                              :rest rest :name name))
+                                (ptrcall-method-form target arguments return-type)))))
+                (if ref-counted-result
+                    `(autorelease-reference ,call)
+                    call))))
+         ,@(literal-names-compiler-macro name taken-arguments (if takes-object 1 0)))))
 
-  (defun engine-method-defun (name class-name method-name extra-arguments)
+  (defun engine-method-defun (name class-name method-name extra-arguments
+                              &key fixed-arguments documentation)
     "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
-signature from extension_api.json."
+signature from extension_api.json. FIXED-ARGUMENTS, an alist of (argument-name
+. form), with the names as in extension_api.json, are arguments of the method
+that the function doesn't take, bound to the forms instead (see
+DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring."
     (multiple-value-bind (method defining-class) (api-method class-name method-name)
       (when (api-method-virtual-p method)
         (error "~a.~a is a virtual method, which can't be called through a method bind"
@@ -739,12 +749,13 @@ signature from extension_api.json."
                (method-bind (gensym "METHOD-BIND")))
           (engine-function-defun
            name
-           (format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
-                        ~@[ on the singleton ~a~]."
-                   static defining-class method-name
-                   (documented-argument-names method rest)
-                   (and vararg "Variants")
-                   singleton)
+           (or documentation
+               (format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
+                            ~@[ on the singleton ~a~]."
+                       static defining-class method-name
+                       (documented-argument-names method rest)
+                       (and vararg "Variants")
+                       singleton))
            arguments return-type
            :function method-bind
            :look-up-form `(look-up-method-bind ,defining-class ,method-name ,hash)
@@ -756,7 +767,13 @@ signature from extension_api.json."
            :takes-object takes-object
            :vararg vararg
            :rest rest
-           :ref-counted-result ref-counted-result))))))
+           :ref-counted-result ref-counted-result
+           :fixed-arguments (loop for (argument-name . form) in fixed-arguments
+                                  for symbol = (engine-method-argument-symbol argument-name)
+                                  collect (cons (or (find symbol arguments :key #'argument-name)
+                                                    (error "~a.~a has no argument ~a"
+                                                           class-name method-name argument-name))
+                                                form))))))))
 
 (defun look-up-method-bind (class-name method-name hash)
   "The method bind of CLASS-NAME.METHOD-NAME with HASH, for an initialize cell.
@@ -806,3 +823,25 @@ emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
   (handler-case (engine-method-defun name class-name method-name extra-arguments)
     (error (e)
       (error "In (DEFINE-ENGINE-METHOD ~s (~s ~s)): ~a" name class-name method-name e))))
+
+(defmacro define-signal-emitter (name signal-name arguments)
+  "Define NAME as a function that emits the signal SIGNAL-NAME (a string) of an
+object with ARGUMENTS, a list of (argument-name type), with TYPE as in
+VARIANT-TYPE: (NAME object argument...) is (OBJECT-EMIT-SIGNAL object
+SIGNAL-NAME argument...), and returns the Error of emit_signal, but the types are
+known when the code is compiled, so if they're all simple (bool, int, float,
+Object, StringName, NodePath, or a builtin type made of floats, such as Vector2),
+the call is made in one piece of C code that allocates nothing (see
+:EXTRA-ARGUMENTS of DEFINE-ENGINE-METHOD), and the signal's StringName is made
+once. E.g. (DEFINE-SIGNAL-EMITTER EMIT-HIT \"hit\" ((DAMAGE :INT))) for (EMIT-HIT
+PLAYER 5)."
+  (handler-case (engine-method-defun
+                 name "Object" "emit_signal" arguments
+                 :fixed-arguments `(("signal" . (sname ,signal-name)))
+                 :documentation (format nil "Emit the signal ~a of OBJECT~@[ with ~{~a~^, ~}~]."
+                                        signal-name
+                                        (mapcar (lambda (argument)
+                                                  (string-upcase (first argument)))
+                                                arguments)))
+    (error (e)
+      (error "In (DEFINE-SIGNAL-EMITTER ~s ~s): ~a" name signal-name e))))
