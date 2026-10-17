@@ -78,6 +78,15 @@ func _init() -> void:
 	report("clos.call(\"tick\", delta) (CLOS generic function, Variant call)",
 		func(): for i in COUNT: clos.call("tick", 0.016))
 	clos.run(COUNT)
+
+	# Notifications: to an engine class, to a CLOS class without a method for
+	# it (filtered out before Lisp), and with a method for it
+	var engine_node := Node2D.new()
+	report("node.notification(3900) (engine class)",
+		func(): for i in COUNT: engine_node.notification(3900))
+	engine_node.free()
+	report("clos.notification(3900) (no method)", func(): for i in COUNT: clos.notification(3900))
+	report("clos.notification(3901) (CLOS method)", func(): for i in COUNT: clos.notification(3901))
 	clos.free()
 
 	# Making and freeing objects: an engine class, a Lisp class defined with

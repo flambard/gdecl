@@ -129,7 +129,7 @@ Class options:
 | `(:signal name (argument type)...)` | A signal, like `signal hit(damage: int)` |
 | `(:method name function :arguments ((name type)...) :return-type type)` | A method Godot can call |
 | `(:virtual name function)` | A virtual method such as `"_ready"`, `"_process"` or `"_input"`. Its signature comes from the engine class you inherit from, so `_process` gets `delta` as a float |
-| `(:destructor function)` | Called with the instance when Godot frees it |
+| `(:destructor function)` | Called with the instance when Godot frees it, as the Godot object is destroyed, so it mustn't call Godot with it |
 | `(:tool t)` | Run the class's code in the editor too, like `@tool`. Otherwise instances in the editor are placeholders |
 | `(:singleton t)` | Make one instance and register it as an engine singleton named like the class, so GDScript uses it by name like `Input`: `GameState.add_score(10)`. `(:singleton "Name")` gives it another name. In Lisp, `(gdext:singleton "GameState")` is the instance. It's freed when Godot unloads the extension. The class can't be RefCounted |
 
@@ -164,6 +164,12 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 - The class inherits from the struct of an engine class (`define-engine-class`) or from another `godot-class`, and may have mixins, standard classes, which come first in the superclasses. Its instances are Godot objects that engine methods take as they are, and `(make-instance 'player)` makes one in Godot.
 - `define-godot-generic` defines a method that Godot and GDScript call by name, with its name in Godot (`(:godot-name "_on_body_entered")`) and types (`(:return-type :int)`). A class gets it in Godot if it has a method for it.
 - Virtual methods are generic functions too: `ready`, `process`, `physics-process`, `enter-tree`, `exit-tree`, `unhandled-input` and `draw`; `define-virtual-function` defines others. Godot calls one only for the classes that have methods for it.
+- `notification` is `_notification`, with the notifications as constants in `godot`. A class gets only the notifications its methods specialize `what` on with `eql`; the others don't call into Lisp. A method that doesn't specialize `what` gets all of them, including those Godot sends every frame. To clean up before an object is freed:
+
+  ```lisp
+  (defmethod notification ((player player) (what (eql +object-notification-predelete+)))
+    ...)
+  ```
 - Redefining a class, or adding a method, at a REPL updates the instances and registers what's new with Godot. Godot can't remove anything, change a class's parent, or call a virtual method that a class implemented only after Godot first asked (TODO J).
 
 A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, and an accessor 50–60 ns more than a struct accessor (see TODO P).
@@ -265,7 +271,7 @@ An engine method that returns a RefCounted object, such as a Resource, returns i
 
 ## The lower level
 
-`define-class` is built on functions you can also call yourself, e.g. for classes defined at runtime: `register-class`, `bind-method`, `bind-property`, `bind-signal`, `bind-virtual` and `register-singleton`. Types are given as in `define-class` (see `variant-type`). `with-string-name` and `with-string` create and destroy Godot StringNames and Strings; `get-method-bind` looks up a method to call with `object-method-bind-ptrcall` from `gd-extension-ffi`; and `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory. See their docstrings.
+`define-class` is built on functions you can also call yourself, e.g. for classes defined at runtime: `register-class` (also with a function for notifications, see `set-class-notifications`), `bind-method`, `bind-property`, `bind-signal`, `bind-virtual` and `register-singleton`. Types are given as in `define-class` (see `variant-type`). `with-string-name` and `with-string` create and destroy Godot StringNames and Strings; `get-method-bind` looks up a method to call with `object-method-bind-ptrcall` from `gd-extension-ffi`; and `cast-pointer`, `foreign-ref` and `clear-foreign-object` help with foreign memory. See their docstrings.
 
 ## Testing gdecl
 

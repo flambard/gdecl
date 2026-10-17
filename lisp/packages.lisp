@@ -444,6 +444,8 @@ tables and dispatchers behind them")
            #:ptrcall-invoker-form
            #:add-extension-class
            #:add-virtual
+           #:set-class-notifications
+           #:notification-filter-pointer
            #:instance-object
            #:lisp-object))
 
@@ -481,6 +483,8 @@ tables and dispatchers behind them")
                 #:ptrcall-invoker-form
                 #:add-extension-class
                 #:add-virtual
+                #:set-class-notifications
+                #:notification-filter-pointer
                 #:instance-object
                 #:lisp-object)
   ;; Internal, but imported by GODOT-CLOS, the prototype of the high-level
@@ -527,6 +531,7 @@ tables and dispatchers behind them")
            ;; Classes
            #:define-class
            #:register-class
+           #:set-class-notifications
            #:register-singleton
            #:bind-virtual
            #:instance-object
@@ -566,8 +571,8 @@ out; print is GODOT-PRINT.")
 as CLOS classes. The metaclass GODOT-CLASS registers a DEFCLASS with Godot,
 with slots exported as properties, :ONREADY slots and signals, and generic
 functions are what Godot calls: virtual methods such as _process, defined with
-DEFINE-VIRTUAL-FUNCTION, and methods that GDScript can call, defined with
-DEFINE-GODOT-GENERIC. The classes inherit from the structs of engine classes
+DEFINE-VIRTUAL-FUNCTION, methods that GDScript can call, defined with
+DEFINE-GODOT-GENERIC, and NOTIFICATION. The classes inherit from the structs of engine classes
 (DEFINE-ENGINE-CLASS), so their instances are GODOT-OBJECTs to the layers
 below.")
   (:use #:cl)
@@ -599,4 +604,6 @@ below.")
            #:enter-tree
            #:exit-tree
            #:unhandled-input
-           #:draw))
+           #:draw
+           ;; Notifications
+           #:notification))

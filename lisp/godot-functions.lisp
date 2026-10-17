@@ -18,11 +18,16 @@
 ;;;   class gets the method if it has a method for it; its subclasses inherit
 ;;;   it in Godot.
 ;;;
+;;; - Notifications, like _notification in GDScript: the generic function
+;;;   NOTIFICATION. A class gets the notifications its methods specialize the
+;;;   notification on with EQL, or all of them if one of its methods doesn't.
+;;;
 ;;; A class "has a method" for a generic function if a method's first
 ;;; specializer is the class or a standard class it inherits from (a GODOT-CLASS
 ;;; or a mixin), not a struct of an engine class or T, which may have default
 ;;; methods. Which ones it has is found when the class is registered, and again
-;;; when a method is added or the class redefined (godot-registration.lisp).
+;;; when a method is added or removed, or the class redefined
+;;; (godot-registration.lisp).
 ;;;
 ;;; Godot calls the generic function by name, through the invokers of
 ;;; BIND-METHOD and BIND-VIRTUAL, so its dispatch runs at every call: about
@@ -224,3 +229,48 @@ _unhandled_input in GDScript."))
 
 (define-virtual-function draw ("CanvasItem" "_draw") (self)
   (:documentation "Called to draw the canvas item, like _draw in GDScript."))
+
+;;;
+;;; Notifications
+;;;
+;;; Godot sends every notification of an object to its class's
+;;; notification_func, including some every frame, such as
+;;; NOTIFICATION_PROCESS, and only those a class has methods for reach Lisp
+;;; (see Notifications in extension-classes.lisp).
+;;;
+
+(defgeneric notification (self what)
+  (:generic-function-class godot-function)
+  (:documentation "Called with a notification WHAT (an integer) that Godot sends
+SELF, like _notification in GDScript, e.g.
+
+  (defmethod notification ((self player) (what (eql +object-notification-predelete+)))
+    ...)
+
+for cleaning up before Godot frees the object. The notifications are constants
+in GODOT, such as +NODE-NOTIFICATION-PARENTED+. A class gets the notifications
+that its methods (see CLASS-METHODS) specialize WHAT on with EQL, or all of
+them if one of its methods doesn't specialize WHAT, which costs a call into
+Lisp for every notification, also those sent every frame."))
+
+;; For notifications that a class's methods don't handle, such as a mixin's
+;; :BEFORE method alone
+(defmethod notification ((self godot-object) what)
+  (declare (ignore what))
+  nil)
+
+(defun call-notification (object what reversed)
+  "Call NOTIFICATION, for REGISTER-CLASS's notification function. REVERSED isn't
+used: the methods' order is that of the method combination."
+  (declare (ignore reversed))
+  (notification object what))
+
+(defun class-notifications (class)
+  "The notifications CLASS gets, from the methods of NOTIFICATION it has: a list,
+or T for all."
+  (let ((notifications '()))
+    (dolist (method (class-methods #'notification class) notifications)
+      (let ((specializer (second (clos:method-specializers method))))
+        (if (typep specializer 'clos:eql-specializer)
+            (pushnew (clos:eql-specializer-object specializer) notifications)
+            (return t))))))

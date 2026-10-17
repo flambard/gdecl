@@ -170,7 +170,8 @@ without arguments has none."
 ;; the last one first
 (defvar *registered-classes* '())
 
-(defun register-class (class-name parent-class-name &key constructor destructor tool)
+(defun register-class (class-name parent-class-name
+                       &key constructor destructor notification (notifications t) tool)
   "Register the class CLASS-NAME, which inherits from the class
 PARENT-CLASS-NAME (both strings). When Godot creates an instance, CONSTRUCTOR
 is called with the Godot object pointer, and returns the instance's Lisp object
@@ -178,7 +179,17 @@ is called with the Godot object pointer, and returns the instance's Lisp object
 GODOT-OBJECT, made with the pointer as its POINTER. The default makes one of
 the type of the engine class it inherits from (see DEFINE-ENGINE-CLASS), as
 for an object of that class. When Godot frees the instance, DESTRUCTOR, if
-given, is called with the Lisp object.
+given, is called with the Lisp object. It's called as the Godot object is
+destroyed, so it mustn't call Godot with it; that's for
+NOTIFICATION_PREDELETE.
+
+When Godot sends an instance a notification, like _notification in GDScript,
+NOTIFICATION, if given, is called with the Lisp object, the notification (an
+integer, such as +OBJECT-NOTIFICATION-PREDELETE+ in GODOT) and whether it's
+sent in reverse order (subclasses first, as PREDELETE is), for the
+notifications in NOTIFICATIONS: a list, or T for all. SET-CLASS-NOTIFICATIONS
+changes them. Godot sends some notifications every frame, such as
+NOTIFICATION_PROCESS, so only those that some class wants call into Lisp.
 
 Unless TOOL is true, the class is a runtime class: in the editor, its instances
 are placeholders that keep their properties but run no code, like a GDScript
@@ -189,7 +200,8 @@ script without @tool."
          (string-name (new-string-name class-name))
          (parent-string-name (new-string-name parent-class-name))
          (class-userdata (add-extension-class class-name string-name parent-string-name
-                                              constructor destructor)))
+                                              constructor destructor
+                                              notification notifications)))
     (ffi:with-foreign-object (info 'class-creation-info4)
       ;; All slots not set below are NULL/0
       (clear-foreign-object info 'class-creation-info4)
@@ -198,6 +210,9 @@ script without @tool."
         is-runtime (if tool 0 1)
         create-instance-func (callback-pointer 'create-instance)
         free-instance-func (callback-pointer 'free-instance)
+        notification-func (if notification
+                              (notification-filter-pointer)
+                              (ffi:make-null-pointer :void))
         get-virtual-call-data-func (callback-pointer 'get-virtual-call-data)
         call-virtual-with-data-func (callback-pointer 'call-virtual-with-data)
         class-userdata class-userdata)

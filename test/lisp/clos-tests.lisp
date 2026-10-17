@@ -58,3 +58,39 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
             (* 10 (clos-redefined-b node))))
     (check (object-has-method node "late_value"))
     (check (= 70 (object-call node "late_value")))))
+
+(deftest clos-notifications
+  (let ((node (new-clos-node 'clos-node))
+        (sub (new-clos-node 'clos-sub-node)))
+    ;; Parented when added to *ROOT*, once, also for SUB, whose method is
+    ;; inherited from another Lisp class
+    (check (equal '(:parented) (clos-node-notifications node)))
+    (check (equal '(:parented :before-parented) (clos-node-notifications sub)))
+    ;; A method of a mixin
+    (node-remove-child *root* sub)
+    (check (string= "goodbye" (clos-greeting sub)))
+    (node-add-child *root* sub)
+    ;; Before Godot frees it
+    (let ((predeletes *clos-node-predeletes*))
+      (node-remove-child *root* node)
+      (gdext-ffi:object-destroy (gdext:object-pointer node))
+      (check (= (1+ predeletes) *clos-node-predeletes*)))))
+
+(defvar *clos-redefined-notifications* '()
+  "The notifications the method added by CLOS-NOTIFICATIONS-AT-RUNTIME got.")
+
+(deftest clos-notifications-at-runtime
+  (let ((node (new-clos-node 'clos-redefined-node)))
+    ;; A method for all notifications, added as at a REPL
+    (eval '(defmethod notification ((node clos-redefined-node) what)
+            (push what *clos-redefined-notifications*)))
+    (node-remove-child *root* node)
+    (check (member +node-notification-exit-tree+ *clos-redefined-notifications*))
+    (check (member +node-notification-unparented+ *clos-redefined-notifications*))
+    ;; And removed again
+    (remove-method #'notification
+                   (find-method #'notification '()
+                                (list (find-class 'clos-redefined-node) (find-class t))))
+    (setf *clos-redefined-notifications* '())
+    (node-add-child *root* node)
+    (check (null *clos-redefined-notifications*))))

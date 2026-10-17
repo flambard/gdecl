@@ -8,18 +8,20 @@
 ;;; extension, in the order the classes were defined, or right away at a REPL.
 ;;; Registering a class registers it with REGISTER-CLASS, and then what it has
 ;;; that Godot needs to know about (UPDATE-GODOT-CLASS): its exported slots as
-;;; properties, its signals, its methods for GODOT-METHODs, and its virtual
-;;; methods. Each is registered on the first class that has it, as Godot's
-;;; subclasses inherit them, except virtual methods, which Godot looks up in the
-;;; class of the instance only, so each class binds those it implements,
-;;; inherited ones too.
+;;; properties, its signals, its methods for GODOT-METHODs, its virtual
+;;; methods, and the notifications it gets. Each is registered on the first
+;;; class that has it, as Godot's subclasses inherit them, except virtual
+;;; methods, which Godot looks up in the class of the instance only, so each
+;;; class binds those it implements, inherited ones too, and notifications,
+;;; which Godot sends only to the class of the instance.
 ;;;
 ;;; The class is updated again when it's redefined, and all registered classes
-;;; when a method is added to a GODOT-FUNCTION, so that what's new at a REPL
-;;; reaches Godot. Only new things can be added: Godot can't unregister methods,
-;;; properties or signals, or change the class's parent. And Godot asks for a
-;;; virtual method once per class (TODO J), so one that a class implements only
-;;; later isn't called.
+;;; when a method is added to or removed from a GODOT-FUNCTION, so that what's
+;;; new at a REPL reaches Godot. Only new things can be added: Godot can't
+;;; unregister methods, properties or signals, or change the class's parent.
+;;; And Godot asks for a virtual method once per class (TODO J), so one that a
+;;; class implements only later isn't called. Notifications are filtered in
+;;; Lisp, so those can also be removed.
 ;;;
 
 (defvar *godot-classes* '()
@@ -99,6 +101,9 @@ it."
     (gdext:register-class (godot-name class) parent-name
                           :constructor (lambda (pointer) (make-lisp-object class pointer))
                           :destructor 'release-slot-references
+                          ;; Set by UPDATE-NOTIFICATIONS
+                          :notification 'call-notification
+                          :notifications '()
                           :tool (class-tool-p class))
     (setf (class-registered-p class) t
           (class-godot-parent-name class) parent-name)
@@ -172,13 +177,24 @@ it."
         (funcall (virtual-binder function) (godot-name class) (virtual-function-name function))
         (push name (class-bound-virtuals class))))))
 
+(defun update-notifications (class)
+  "Make CLASS get the notifications it has methods of NOTIFICATION for."
+  (let ((notifications (class-notifications class))
+        (registered (class-registered-notifications class)))
+    (unless (if (or (eq notifications t) (eq registered t))
+                (eq notifications registered)
+                (null (set-exclusive-or notifications registered)))
+      (gdext:set-class-notifications (godot-name class) notifications)
+      (setf (class-registered-notifications class) notifications))))
+
 (defun update-godot-class (class)
   "Register with Godot what CLASS, a registered GODOT-CLASS, has that isn't
 registered yet."
   (register-properties class)
   (register-signals class)
   (register-methods class)
-  (bind-virtuals class))
+  (bind-virtuals class)
+  (update-notifications class))
 
 (defmethod initialize-instance :after ((class godot-class) &key)
   (add-class-definition (godot-name class) (lambda () (register-godot-class class))))
@@ -196,9 +212,17 @@ registered yet."
       (error (e)
         (report-error (format nil "updating the class ~a" (godot-name class)) e)))))
 
-(defmethod add-method :after ((function godot-function) method)
-  (declare (ignore method))
+(defun update-godot-classes ()
+  "Update all registered GODOT-CLASSes, see UPDATE-GODOT-CLASS."
   (dolist (class *godot-classes*)
     (handler-case (update-godot-class class)
       (error (e)
         (report-error (format nil "updating the class ~a" (godot-name class)) e)))))
+
+(defmethod add-method :after ((function godot-function) method)
+  (declare (ignore method))
+  (update-godot-classes))
+
+(defmethod remove-method :after ((function godot-function) method)
+  (declare (ignore method))
+  (update-godot-classes))

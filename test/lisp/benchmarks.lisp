@@ -98,6 +98,11 @@ three times, and print the best time and the bytes allocated per run."
   (declare (ignore delta))
   (incf (clos-benchmarks-ticks benchmarks)))
 
+;; For timing a notification sent to Lisp (run_benchmarks.gd), a number that
+;; isn't one of Godot's notifications
+(defmethod notification ((benchmarks clos-benchmarks) (what (eql 3901)))
+  (incf (clos-benchmarks-ticks benchmarks)))
+
 (define-godot-generic run-clos-benchmarks (self (count :int))
   (:godot-name "run"))
 

@@ -59,6 +59,7 @@ found when the class is finalized.")
    (registered-signals :initform '() :accessor class-registered-signals)
    (registered-methods :initform '() :accessor class-registered-methods)
    (bound-virtuals :initform '() :accessor class-bound-virtuals)
+   (registered-notifications :initform '() :accessor class-registered-notifications)
    ;; The exported slots of RefCounted classes that keep references, whose
    ;; references are given back when Godot frees an instance, and those of the
    ;; classes it inherits from too, with the *REFERENCE-SLOT-CHANGES* they were

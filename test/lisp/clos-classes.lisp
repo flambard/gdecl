@@ -4,7 +4,8 @@
 ;;; them from Godot, and clos-tests.lisp from Lisp.
 
 ;;;
-;;; ClosNode: properties, :onready slots, signals, methods and virtual methods
+;;; ClosNode: properties, :onready slots, signals, methods, virtual methods and
+;;; notifications
 ;;;
 
 (defclass clos-node (node-2d)
@@ -15,7 +16,8 @@
    (child :onready "Child" :reader clos-node-child)
    (parent-class :onready clos-node-parent-class-name :reader clos-node-parent-class)
    (ready-calls :initform 0 :accessor clos-node-ready-calls)
-   (process-calls :initform 0 :accessor clos-node-process-calls))
+   (process-calls :initform 0 :accessor clos-node-process-calls)
+   (notifications :initform '() :accessor clos-node-notifications))
   (:metaclass godot-class)
   (:signals (pinged (number :int))))
 
@@ -71,6 +73,15 @@
 (defmethod emit-pinged ((node clos-node))
   (object-emit-signal node "pinged" 5))
 
+(defvar *clos-node-predeletes* 0
+  "The number of ClosNodes that got NOTIFICATION_PREDELETE.")
+
+(defmethod notification ((node clos-node) (what (eql +node-notification-parented+)))
+  (push :parented (clos-node-notifications node)))
+
+(defmethod notification ((node clos-node) (what (eql +object-notification-predelete+)))
+  (incf *clos-node-predeletes*))
+
 ;;;
 ;;; ClosSubNode: a Lisp class that extends a Lisp class, with a mixin
 ;;;
@@ -98,6 +109,15 @@
 (defmethod process :before ((node clos-sub-node) delta)
   (declare (ignore delta))
   (incf (clos-node-process-calls node) 100))
+
+;; Method combination on a notification that the parent gets
+(defmethod notification :before ((node clos-sub-node)
+                                 (what (eql +node-notification-parented+)))
+  (push :before-parented (clos-node-notifications node)))
+
+;; A notification method of the mixin
+(defmethod notification ((greeter clos-greeter) (what (eql +node-notification-unparented+)))
+  (setf (clos-greeting greeter) "goodbye"))
 
 ;;;
 ;;; ClosRedefinedNode: redefined by a test at runtime, which also adds a method
