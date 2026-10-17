@@ -74,35 +74,62 @@ PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
     argument argument
     expected expected))
 
-(defun ptrcall-bound-method (method-userdata instance args r-ret)
-  "Call the method identified by METHOD-USERDATA, with ARGS and R-RET as in
-ptrcall_func: an array of pointers to the raw argument values, and a pointer to
-where the raw return value goes."
-  (let* ((method (userdata-method method-userdata))
+;;; The callbacks of ptrcalls, METHOD-PTRCALL and CALL-VIRTUAL-WITH-DATA, get
+;;; their pointers as integers, the addresses, as ECL would make a pointer
+;;; object for each of them otherwise: measured with `make bench`, a call into
+;;; an empty Lisp method took about 150 ns more, 90 ns of it making the four
+;;; pointer objects (128 bytes) and 60 ns getting the addresses of the handles
+;;; back out of them (FFI:POINTER-ADDRESS). The invokers read the raw values of
+;;; simple types and write those results through the addresses in C; a pointer
+;;; object is made only for the readers and writers of the other types.
+
+(declaim (inline address-pointer))
+(defun address-pointer (address)
+  "A pointer object for ADDRESS, an integer, for the readers and writers of raw
+values."
+  (ffi:c-inline (address) (:uint64-t) :pointer-void "(void *)#0" :one-liner t))
+
+(defun argument-pointer (args index)
+  "A pointer object for the raw value of argument INDEX, from ARGS, the address
+of ptrcall_func's array of pointers to them."
+  (ffi:c-inline (args index) (:uint64-t :int) :pointer-void "((void **)#0)[#1]"
+                :one-liner t))
+
+(defun ptrcall-bound-method (method-address instance-address args r-ret)
+  "Call the method whose method_userdata has the address METHOD-ADDRESS on the
+instance whose GDExtensionClassInstancePtr has the address INSTANCE-ADDRESS,
+with ARGS and R-RET as in ptrcall_func: the addresses of an array of pointers
+to the raw argument values, and of where the raw return value goes. All are
+integers (see above)."
+  (let* ((method (address-handle-value *bound-methods* method-address))
          (invoker (bound-method-invoker method)))
     (if invoker
-        (funcall invoker (bound-method-function method) (instance-object instance) args r-ret)
+        (funcall invoker (bound-method-function method)
+                 (address-instance-object instance-address) args r-ret)
         (let* ((return-type (bound-method-return-type method))
                (arguments (loop for type in (bound-method-argument-types method)
                                 for i from 0
-                                collect (read-value (foreign-ref args :pointer-void i) type)))
-               (result (apply (bound-method-function method) (instance-object instance)
+                                collect (read-value (argument-pointer args i) type)))
+               (result (apply (bound-method-function method)
+                              (address-instance-object instance-address)
                               arguments)))
           (when return-type
             ;; An Object result comes with a reference for Godot, if it's
             ;; RefCounted
             (when (eql (value-type-variant-type return-type) +variant-type-object+)
               (reference-for-caller result))
-            (write-value r-ret return-type result))))))
+            (write-value (address-pointer r-ret) return-type result))))))
 
 (defun write-failed-result (method r-ret)
   "After METHOD, a BOUND-METHOD called with ptrcall, signaled an error, store the
-default value of its return type at R-RET, such as 0, false or Vector2(0, 0)
+default value of its return type at R-RET (an address, an integer), such as 0,
+false or Vector2(0, 0)
 (the type's constructor 0), or null for an Object, so that the caller doesn't
 read whatever was there before. A return type with a destructor, such as
 String, is left as it is: Godot passes such a value constructed already, an
 empty one when GDScript calls."
-  (let ((return-type (bound-method-return-type method)))
+  (let ((return-type (bound-method-return-type method))
+        (r-ret (address-pointer r-ret)))
     (when (and return-type (null (value-type-destructor return-type)))
       (let ((variant-type (value-type-variant-type return-type)))
         (if (= variant-type +variant-type-object+)
@@ -112,23 +139,39 @@ empty one when GDScript calls."
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-argument-form (value-type args index)
-    "A form that reads argument INDEX, of VALUE-TYPE, from ARGS, the array of
-pointers to raw values of ptrcall_func. The raw values of simple types (see
-VALUE-TYPE-FROM-RAW) are read with C code, without a pointer object in between."
+    "A form that reads argument INDEX, of VALUE-TYPE, from ARGS, the address of
+ptrcall_func's array of pointers to raw values. The raw values of simple types
+(see VALUE-TYPE-FROM-RAW) are read with C code, without a pointer object in
+between."
     (let ((from-raw (value-type-from-raw value-type))
           (ffi-type (value-type-ffi-type value-type)))
       (if from-raw
           (funcall from-raw
-                   `(ffi:c-inline (,args) (:pointer-void) ,ffi-type
+                   `(ffi:c-inline (,args) (:uint64-t) ,ffi-type
                                   ,(format nil "*(~a *)((void **)#0)[~d]"
                                            (c-type-name ffi-type) index)
                                   :one-liner t))
-          `(,(value-type-reader value-type) (foreign-ref ,args :pointer-void ,index)))))
+          `(,(value-type-reader value-type)
+            (ffi:c-inline (,args) (:uint64-t) :pointer-void
+                          ,(format nil "((void **)#0)[~d]" index) :one-liner t)))))
+
+  (defun invoker-result-form (value-type r-ret result)
+    "A form that stores RESULT, a Lisp value of VALUE-TYPE, at R-RET, the address
+where ptrcall_func's raw return value goes: with C code for a simple type,
+otherwise with the type's writer."
+    (let ((to-raw (value-type-to-raw value-type))
+          (ffi-type (value-type-ffi-type value-type)))
+      (if to-raw
+          `(ffi:c-inline (,r-ret ,(funcall to-raw result)) (:uint64-t ,ffi-type) :void
+                         ,(format nil "*(~a *)#0 = #1" (c-type-name ffi-type))
+                         :one-liner t)
+          `(,(value-type-writer value-type) (address-pointer ,r-ret) ,result))))
 
   (defun ptrcall-invoker-form (return-type argument-types)
     "A LAMBDA form for the invoker of a bound method with RETURN-TYPE and
 ARGUMENT-TYPES (variant types, see REGISTER-METHOD): a function of the method's
-function, the instance's Lisp object, and ARGS and R-RET of ptrcall_func, which
+function, the instance's Lisp object, and the addresses ARGS and R-RET of
+ptrcall_func (integers, see PTRCALL-BOUND-METHOD), which
 does what PTRCALL-BOUND-METHOD does, with the code for each type generated, so
 without a list of the arguments, APPLY or calling converters by name. NIL if
 the dispatcher can't convert one of the types."
@@ -155,7 +198,7 @@ the dispatcher can't convert one of the types."
                      ;; it's RefCounted
                      ,@(when (eql return-type +variant-type-object+)
                          `((reference-for-caller ,result)))
-                     (,(value-type-writer return-value-type) ,r-ret ,result))
+                     ,(invoker-result-form return-value-type r-ret result))
                   call)))))))
 
 (defun call-bound-method (method-userdata instance args argument-count r-return r-error)
@@ -206,12 +249,16 @@ value as Variants, as in call_func."
 ;;
 ;; If the method fails, its return value is the default value of its type
 ;; (WRITE-FAILED-RESULT), written only then, so it costs nothing per call.
+;; The pointers are integers, see PTRCALL-BOUND-METHOD.
 (define-callback method-ptrcall :void
-    ((method-userdata :pointer-void) (instance :pointer-void)
-     (args :pointer-void) (r-ret :pointer-void))
-  (with-callback-protection ((bound-method-name (userdata-method method-userdata))
+    ((method-userdata :uint64-t) (instance :uint64-t)
+     (args :uint64-t) (r-ret :uint64-t))
+  (with-callback-protection ((bound-method-name (address-handle-value *bound-methods*
+                                                                      method-userdata))
                              (catching-errors
-                               (write-failed-result (userdata-method method-userdata) r-ret)))
+                               (write-failed-result (address-handle-value *bound-methods*
+                                                                          method-userdata)
+                                                    r-ret)))
     (ptrcall-bound-method method-userdata instance args r-ret)))
 
 ;; void (*GDExtensionClassMethodCall)(void *method_userdata,
@@ -235,12 +282,16 @@ value as Variants, as in call_func."
 ;;                                             void *p_virtual_call_userdata,
 ;;                                             const GDExtensionConstTypePtr *p_args,
 ;;                                             GDExtensionTypePtr r_ret)
+;;
+;; The pointers are integers, see PTRCALL-BOUND-METHOD.
 (define-callback call-virtual-with-data :void
-    ((instance :pointer-void) (name :pointer-void) (virtual-call-userdata :pointer-void)
-     (args :pointer-void) (r-ret :pointer-void))
+    ((instance :uint64-t) (name :uint64-t) (virtual-call-userdata :uint64-t)
+     (args :uint64-t) (r-ret :uint64-t))
   (declare (ignore name))
-  (with-callback-protection ((bound-method-name (userdata-method virtual-call-userdata))
+  (with-callback-protection ((bound-method-name (address-handle-value *bound-methods*
+                                                                      virtual-call-userdata))
                              (catching-errors
-                               (write-failed-result (userdata-method virtual-call-userdata)
+                               (write-failed-result (address-handle-value *bound-methods*
+                                                                          virtual-call-userdata)
                                                     r-ret)))
     (ptrcall-bound-method virtual-call-userdata instance args r-ret)))

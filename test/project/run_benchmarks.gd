@@ -53,6 +53,7 @@ func _init() -> void:
 	report("empty loop", func(): for i in COUNT: pass)
 	report("ticker.tick(delta) (GDScript method)", func(): for i in COUNT: ticker.tick(0.016))
 	report("lisp.tick(delta) (Lisp method, ptrcall)", func(): for i in COUNT: lisp.tick(0.016))
+	report("lisp.noop() (empty Lisp method, ptrcall)", func(): for i in COUNT: lisp.noop())
 	report("lisp.call(\"tick\", delta) (Lisp method, Variant call)",
 		func(): for i in COUNT: lisp.call("tick", 0.016))
 

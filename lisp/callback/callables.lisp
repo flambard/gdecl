@@ -96,6 +96,10 @@ nothing for a Lisp CALLABLE."
 ;;                                       GDExtensionVariantPtr r_return,
 ;;                                       GDExtensionCallError *r_error)
 ;;
+;; The pointers are integers, as for METHOD-PTRCALL (see PTRCALL-BOUND-METHOD),
+;; so that no pointer objects are made for them, except for the arguments'
+;; Variants and a result.
+;;
 ;; The result of the function is returned as a Variant, if it can be one (see
 ;; VARIANT-VALUE-P); NIL, and values that can't be Variants yet, return null.
 ;; Callables are mostly signal handlers, whose results Godot ignores, so a
@@ -103,19 +107,24 @@ nothing for a Lisp CALLABLE."
 ;; R-ERROR, so it's always set; to OK also after a Lisp error, as for a bound
 ;; method that fails.
 (define-callback callable-call :void
-    ((callable-userdata :pointer-void) (args :pointer-void) (argument-count :int64-t)
-     (r-return :pointer-void) (r-error :pointer-void))
+    ((callable-userdata :uint64-t) (args :uint64-t) (argument-count :int64-t)
+     (r-return :uint64-t) (r-error :uint64-t))
   (with-callback-protection ("Lisp callable")
-    (set-call-error r-error +call-ok+)
-    (let ((result (apply (callable-function (userdata-callable callable-userdata))
+    ;; GDExtensionCallError: error (OK), argument and expected
+    (ffi:c-inline (r-error) (:uint64-t) :void
+                  "{ int32_t *e = (int32_t *)#0; e[0] = 0; e[1] = 0; e[2] = 0; }"
+                  :one-liner nil)
+    (let ((result (apply (callable-function (address-handle-value *callables*
+                                                                  callable-userdata))
                          (loop for i below argument-count
-                               collect (read-variant (foreign-ref args :pointer-void i))))))
+                               collect (read-variant (argument-pointer args i))))))
       (let ((variant-type (and result (lisp-variant-type result))))
         (when variant-type
           ;; R-RETURN is a Variant already (Nil). Written before the pool
           ;; gives back its references, so an object in it stays alive.
-          (variant-destroy r-return)
-          (write-variant-as r-return (find-value-type variant-type) result))))))
+          (let ((r-return (address-pointer r-return)))
+            (variant-destroy r-return)
+            (write-variant-as r-return (find-value-type variant-type) result)))))))
 
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (define-callback callable-free :void ((callable-userdata :pointer-void))

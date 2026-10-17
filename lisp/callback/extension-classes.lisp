@@ -110,12 +110,17 @@ CLASS-USERDATA named by the StringName NAME, or NULL if it doesn't implement it.
 the EXTENSION-CLASS, for NOTIFY-INSTANCE, as Godot doesn't give notifications
 the class.")
 
-;; Inline: bound methods (bound-methods.lisp) call it at every call
-(declaim (inline instance-object))
+;; Inline: bound methods (bound-methods.lisp) call them at every call
+(declaim (inline instance-object address-instance-object))
 (defun instance-object (instance)
   "The Lisp object of INSTANCE, a GDExtensionClassInstancePtr (as given to
 bound methods)."
   (car (handle-value *instances* instance)))
+
+(defun address-instance-object (address)
+  "The Lisp object of the instance whose GDExtensionClassInstancePtr has the
+address ADDRESS, an integer, as the callbacks of ptrcalls get it."
+  (car (address-handle-value *instances* address)))
 
 (defun create-class-instance (class-userdata)
   "Create a Godot object of the class identified by CLASS-USERDATA, with its Lisp

@@ -54,12 +54,17 @@ three times, and print the best time and the bytes allocated per run."
   (:method "connect_lisp_handler" lisp-benchmarks-connect-lisp-handler)
   ;; Like _process(delta)
   (:method "tick" lisp-benchmarks-tick :arguments (("delta" :float)))
+  ;; An empty method, for timing what a call into Lisp costs in itself
+  (:method "noop" lisp-benchmarks-noop)
   (:method "run" lisp-benchmarks-run :arguments (("count" :int)))
   ;; An empty _process, for timing a virtual method (run_benchmarks.gd)
   (:virtual "_process" lisp-benchmarks-process))
 
 (defun lisp-benchmarks-process (benchmarks delta)
   (declare (ignore benchmarks delta)))
+
+(defun lisp-benchmarks-noop (benchmarks)
+  (declare (ignore benchmarks)))
 
 (defun lisp-benchmarks-tick (benchmarks delta)
   (declare (ignore delta))
