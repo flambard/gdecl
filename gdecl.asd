@@ -20,15 +20,13 @@
                   :depends-on ("api")
                   :components ((:file "package")
                                (:file "gd-extension-ffi" :depends-on ("package"))))
-                 ;; Godot's builtin types in plain Lisp
-                 (:module "builtins"
-                  :components ((:file "package")
-                               (:file "builtin-types" :depends-on ("package"))))
-                 ;; Converting values between Godot and Lisp
+                 ;; Godot's builtin types in plain Lisp, and converting values
+                 ;; between Godot and Lisp
                  (:module "types"
-                  :depends-on ("ffi" "builtins")
+                  :depends-on ("ffi")
                   :components ((:file "package")
-                               (:file "gd-extension-types" :depends-on ("package"))
+                               (:file "builtin-types" :depends-on ("package"))
+                               (:file "gd-extension-types" :depends-on ("package" "builtin-types"))
                                (:file "strings" :depends-on ("gd-extension-types"))
                                (:file "autorelease-pool" :depends-on ("gd-extension-types"))))
                  ;; What Godot calls into
@@ -45,7 +43,7 @@
                  ;; The public, Lisp-style layer, and the code generators of
                  ;; Godot's API
                  (:module "gd-extension"
-                  :depends-on ("api" "ffi" "builtins" "types" "callback")
+                  :depends-on ("api" "ffi" "types" "callback")
                   :components ((:file "package")
                                (:file "api-types" :depends-on ("package"))
                                (:file "gd-extension" :depends-on ("package" "api-types"))
@@ -64,7 +62,7 @@
                                (:file "lifecycle" :depends-on ("registration" "gd-extension"))))
                  ;; Godot's API, generated from extension_api.json
                  (:module "godot"
-                  :depends-on ("builtins" "gd-extension")
+                  :depends-on ("types" "gd-extension")
                   :components ((:file "package")
                                (:file "godot-engine-classes" :depends-on ("package"))
                                (:file "godot-utility" :depends-on ("package"))))
