@@ -16,7 +16,8 @@
 ;;; utility functions), containers.lisp (packed arrays, Arrays and
 ;;; Dictionaries), references.lisp, signals.lisp, registration.lisp
 ;;; (registering classes, methods, properties, signals, virtual methods and
-;;; singletons) and define-class.lisp.
+;;; singletons), define-class.lisp and objects.lisp (making and freeing
+;;; objects).
 ;;;
 
 ;;;

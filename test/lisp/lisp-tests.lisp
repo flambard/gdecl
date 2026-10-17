@@ -145,6 +145,29 @@ types of Godot objects.")
                    (handler-case (progn (node-get-child-count node) "no error")
                      (error (e) (princ-to-string e)))))))
 
+(deftest make-and-free-objects
+  ;; An engine class
+  (let ((node (gdext:make-object "Node2D")))
+    (check (typep node 'node-2d))
+    (check (string= "Node2D" (object-get-class node)))
+    (gdext:free-object node)
+    (check (not (gdext:valid-object-p node))))
+  ;; A class of the extension
+  (let ((node (gdext:make-object "TestNode")))
+    (check (typep node 'test-node))
+    (gdext:free-object node))
+  ;; A RefCounted object comes with one reference, and is freed with it
+  (let ((kept nil))
+    (gdext:with-reference (resource (gdext:make-object "TestResource"))
+      (setf kept resource)
+      (check (= 1 (ref-counted-get-reference-count resource)))
+      ;; Freed with its reference, not with FREE-OBJECT
+      (check (null (ignore-errors (gdext:free-object resource) t))))
+    (check (not (gdext:valid-object-p kept))))
+  ;; Classes that can't be instantiated, with a Lisp error and no Godot error
+  (check (null (ignore-errors (gdext:make-object "NoSuchClass") t)))
+  (check (null (ignore-errors (gdext:make-object "CanvasItem") t))))
+
 (deftest raw-pointers-in-variants
   ;; Only Lisp objects of Godot objects become Object Variants, not raw
   ;; pointers, which might point to something else, such as a StringName

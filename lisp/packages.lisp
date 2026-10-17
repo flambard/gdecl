@@ -511,6 +511,9 @@ tables and dispatchers behind them")
            #:godot-object-pointer
            #:object-pointer
            #:valid-object-p
+           ;; Making and freeing objects
+           #:make-object
+           #:free-object
            ;; Values looked up once
            #:sname
            #:npath

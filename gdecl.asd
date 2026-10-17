@@ -33,11 +33,12 @@
                  (:file "signals" :depends-on ("engine-methods"))
                  (:file "registration" :depends-on ("gd-extension" "engine-methods" "engine-objects"))
                  (:file "define-class" :depends-on ("registration" "references" "engine-objects"))
+                 (:file "objects" :depends-on ("registration" "references" "engine-objects"))
                  ;; The order of the framework's startup and shutdown steps
                  (:file "lifecycle" :depends-on ("define-class" "registration" "gd-extension"))
                  (:file "godot-engine-classes" :depends-on ("engine-api" "containers"))
                  (:file "godot-utility" :depends-on ("engine-api" "containers"))
                  ;; The package GODOT-CLOS, a prototype of the high-level layer
-                 (:file "godot-class" :depends-on ("define-class" "godot-engine-classes"))
+                 (:file "godot-class" :depends-on ("define-class" "objects" "godot-engine-classes"))
                  (:file "godot-functions" :depends-on ("godot-class" "registration"))
                  (:file "godot-registration" :depends-on ("godot-functions"))))

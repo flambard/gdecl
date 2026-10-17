@@ -319,9 +319,7 @@ GDScript. Not for RefCounted classes yet."
     (error "~s isn't registered with Godot yet" (class-name class)))
   (when (subtypep class 'godot:ref-counted)
     (error "MAKE-INSTANCE doesn't make RefCounted objects yet: ~s" (class-name class)))
-  (let ((object (gdext:lisp-object
-                 (gdext:with-string-name (name (godot-name class))
-                   (gd-extension-ffi:classdb-construct-object name)))))
+  (let ((object (gdext:make-object (godot-name class))))
     (when initargs
       (apply #'shared-initialize object '() initargs))
     object))
