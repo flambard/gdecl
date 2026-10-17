@@ -677,23 +677,31 @@ pointer, or an address if VARIANT-FFI-TYPE is :UINT64-T."
                              (float ,value 1d0) ,variant-ffi-type))
      (t ,@otherwise)))
 
-(defmacro read-simple-variant ((variant-type variant variant-ffi-type) &body otherwise)
-  "The value of the Variant at VARIANT, if it's null, a bool, an int or a float,
-read in one piece of C code; otherwise, evaluate OTHERWISE with VARIANT-TYPE
-bound to its variant type. VARIANT is a pointer, or an address if
+(defmacro variant-type-of (variant variant-ffi-type)
+  "The variant type of the Variant at VARIANT, a pointer, or an address if
 VARIANT-FFI-TYPE is :UINT64-T."
-  `(let ((,variant-type (ffi:c-inline (*variant-get-type* ,variant)
-                                      (:pointer-void ,variant-ffi-type) :int
-                                      "((int (*)(void *))#0)((void *)#1)" :one-liner t)))
-     (cond ((= ,variant-type +variant-type-nil+) nil)
-           ((= ,variant-type +variant-type-bool+)
-            (/= 0 (raw-from-variant ,variant +variant-type-bool+ :uint8-t "uint8_t"
-                                    ,variant-ffi-type)))
-           ((= ,variant-type +variant-type-int+)
-            (raw-from-variant ,variant +variant-type-int+ :int64-t "int64_t" ,variant-ffi-type))
-           ((= ,variant-type +variant-type-float+)
-            (raw-from-variant ,variant +variant-type-float+ :double "double" ,variant-ffi-type))
-           (t ,@otherwise))))
+  `(ffi:c-inline (*variant-get-type* ,variant) (:pointer-void ,variant-ffi-type) :int
+                 "((int (*)(void *))#0)((void *)#1)" :one-liner t))
+
+(declaim (inline variant-type-at))
+(defun variant-type-at (address)
+  "The variant type of the Variant at ADDRESS, an integer."
+  (variant-type-of address :uint64-t))
+
+(defmacro read-simple-variant ((variant variant-ffi-type) variant-type &body otherwise)
+  "The value of the Variant at VARIANT, of VARIANT-TYPE (a variable), if it's
+null, a bool, an int or a float, read in one piece of C code; otherwise,
+evaluate OTHERWISE. VARIANT is a pointer, or an address if VARIANT-FFI-TYPE is
+:UINT64-T."
+  `(cond ((= ,variant-type +variant-type-nil+) nil)
+         ((= ,variant-type +variant-type-bool+)
+          (/= 0 (raw-from-variant ,variant +variant-type-bool+ :uint8-t "uint8_t"
+                                  ,variant-ffi-type)))
+         ((= ,variant-type +variant-type-int+)
+          (raw-from-variant ,variant +variant-type-int+ :int64-t "int64_t" ,variant-ffi-type))
+         ((= ,variant-type +variant-type-float+)
+          (raw-from-variant ,variant +variant-type-float+ :double "double" ,variant-ffi-type))
+         (t ,@otherwise)))
 
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
@@ -740,6 +748,16 @@ Destroy it with VARIANT-DESTROY."
                 (aref *variant-from-type-constructors* (value-type-variant-type value-type))
                 variant raw)
             (destroy-value raw value-type))))))
+
+(defun write-variant-as-at (address value-type value)
+  "WRITE-VARIANT-AS for the Variant at ADDRESS, an integer. Bools, ints and
+floats are written as WRITE-VARIANT-AT writes them, without a pointer object."
+  (let ((variant-type (value-type-variant-type value-type)))
+    (cond ((= variant-type +variant-type-bool+) (write-variant-at address (and value t)))
+          ((= variant-type +variant-type-float+) (write-variant-at address (float value 1d0)))
+          ((and (= variant-type +variant-type-int+) (typep value '(signed-byte 64)))
+           (write-variant-at address value))
+          (t (write-variant-as (address-pointer address) value-type value)))))
 
 (defun read-variant-as (variant value-type)
   "The value of the Variant at VARIANT, which is of VALUE-TYPE, as a Lisp value,
@@ -811,12 +829,14 @@ here and in the code generators."
 (defun read-variant (variant)
   "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for
 Nil, otherwise as in *VALUE-TYPES*."
-  (read-simple-variant (variant-type variant :pointer-void)
-    (read-variant-of-type variant variant-type)))
+  (let ((variant-type (variant-type-of variant :pointer-void)))
+    (read-simple-variant (variant :pointer-void) variant-type
+      (read-variant-of-type variant variant-type))))
 
-(defun read-variant-at (address)
-  "READ-VARIANT for the Variant at ADDRESS, an integer."
-  (read-simple-variant (variant-type address :uint64-t)
+(defun read-variant-at (address &optional (variant-type (variant-type-at address)))
+  "READ-VARIANT for the Variant at ADDRESS, an integer, whose variant type is
+VARIANT-TYPE, if the caller knows it already."
+  (read-simple-variant (address :uint64-t) variant-type
     (read-variant-of-type (address-pointer address) variant-type)))
 
 (defun read-variant-of-type (variant variant-type)

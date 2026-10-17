@@ -170,6 +170,16 @@ func test_errors() -> void:
 	check(node.callv("add", [1, 2, 3]) == null, "too many arguments")
 	print("[test] expect error")
 	check(node.callv("add", ["one", 2]) == null, "an argument of the wrong type")
+	# Variant calls convert as Godot does for its own methods
+	check(node.call("add", 2.9, 3) == 5, "a float for an int argument of a Variant call is truncated")
+	check(node.call("describe", true, 2, 3.5, null) == "T 2 3.5d0 T",
+			"a Variant call with four arguments")
+	check(node.call("describe", false, 2.5, 3, node) == "NIL 2 3.0d0 NIL",
+			"a Variant call with an int for a float and a float for an int")
+	check(node.call("is_null", null) == true and node.call("is_null", node) == false,
+			"a bool result of a Variant call")
+	var speed = node.call("get_speed")
+	check(typeof(speed) == TYPE_FLOAT and speed == node.speed, "a float result of a Variant call")
 	node.free()
 
 

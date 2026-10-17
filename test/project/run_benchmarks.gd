@@ -56,6 +56,8 @@ func _init() -> void:
 	report("lisp.noop() (empty Lisp method, ptrcall)", func(): for i in COUNT: lisp.noop())
 	report("lisp.call(\"tick\", delta) (Lisp method, Variant call)",
 		func(): for i in COUNT: lisp.call("tick", 0.016))
+	report("lisp.call(\"get_ticks\") (Lisp method, Variant call, int result)",
+		func(): for i in COUNT: lisp.call("get_ticks"))
 
 	# The engine calls of LispBenchmarks.run
 	report("get_child_count()", func(): for i in COUNT: node.get_child_count())

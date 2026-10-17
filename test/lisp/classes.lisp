@@ -46,6 +46,9 @@
   (:signal "pinged" ("number" :int) ("text" :string) ("vector" :vector2) ("object" :object)
            ("flag" :bool))
   (:method "add" test-node-add :arguments (("a" :int) ("b" :int)) :return-type :int)
+  (:method "describe" test-node-describe
+           :arguments (("flag" :bool) ("count" :int) ("scale" :float) ("object" :object))
+           :return-type :string)
   (:method "scale_vector" test-node-scale-vector
            :arguments (("vector" :vector2) ("factor" :float)) :return-type :vector2)
   (:method "scale_vector3" test-node-scale-vector3
@@ -109,6 +112,11 @@
 (defun test-node-add (node a b)
   (declare (ignore node))
   (+ a b))
+
+(defun test-node-describe (node flag count scale object)
+  "The arguments as a string (a double-float with d0), and whether OBJECT is NIL."
+  (declare (ignore node))
+  (format nil "~a ~a ~a ~a" flag count scale (null object)))
 
 (defun test-node-scale-vector (node vector factor)
   (declare (ignore node))

@@ -61,18 +61,15 @@ PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
                                  :argument-types (mapcar #'method-value-type argument-types)
                                  :invoker invoker)))
 
-(declaim (inline userdata-method))
-(defun userdata-method (userdata)
-  (handle-value *bound-methods* userdata))
-
-;; Inline: CALLABLE-CALL (callables.lisp) calls it at every call. With optional
-;; arguments, not keywords, which ECL's inlined code would parse at runtime.
+;; With optional arguments, not keywords, which ECL's inlined code would parse
+;; at runtime.
 (declaim (inline set-call-error))
 (defun set-call-error (r-error error &optional (argument 0) (expected 0))
-  (set-foreign-slots (r-error call-error)
-    error error
-    argument argument
-    expected expected))
+  "Set the GDExtensionCallError at R-ERROR, an address (an integer): its error,
+argument and expected."
+  (ffi:c-inline (r-error error argument expected) (:uint64-t :int :int :int) :void
+                "{ int32_t *e = (int32_t *)#0; e[0] = #1; e[1] = #2; e[2] = #3; }"
+                :one-liner nil))
 
 ;;; The callbacks of ptrcalls, METHOD-PTRCALL and CALL-VIRTUAL-WITH-DATA, get
 ;;; their pointers as integers, the addresses, as ECL would make a pointer
@@ -202,11 +199,48 @@ the dispatcher can't convert one of the types."
                      ,(invoker-result-form return-value-type r-ret result))
                   call)))))))
 
-(defun call-bound-method (method-userdata instance args argument-count r-return r-error)
-  "Call the method identified by METHOD-USERDATA, with arguments and return
-value as Variants, as in call_func."
-  (let* ((method (userdata-method method-userdata))
-         (return-type (bound-method-return-type method))
+;;; Variant calls, through call_func. Their pointers are integers too, and
+;;; bools, ints and floats are read without pointer objects (READ-VARIANT-AT),
+;;; as in CALLABLE-CALL (callables.lisp).
+
+(defun argument-type-error (args argument-types)
+  "The index of the first of the Variants of ARGS (the address of call_func's
+array of pointers to them) that the method can't take as an argument of its
+type, from ARGUMENT-TYPES (VALUE-TYPEs), and that type's variant type; or NIL if
+it can take them all."
+  (loop for value-type in argument-types
+        for type = (value-type-variant-type value-type)
+        for i from 0
+        for variant-type = (variant-type-at (argument-address args i))
+        unless (or (= variant-type type)
+                   ;; null for an Object, and a float for an int and an int for
+                   ;; a float, as Godot converts them for its own methods
+                   (and (= type +variant-type-object+) (= variant-type +variant-type-nil+))
+                   (and (= type +variant-type-int+) (= variant-type +variant-type-float+))
+                   (and (= type +variant-type-float+) (= variant-type +variant-type-int+)))
+          return (values i type)))
+
+(defun read-argument (address value-type)
+  "The value of the Variant at ADDRESS (an integer), for an argument of
+VALUE-TYPE, which ARGUMENT-TYPE-ERROR has checked it can be."
+  (let ((type (value-type-variant-type value-type))
+        (variant-type (variant-type-at address)))
+    (cond ((= variant-type type) (read-variant-at address variant-type))
+          ;; null for an Object
+          ((= type +variant-type-object+) nil)
+          ;; A float for an int, truncated like int() in GDScript
+          ((= type +variant-type-int+)
+           (values (truncate (read-variant-at address variant-type))))
+          ;; An int for a float
+          (t (float (read-variant-at address variant-type) 1d0)))))
+
+(defun call-bound-method (method-address instance-address args argument-count r-return r-error)
+  "Call the method whose method_userdata has the address METHOD-ADDRESS on the
+instance whose GDExtensionClassInstancePtr has the address INSTANCE-ADDRESS,
+with arguments and return value as Variants, as in call_func. The pointers are
+integers (see above). Functions of up to three arguments are called without
+making a list to APPLY."
+  (let* ((method (address-handle-value *bound-methods* method-address))
          (argument-types (bound-method-argument-types method))
          (expected-count (length argument-types)))
     (cond ((< argument-count expected-count)
@@ -214,34 +248,28 @@ value as Variants, as in call_func."
           ((> argument-count expected-count)
            (set-call-error r-error +call-error-too-many-arguments+ 0 expected-count))
           (t
-           (let ((arguments '()))
-             (loop for value-type in argument-types
-                   for type = (value-type-variant-type value-type)
-                   for i from 0
-                   for variant = (foreign-ref args :pointer-void i)
-                   for variant-type = (variant-get-type variant)
-                   do (cond ((= variant-type type)
-                             (push (read-variant-as variant value-type) arguments))
-                            ;; null for an Object
-                            ((and (= type +variant-type-object+)
-                                  (= variant-type +variant-type-nil+))
-                             (push nil arguments))
-                            ;; A float for an int and an int for a float, as
-                            ;; Godot converts them for its own methods (the
-                            ;; float truncated, like int() in GDScript)
-                            ((and (= type +variant-type-int+)
-                                  (= variant-type +variant-type-float+))
-                             (push (values (truncate (read-variant variant))) arguments))
-                            ((and (= type +variant-type-float+)
-                                  (= variant-type +variant-type-int+))
-                             (push (float (read-variant variant) 1d0) arguments))
-                            (t
-                             (set-call-error r-error +call-error-invalid-argument+ i type)
-                             (return-from call-bound-method))))
-             (let ((result (apply (bound-method-function method) (instance-object instance)
-                                  (nreverse arguments))))
-               (when return-type
-                 (write-variant-as r-return return-type result))))))))
+           (multiple-value-bind (index type) (argument-type-error args argument-types)
+             (if index
+                 (set-call-error r-error +call-error-invalid-argument+ index type)
+                 (let* ((function (bound-method-function method))
+                        (self (address-instance-object instance-address))
+                        (result
+                          (macrolet ((argument (index)
+                                       `(read-argument (argument-address args ,index)
+                                                       (nth ,index argument-types))))
+                            (case argument-count
+                              (0 (funcall function self))
+                              (1 (funcall function self (argument 0)))
+                              (2 (funcall function self (argument 0) (argument 1)))
+                              (3 (funcall function self (argument 0) (argument 1) (argument 2)))
+                              (t (apply function self
+                                        (loop for value-type in argument-types
+                                              for i from 0
+                                              collect (read-argument (argument-address args i)
+                                                                     value-type)))))))
+                        (return-type (bound-method-return-type method)))
+                   (when return-type
+                     (write-variant-as-at r-return return-type result)))))))))
 
 ;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
 ;;                                       GDExtensionClassInstancePtr p_instance,
@@ -268,14 +296,17 @@ value as Variants, as in call_func."
 ;;                                    GDExtensionInt p_argument_count,
 ;;                                    GDExtensionVariantPtr r_return,
 ;;                                    GDExtensionCallError *r_error)
+;;
+;; The pointers are integers, see CALL-BOUND-METHOD.
 (define-callback method-call :void
-    ((method-userdata :pointer-void) (instance :pointer-void)
-     (args :pointer-void) (argument-count :int64-t)
-     (r-return :pointer-void) (r-error :pointer-void))
+    ((method-userdata :uint64-t) (instance :uint64-t)
+     (args :uint64-t) (argument-count :int64-t)
+     (r-return :uint64-t) (r-error :uint64-t))
   ;; There's no call error for a failing method, and Godot already initialized
   ;; R-ERROR to OK and R-RETURN to Nil, so after an error the method returns
   ;; null, like a GDScript method that fails
-  (with-callback-protection ((bound-method-name (userdata-method method-userdata)))
+  (with-callback-protection ((bound-method-name (address-handle-value *bound-methods*
+                                                                      method-userdata)))
     (call-bound-method method-userdata instance args argument-count r-return r-error)))
 
 ;; void (*GDExtensionClassCallVirtualWithData)(GDExtensionClassInstancePtr p_instance,
