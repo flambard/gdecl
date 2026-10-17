@@ -253,7 +253,7 @@ Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn
   :extra-arguments ((damage :int)))
 ```
 
-That's also much faster for a call made every frame: when the arguments are simple types (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`) and the result is none, a bool, an int or a float, the call is made in one piece of C code without allocating anything. `(emit-hit player "hit" 5)` takes about 0.16 µs, against 0.86 µs for `(object-emit-signal player "hit" 5)`, whose further arguments are converted by their Lisp types. Put such definitions in a file of their own, loaded before the code that calls them: ECL doesn't apply the compiler macro that makes a literal name such as `"hit"` a StringName once to calls in the same file, and then every call makes a temporary one.
+That's also faster for a call made every frame: when the arguments are simple types (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`) and the result is none, a bool, an int or a float, the call is made in one piece of C code without allocating anything. `(emit-hit player "hit" 5)` takes about 0.16 µs, against 0.27 µs for `(object-emit-signal player "hit" 5)`, whose further arguments are converted by their Lisp types. Put such definitions in a file of their own, loaded before the code that calls them: ECL doesn't apply the compiler macro that makes a literal name such as `"hit"` a StringName once to calls in the same file, and then every call makes a temporary one.
 
 ## Objects
 

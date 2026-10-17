@@ -11,6 +11,74 @@
 ;;; generated for each type when the macro is expanded.
 ;;;
 
+;;; Vararg calls (see VARIANT-CALL-METHOD-FORM) keep their argument array, the
+;;; argument Variants, the result Variant and the call error in one block of
+;;; foreign memory, laid out in that order, allocated (with calloc, so the
+;;; Variants are Nil and can all be destroyed, also if making one fails) and
+;;; freed in one piece of C each, and handled by its address, an integer: a
+;;; MALLOC and a Lisp pointer object for each of them, and one for each Variant,
+;;; were most of what such a call cost (measured: emit_signal with a further
+;;; argument 780 ns and 336 bytes before). The macros expand into C code, so
+;;; the generated functions make no calls between files for them.
+
+(defmacro with-variant-call ((call count) &body body)
+  "Evaluate BODY with CALL bound to the address of a new block for a vararg call
+with COUNT (a variable) argument Variants, all Nil, with the argument array
+pointing to them. The Variants and the result are destroyed and the block freed
+when BODY exits, also on a non-local exit."
+  `(let ((,call (ffi:c-inline (,count) (:long) :uint64-t
+                              ,(format nil "{ long n = #0; char *b = __builtin_calloc(1, n * ~d + ~d); ~
+if (b) for (long i = 0; i < n; i++) ((void **)b)[i] = b + n * 8 + i * ~d; ~
+@(return 0) = (uint64_t)b; }"
+                                       (+ 8 +variant-size+) (+ +variant-size+ 16) +variant-size+))))
+     (when (zerop ,call)
+       (error "Out of memory for a call with ~d arguments" ,count))
+     (unwind-protect (progn ,@body)
+       ;; The argument Variants and the result Variant right after them
+       (ffi:c-inline (*variant-destroy* ,call ,count) (:pointer-void :uint64-t :long) :void
+                     ,(format nil "{ char *b = (char *)#1; long n = #2; ~
+for (long i = 0; i <= n; i++) ((void (*)(void *))#0)(b + n * 8 + i * ~d); ~
+__builtin_free(b); }"
+                              +variant-size+)))))
+
+(defmacro variant-call-argument (call count index)
+  "The address of argument Variant INDEX in the block of a vararg call, CALL."
+  `(ffi:c-inline (,call ,count ,index) (:uint64-t :long :long) :uint64-t
+                 ,(format nil "#0 + #1 * 8 + #2 * ~d" +variant-size+) :one-liner t))
+
+(defmacro variant-call-result (call count)
+  "The address of the result Variant in the block of a vararg call, CALL."
+  `(ffi:c-inline (,call ,count) (:uint64-t :long) :uint64-t
+                 ,(format nil "#0 + #1 * ~d" (+ 8 +variant-size+)) :one-liner t))
+
+(defmacro construct-variant-at (address variant-type pointer)
+  "Construct a Variant of VARIANT-TYPE at ADDRESS, an integer, from the raw value
+at POINTER, with Godot's constructor."
+  `(ffi:c-inline ((aref *variant-from-type-constructors* ,variant-type) ,address ,pointer)
+                 (:pointer-void :uint64-t :pointer-void) :void
+                 "((void (*)(void *, void *))#0)((void *)#1, #2)" :one-liner t))
+
+(defmacro call-with-variants (method-bind object call count)
+  "Call METHOD-BIND on OBJECT with object_method_bind_call, with the arguments
+and the result in the block of a vararg call, CALL, and return the error of the
+call error."
+  `(ffi:c-inline (*object-method-bind-call* ,method-bind ,object ,call ,count)
+                 (:pointer-void :pointer-void :pointer-void :uint64-t :long) :int
+                 ,(format nil "{ char *b = (char *)#3; long n = #4; char *ret = b + n * ~d; ~
+int *err = (int *)(ret + ~d); ~
+((void (*)(void *, void *, const void **, long long, void *, void *))#0)(#1, #2, (const void **)b, n, ret, err); ~
+@(return 0) = err[0]; }"
+                          (+ 8 +variant-size+) +variant-size+)))
+
+(defmacro raw-variant-call-result (call count variant-type ffi-type)
+  "The raw value of FFI-TYPE of the result Variant, of VARIANT-TYPE, in the block
+of a vararg call, CALL, with Godot's constructor."
+  `(ffi:c-inline ((aref *type-from-variant-constructors* ,variant-type) ,call ,count)
+                 (:pointer-void :uint64-t :long) ,ffi-type
+                 ,(format nil "{ ~a r = 0; ((void (*)(void *, void *))#0)(&r, (char *)#1 + #2 * ~d); ~
+@(return 0) = r; }"
+                          (c-type-name ffi-type) (+ 8 +variant-size+))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun engine-value-ffi-type (variant-type)
     "The FFI type of the raw value of VARIANT-TYPE (or :VARIANT for any Variant),
@@ -405,105 +473,81 @@ list of ENGINE-ARGUMENTs) and the result as Variants. REST, if not NIL, is the
 variable with the list of further arguments, converted to Variants by their
 Lisp types (see WRITE-VARIANT). A vararg utility function takes Variants too,
 but returns a raw value of its return type. NAME, the function's name, is for
-the error when the call fails."
-    (let ((utility (utility-target-p target))
-          (method-bind (call-target-function target))
-          (object (call-target-object target))
-          (has-return-value (not (eql return-type +variant-type-nil+)))
-          (declared-count (length arguments))
-          (count (gensym "COUNT"))
-          (args (gensym "ARGS"))
-          (variants (gensym "VARIANTS"))
-          (r-return (gensym "R-RETURN"))
-          (r-error (gensym "R-ERROR"))
-          (r-ret (gensym "R-RET"))
-          (call-error (gensym "CALL-ERROR")))
-      (flet ((array-size (element-type)
-               ;; The size of the array in bytes, known when the macro is
-               ;; expanded, unless there are REST arguments
-               (let ((element-size (ffi:size-of-foreign-type element-type)))
-                 (if rest
-                     `(* ,element-size (max 1 ,count))
-                     (* element-size (max 1 declared-count))))))
+the error when the call fails. The argument array, the Variants, the result
+and the call error are in one block (see WITH-VARIANT-CALL)."
+    (let* ((utility (utility-target-p target))
+           (method-bind (call-target-function target))
+           (object (call-target-object target))
+           (has-return-value (not (eql return-type +variant-type-nil+)))
+           (declared-count (length arguments))
+           ;; A bool, int or float result, read from the result Variant in C
+           (result-value-type (and has-return-value (not utility) (integerp return-type)
+                                   (not (eql return-type +variant-type-object+))
+                                   (find-value-type return-type nil)))
+           (from-raw (and result-value-type (value-type-from-raw result-value-type)))
+           (count (gensym "COUNT"))
+           (call (gensym "CALL"))
+           (r-ret (gensym "R-RET"))
+           (call-error (gensym "CALL-ERROR")))
+      (flet ((read-raw-result ()
+               ;; The raw value at R-RET, destroyed afterwards
+               (let ((destroy-form (engine-value-destroy-form return-type r-ret)))
+                 (if destroy-form
+                     `(unwind-protect ,(engine-value-read-form return-type r-ret)
+                        ,destroy-form)
+                     (engine-value-read-form return-type r-ret)))))
         `(let ((,count ,(if rest `(+ ,declared-count (length ,rest)) declared-count)))
-           (with-foreign-memory ((,args :size ,(array-size :pointer-void))
-                                 (,variants :size ,(array-size 'variant))
-                                 ,@(raw-value-bindings arguments)
-                                 ,@(unless utility
-                                     `((,r-return 'variant)
-                                       (,r-error 'call-error)))
-                                 ,@(when (and has-return-value
-                                              (or utility (not (eql return-type :variant))))
-                                     `((,r-ret ',(engine-value-ffi-type return-type)))))
-             ;; All Nil, so they can all be destroyed, also if making one fails
-             (ffi:c-inline (,variants ,(array-size 'variant)) (:pointer-void :unsigned-long) :void
-                           "__builtin_memset(#0, 0, #1)" :one-liner t)
-             ;; Nil too, so it can be destroyed also if making an argument fails
-             ;; before the call, which initializes it
-             ,@(unless utility
-                 `((clear-foreign-object ,r-return 'variant)))
-             (unwind-protect
-                  (progn
-                    ,@(loop for argument in arguments
-                            for type = (argument-variant-type argument)
-                            for i from 0
-                            for variant = `(array-element ,variants 'variant ,i)
-                            if (eql type :variant)
-                              ;; Already any Variant: constructed right in the array
-                              collect `(write-variant ,variant ,(argument-name argument))
-                            else
-                              collect (let ((construct `(call-variant-from-type-constructor
-                                                         (aref *variant-from-type-constructors* ,type)
-                                                         ,variant
-                                                         ,(argument-pointer-form argument)))
-                                            (destroy (argument-destroy-form argument)))
-                                        (cond ((not (argument-ffi-type argument)) construct)
-                                              ;; The Variant gets a copy of the raw value
-                                              (destroy `(progn ,(argument-write-form argument)
-                                                               (unwind-protect ,construct ,destroy)))
-                                              (t `(progn ,(argument-write-form argument)
-                                                         ,construct))))
-                            end
-                            collect `(setf (foreign-ref ,args :pointer-void ,i) ,variant))
-                    ,@(when rest
-                        `((loop for value in ,rest
-                                for i from ,declared-count
-                                for variant = (array-element ,variants 'variant i)
-                                do (write-variant variant value)
-                                   (setf (foreign-ref ,args :pointer-void i) variant))))
-                    ,@(if utility
-                          `(,@(when has-return-value
-                                `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
-                            (call-ptr-utility-function ,method-bind
-                                                       ,(if has-return-value
-                                                            r-ret
-                                                            '(ffi:make-null-pointer :void))
-                                                       ,args ,count))
-                          `((object-method-bind-call ,method-bind ,object ,args ,count
-                                                     ,r-return ,r-error)
-                            ;; The error, the first member of GDExtensionCallError
-                            (let ((,call-error (foreign-ref ,r-error :int)))
-                              (unless (= ,call-error +call-ok+)
-                                (error "Calling ~a failed with call error ~d" ',name ,call-error)))))
-                    ,(flet ((read-raw-result ()
-                              ;; The raw value at R-RET, destroyed afterwards
-                              (let ((destroy-form (engine-value-destroy-form return-type r-ret)))
-                                (if destroy-form
-                                    `(unwind-protect ,(engine-value-read-form return-type r-ret)
-                                       ,destroy-form)
-                                    (engine-value-read-form return-type r-ret)))))
-                       (cond ((not has-return-value) nil)
-                             (utility (read-raw-result))
-                             ((eql return-type :variant) `(read-variant-result ,r-return))
-                             (t
-                              `(progn
-                                 (call-type-from-variant-constructor
-                                  (aref *type-from-variant-constructors* ,return-type) ,r-ret ,r-return)
-                                 ,(read-raw-result))))))
-               (dotimes (i ,count)
-                 (variant-destroy (array-element ,variants 'variant i)))
-               ,@(unless utility
-                   `((variant-destroy ,r-return)))))))))
+           (with-variant-call (,call ,count)
+             (with-foreign-memory (,@(raw-value-bindings arguments)
+                                   ,@(when (and has-return-value (not from-raw)
+                                                (or utility (not (eql return-type :variant))))
+                                       `((,r-ret ',(engine-value-ffi-type return-type)))))
+               ,@(loop for argument in arguments
+                       for type = (argument-variant-type argument)
+                       for i from 0
+                       for variant = `(variant-call-argument ,call ,count ,i)
+                       collect (if (eql type :variant)
+                                   ;; Already any Variant
+                                   `(write-variant-at ,variant ,(argument-name argument))
+                                   (let ((construct `(construct-variant-at
+                                                      ,variant ,type
+                                                      ,(argument-pointer-form argument)))
+                                         (destroy (argument-destroy-form argument)))
+                                     (cond ((not (argument-ffi-type argument)) construct)
+                                           ;; The Variant gets a copy of the raw value
+                                           (destroy `(progn ,(argument-write-form argument)
+                                                            (unwind-protect ,construct ,destroy)))
+                                           (t `(progn ,(argument-write-form argument)
+                                                      ,construct))))))
+               ,@(when rest
+                   `((loop for value in ,rest
+                           for i from ,declared-count
+                           do (write-variant-at (variant-call-argument ,call ,count i) value))))
+               ,@(if utility
+                     `(,@(when has-return-value
+                           `((clear-foreign-object ,r-ret ',(engine-value-ffi-type return-type))))
+                       (call-ptr-utility-function ,method-bind
+                                                  ,(if has-return-value
+                                                       r-ret
+                                                       '(ffi:make-null-pointer :void))
+                                                  (address-pointer ,call) ,count))
+                     `((let ((,call-error (call-with-variants ,method-bind ,object ,call ,count)))
+                         (unless (= ,call-error +call-ok+)
+                           (error "Calling ~a failed with call error ~d" ',name ,call-error)))))
+               ,(cond ((not has-return-value) nil)
+                      (utility (read-raw-result))
+                      ((eql return-type :variant)
+                       `(read-variant-result (address-pointer (variant-call-result ,call ,count))))
+                      (from-raw
+                       (funcall from-raw `(raw-variant-call-result ,call ,count ,return-type
+                                                                   ,(value-type-ffi-type
+                                                                     result-value-type))))
+                      (t
+                       `(progn
+                          (call-type-from-variant-constructor
+                           (aref *type-from-variant-constructors* ,return-type) ,r-ret
+                           (address-pointer (variant-call-result ,call ,count)))
+                          ,(read-raw-result))))))))))
 
   (defun temporary-names-form (arguments form)
     "FORM, the call of an engine method with ARGUMENTS (ENGINE-ARGUMENTs),

@@ -347,7 +347,17 @@ types of Godot objects.")
     (object-emit-signal test-node "pinged" 1 "one" (vector2 1.0 1.0) node nil)
     (check (= 5 (length heard)))
     (check (equal '(1 "one") (subseq heard 0 2)))
-    (check (same-object-p node (fourth heard)))))
+    (check (same-object-p node (fourth heard)))
+    ;; Without further arguments, and the int result of emit_signal (Error)
+    (check (eql 0 (object-call node "get_child_count")))
+    (check (eql +ok+ (object-emit-signal test-node "pinged")))
+    (check (null heard))
+    ;; A call that fails signals an error
+    (check (eq :error (handler-case (object-call node "no_such_method" 1)
+                        (error () :error))))
+    ;; A further argument that can't be a Variant, after one that was made
+    (check (eq :error (handler-case (object-emit-signal test-node "pinged" "text" 'not-a-variant)
+                        (error () :error))))))
 
 (deftest callback-errors-under-other-handlers
   ;; A callback catches its own errors, whatever handlers the Lisp code that
