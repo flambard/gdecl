@@ -1,5 +1,5 @@
 ;;;; The package GD-EXTENSION-FFI: the GDExtension C interface, one-to-one. It
-;;;; uses GD-EXTENSION-API (extension-api/), for the sizes of Godot's builtin
+;;;; uses EXTENSION-API-JSON (extension-api/), for the sizes of Godot's builtin
 ;;;; types.
 ;;;; See Layers in CLAUDE.md.
 
@@ -7,7 +7,7 @@
   (:documentation "The Godot GDExtension C interface, mapped 1-to-1")
   (:nicknames #:gdext-ffi)
   (:use #:cl)
-  (:import-from #:gd-extension-api
+  (:import-from #:extension-api-json
                 #:api-builtin-size)
   (:export #:load-interface
            #:*class-library*

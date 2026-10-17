@@ -1,12 +1,12 @@
 ;;;; The package GD-EXTENSION, the public, Lisp-style layer, and the code
 ;;;; generators for GODOT and GODOT-UTILITY. It uses all the layers below, and
-;;;; reads extension_api.json through GD-EXTENSION-API (extension-api/).
+;;;; reads extension_api.json through EXTENSION-API-JSON (extension-api/).
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gd-extension
   (:documentation "Lisp-style framework for programming Godot")
   (:nicknames #:gdext)
-  (:use #:cl #:gd-extension-api #:gd-extension-ffi #:gd-extension-builtins
+  (:use #:cl #:extension-api-json #:gd-extension-ffi #:gd-extension-builtins
         #:gd-extension-types)
   (:import-from #:gd-extension-callback
                 #:callback-pointer

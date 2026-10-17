@@ -2,7 +2,7 @@
 
 ;;;
 ;;; The Lisp-style layer of the framework, the package GD-EXTENSION. Built on
-;;; GD-EXTENSION-API (extension-api.lisp), which reads extension_api.json,
+;;; EXTENSION-API-JSON (extension-api.lisp), which reads extension_api.json,
 ;;; GD-EXTENSION-FFI (gd-extension-ffi.lisp), which maps the C interface,
 ;;; GD-EXTENSION-BUILTINS (builtin-types.lisp), Godot's builtin types in Lisp,
 ;;; GD-EXTENSION-TYPES (gd-extension-types.lisp), which converts values between

@@ -9,7 +9,7 @@
 ;;;; types as gdecl's variant types are in api-types.lisp in GD-EXTENSION, as
 ;;;; they need the variant types of GD-EXTENSION-FFI.
 
-(in-package :gd-extension-api)
+(in-package :extension-api-json)
 
 ;;;
 ;;; The file
@@ -112,7 +112,8 @@ compiled."
 ;;;
 
 (defun read-named-values (values)
-  "VALUES, JSON objects of enum values or constants, as a list of (name . value)."
+  "VALUES, the JSON objects of enum values or constants, as a list of
+(name . value)."
   (loop for value in values
         collect (cons (json-get value "name") (json-get value "value"))))
 

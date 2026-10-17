@@ -1,4 +1,4 @@
-;;;; The packages GDECL-JSON, a small JSON reader, and GD-EXTENSION-API:
+;;;; The packages GDECL-JSON, a small JSON reader, and EXTENSION-API-JSON:
 ;;;; extension_api.json, Godot's description of its API, read with it when the
 ;;;; code is compiled into Lisp structs, so that nothing above depends on how
 ;;;; the file is laid out. This is the lowest layer: it depends on nothing else
@@ -12,13 +12,12 @@
            #:read-json-file
            #:json-get))
 
-(defpackage #:gd-extension-api
+(defpackage #:extension-api-json
   (:documentation "extension_api.json, Godot's description of its API, read when
 the code is compiled: the sizes of the builtin types, and the engine classes,
 their methods, enums and constants, and the utility functions, as Lisp structs
 (API-CLASS, API-METHOD, API-ARGUMENT, API-ENUM). Only for code generation: the
 library loaded into Godot never reads it.")
-  (:nicknames #:gdext-api)
   (:use #:cl)
   (:import-from #:gdecl-json
                 #:read-json-file
