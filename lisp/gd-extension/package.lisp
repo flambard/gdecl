@@ -24,14 +24,12 @@
                 #:make-initialize-cell
                 #:report-error
                 #:*wrapper-function*
-                #:pointer-lisp-object
                 #:register-method
                 #:ptrcall-invoker-form
                 #:add-extension-class
                 #:add-virtual
                 #:set-class-notifications
                 #:notification-filter-pointer
-                #:instance-object
                 #:lisp-object)
   ;; Internal, but imported by the layers above that define classes,
   ;; GODOT-DSL and GODOT-CLOS
@@ -87,7 +85,6 @@
            #:set-class-notifications
            #:register-singleton
            #:bind-virtual
-           #:instance-object
            #:lisp-object
            ;; Binding
            #:invoker-form

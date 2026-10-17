@@ -8,8 +8,7 @@
 (defpackage #:gdecl-json
   (:documentation "A small JSON reader, for extension_api.json")
   (:use #:cl)
-  (:export #:parse-json
-           #:read-json-file
+  (:export #:read-json-file
            #:json-get))
 
 (defpackage #:extension-api-json
@@ -46,16 +45,13 @@ library loaded into Godot never reads it.")
            #:api-method-vararg-p
            #:api-method-static-p
            #:api-method-virtual-p
-           #:api-argument
            #:api-argument-name
            #:api-argument-type
            #:api-argument-default-value
            #:api-virtual-methods
            #:api-utility-functions
            ;; Enums and constants
-           #:api-enum
            #:api-enum-name
            #:api-enum-values
            #:api-global-enums
-           #:api-constant-value
            #:api-constant))

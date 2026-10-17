@@ -27,7 +27,6 @@ tables and dispatchers behind them")
            ;; Errors
            #:report-error
            #:*wrapper-function*
-           #:pointer-lisp-object
            ;; Tables
            #:register-method
            #:ptrcall-invoker-form
@@ -35,5 +34,4 @@ tables and dispatchers behind them")
            #:add-virtual
            #:set-class-notifications
            #:notification-filter-pointer
-           #:instance-object
            #:lisp-object))

@@ -119,19 +119,12 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
   (:export ;; Foreign memory for Godot's opaque values (opaque-values.lisp)
            #:+string-name-size+
            #:+string-size+
-           #:+variant-size+
            #:+node-path-size+
-           #:+callable-size+
-           #:+packed-string-array-size+
-           #:+packed-array-size+
-           #:+array-size+
-           #:+dictionary-size+
            #:string-name
            #:godot-string
            #:variant
            #:node-path
            #:godot-callable
-           #:packed-string-array
            #:packed-array
            #:godot-array
            #:godot-dictionary
@@ -145,19 +138,14 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:object-pointer
            #:valid-object-p
            ;; Builtin types
-           #:define-builtin-type
-           #:builtin-type-components
            #:builtin-layout
            #:builtin-construct-form
            ;; Strings, StringNames and NodePaths
-           #:read-godot-string
-           #:write-godot-string
            #:with-string
            #:read-string-name
            #:write-string-name
            #:with-string-name
            #:string-name-equal
-           #:read-node-path
            #:write-node-path
            #:make-temporary-name
            #:destroy-temporary-name
@@ -168,14 +156,12 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:read-variant-result
            ;; The autorelease pool
            #:*release-reference-function*
-           #:autorelease-pool-p
            #:autorelease-reference
            #:release-autoreleased
            #:reference-for-caller
            #:release-autorelease-pool
            #:*autorelease-pool*
            #:callable
-           #:callable-p
            #:callable-target
            #:callable-function
            ;; Value types
@@ -190,17 +176,12 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:value-type-literal-macro
            #:value-type-default-parser
            #:define-simple-value-type
-           #:parse-builtin-default
            #:value-type-destructor
            #:value-type-lisp-type
-           #:value-type-variant-reader
-           #:value-type-variant-writer
-           #:raw-from-variant
            #:find-value-type
            #:add-value-type
            #:read-value
            #:write-value
-           #:destroy-value
            #:write-variant-as
            #:read-variant-as
            #:make-value-type))

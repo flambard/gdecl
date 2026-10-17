@@ -30,9 +30,7 @@ below.")
            #:godot-class
            #:godot-name
            ;; Generic functions that Godot calls
-           #:virtual-function
            #:define-virtual-function
-           #:godot-method
            #:define-godot-generic
            ;; Virtual methods of engine classes
            #:ready
