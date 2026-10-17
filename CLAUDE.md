@@ -60,8 +60,7 @@ From the bottom up; dependencies only go downwards. Each layer is a directory of
 
 | Directory | Package | |
 |---|---|---|
-| `util/` | `gdecl-json` | Utilities that depend on nothing else in gdecl, each in a package of its own: so far a small JSON reader for `extension_api.json` |
-| `api/` | `gd-extension-api` | `extension_api.json`, read when the code is compiled |
+| `api/` | `gdecl-json`, `gd-extension-api` | `extension_api.json`, read with a small JSON reader when the code is compiled |
 | `ffi/` | `gd-extension-ffi` | The GDExtension C interface |
 | `builtins/` | `gd-extension-builtins` | Godot's builtin types in plain Lisp |
 | `types/` | `gd-extension-types` | Converting values between Godot and Lisp |
@@ -87,13 +86,11 @@ Each layer uses the one below it, so the layers load in this order (an arrow fro
    ffi/   builtins/
     │
    api/
-    │
-   util/
 ```
 
-Many layers also use layers further down directly: `gd-extension` uses all the layers below it but `util`, `godot` uses `builtins`, `callback` uses `ffi`, `dsl` uses `callback` and `gd-extension`, and `clos` uses `types`, `callback` and `gd-extension`. Each module's `:depends-on` in `gdecl.asd` lists exactly the layers its code uses (in `:use`, `:import-from` and package-qualified symbols), shortcuts included, so keep it in step when a layer starts or stops using another.
+Many layers also use layers further down directly: `gd-extension` uses all the layers below it, `godot` uses `builtins`, `callback` uses `ffi`, `dsl` uses `callback` and `gd-extension`, and `clos` uses `types`, `callback` and `gd-extension`. Each module's `:depends-on` in `gdecl.asd` lists exactly the layers its code uses (in `:use`, `:import-from` and package-qualified symbols), shortcuts included, so keep it in step when a layer starts or stops using another.
 
-- `gd-extension-api` (`api/extension-api.lisp`): `extension_api.json`, the one place that knows the file: where it is (`*extension-api-file*`), reading it once with gdecl's own small JSON reader (`extension-api-json`; `gdecl-json`, `util/`), and looking things up in it when the code is compiled: the sizes of the builtin types (`api-builtin-size`), constants (`api-constant`), and the engine classes, methods, enums and utility functions that the code generators of `gd-extension` use. Its lookups return JSON objects, so it re-exports `json-get` for reading them, and the layers above don't use `util` themselves.
+- `gd-extension-api` (`api/extension-api.lisp`): `extension_api.json`, the one place that knows the file: where it is (`*extension-api-file*`), reading it once with gdecl's own small JSON reader (`extension-api-json`; the package `gdecl-json`, `api/json.lisp`), and looking things up in it when the code is compiled: the sizes of the builtin types (`api-builtin-size`), constants (`api-constant`), and the engine classes, methods, enums and utility functions that the code generators of `gd-extension` use. Its lookups return JSON objects, so it re-exports `json-get` for reading them, and the layers above don't use `gdecl-json` themselves.
 - `gd-extension-ffi` (`ffi/`): the GDExtension C interface, one-to-one, without Lisp conveniences. Each interface function is a variable named after the C function (`*string-name-new-with-utf8-chars*` for `string_name_new_with_utf8_chars`), set in `load-interface`, and a wrapper function of the same name without earmuffs. Also ECL foreign-memory helpers (see Performance in ECL). It uses `gd-extension-api` only for the sizes of Godot's builtin types.
 - `gd-extension-builtins` (`builtins/builtin-types.lisp`): Godot's builtin types (`vector2`, `basis`, …) in plain Lisp. Everything it exports is for applications: `gd-extension` and `godot` re-export all of it through export lists computed when their packages are read (`gd-extension/package.lisp`, `godot/package.lisp`), so a new symbol is exported in one place only.
 - `gd-extension-types` (`types/`): converting between raw values, Lisp values and Variants.

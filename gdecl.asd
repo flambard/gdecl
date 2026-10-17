@@ -10,14 +10,11 @@
     :homepage "https://github.com/flambard/gdecl"
     :source-control (:git "https://github.com/flambard/gdecl.git")
     :pathname "lisp/"
-    :components ((:module "util"
-                  :components ((:file "package")
-                               (:file "json" :depends-on ("package"))))
-                 ;; extension_api.json, read when the code is compiled
+    :components (;; extension_api.json, read when the code is compiled
                  (:module "api"
-                  :depends-on ("util")
                   :components ((:file "package")
-                               (:file "extension-api" :depends-on ("package"))))
+                               (:file "json" :depends-on ("package"))
+                               (:file "extension-api" :depends-on ("package" "json"))))
                  ;; The GDExtension C interface
                  (:module "ffi"
                   :depends-on ("api")

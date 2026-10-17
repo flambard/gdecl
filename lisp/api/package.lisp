@@ -1,7 +1,16 @@
-;;;; The package GD-EXTENSION-API: extension_api.json, Godot's description of its
-;;;; API, read when the code is compiled. It uses GDECL-JSON (util/), and
-;;;; re-exports JSON-GET, for reading the JSON objects its lookups return.
+;;;; The packages GDECL-JSON, a small JSON reader, and GD-EXTENSION-API:
+;;;; extension_api.json, Godot's description of its API, read with it when the
+;;;; code is compiled. GD-EXTENSION-API re-exports JSON-GET, for reading the
+;;;; JSON objects its lookups return. This is the lowest layer: it depends on
+;;;; nothing else in gdecl.
 ;;;; See Layers in CLAUDE.md.
+
+(defpackage #:gdecl-json
+  (:documentation "A small JSON reader, for extension_api.json")
+  (:use #:cl)
+  (:export #:parse-json
+           #:read-json-file
+           #:json-get))
 
 (defpackage #:gd-extension-api
   (:documentation "extension_api.json, Godot's description of its API, read when
