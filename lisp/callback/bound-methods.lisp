@@ -83,16 +83,17 @@ PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
 ;;; simple types and write those results through the addresses in C; a pointer
 ;;; object is made only for the readers and writers of the other types.
 
-(declaim (inline address-pointer))
-(defun address-pointer (address)
-  "A pointer object for ADDRESS, an integer, for the readers and writers of raw
-values."
-  (ffi:c-inline (address) (:uint64-t) :pointer-void "(void *)#0" :one-liner t))
-
 (defun argument-pointer (args index)
   "A pointer object for the raw value of argument INDEX, from ARGS, the address
 of ptrcall_func's array of pointers to them."
   (ffi:c-inline (args index) (:uint64-t :int) :pointer-void "((void **)#0)[#1]"
+                :one-liner t))
+
+(declaim (inline argument-address))
+(defun argument-address (args index)
+  "The address of argument INDEX, from ARGS, the address of an array of pointers
+to the arguments."
+  (ffi:c-inline (args index) (:uint64-t :int) :uint64-t "(uint64_t)((void **)#0)[#1]"
                 :one-liner t))
 
 (defun ptrcall-bound-method (method-address instance-address args r-ret)

@@ -628,21 +628,72 @@ are found by the LISP-TYPE of their value types. NIL is false, so null is
 ;;; with the raw value in a C variable, instead of in foreign memory from
 ;;; Lisp: that allocates nothing, and is several times faster.
 
-(defmacro variant-from-raw (variant variant-type ffi-type c-type value)
+(defmacro variant-from-raw (variant variant-type ffi-type c-type value
+                            &optional (variant-ffi-type :pointer-void))
   "Construct a Variant of VARIANT-TYPE at VARIANT from VALUE, a raw value of
-FFI-TYPE (C-TYPE in C), with Godot's constructor."
+FFI-TYPE (C-TYPE in C), with Godot's constructor. VARIANT is a pointer, or an
+address if VARIANT-FFI-TYPE is :UINT64-T."
   `(ffi:c-inline ((aref *variant-from-type-constructors* ,variant-type) ,variant ,value)
-                 (:pointer-void :pointer-void ,ffi-type) :void
-                 ,(format nil "{ ~a value = #2; ((void (*)(void *, void *))#0)(#1, &value); }"
+                 (:pointer-void ,variant-ffi-type ,ffi-type) :void
+                 ,(format nil "{ ~a value = #2; ((void (*)(void *, void *))#0)((void *)#1, &value); }"
                           c-type)))
 
-(defmacro raw-from-variant (variant variant-type ffi-type c-type)
+(defmacro raw-from-variant (variant variant-type ffi-type c-type
+                            &optional (variant-ffi-type :pointer-void))
   "The raw value of FFI-TYPE (C-TYPE in C) of the Variant of VARIANT-TYPE at
-VARIANT, with Godot's constructor."
+VARIANT, with Godot's constructor. VARIANT is a pointer, or an address if
+VARIANT-FFI-TYPE is :UINT64-T."
   `(ffi:c-inline ((aref *type-from-variant-constructors* ,variant-type) ,variant)
-                 (:pointer-void :pointer-void) ,ffi-type
-                 ,(format nil "{ ~a value; ((void (*)(void *, void *))#0)(&value, #1); @(return 0) = value; }"
+                 (:pointer-void ,variant-ffi-type) ,ffi-type
+                 ,(format nil "{ ~a value; ((void (*)(void *, void *))#0)(&value, (void *)#1); @(return 0) = value; }"
                           c-type)))
+
+;;; Bools, ints and floats, the most common Variants (signal arguments, the
+;;; further arguments of vararg calls), are converted by READ-VARIANT and
+;;; WRITE-VARIANT themselves, in one piece of C code each, as calling
+;;; VARIANT-GET-TYPE and their VARIANT-READERs and VARIANT-WRITERs by name took
+;;; several times as long. The callbacks get their Variants as addresses (see
+;;; bound-methods.lisp in GD-EXTENSION-CALLBACK), and READ-VARIANT-AT and
+;;; WRITE-VARIANT-AT convert those without making a pointer object (22 ns and
+;;; 32 bytes each); the macros below are the fast paths of both pairs.
+
+(declaim (inline address-pointer))
+(defun address-pointer (address)
+  "A pointer object for ADDRESS, an integer, for the readers and writers of raw
+values."
+  (ffi:c-inline (address) (:uint64-t) :pointer-void "(void *)#0" :one-liner t))
+
+(defmacro write-simple-variant ((variant variant-ffi-type) value &body otherwise)
+  "Construct a Variant at VARIANT from VALUE, a variable, if it's a bool, an int
+or a float, in one piece of C code; otherwise, evaluate OTHERWISE. VARIANT is a
+pointer, or an address if VARIANT-FFI-TYPE is :UINT64-T."
+  ;; The order of the types is that of LISP-VARIANT-TYPE
+  `(typecase ,value
+     (boolean (variant-from-raw ,variant +variant-type-bool+ :uint8-t "uint8_t"
+                                (if ,value 1 0) ,variant-ffi-type))
+     ((signed-byte 64) (variant-from-raw ,variant +variant-type-int+ :int64-t "int64_t"
+                                         ,value ,variant-ffi-type))
+     (real (variant-from-raw ,variant +variant-type-float+ :double "double"
+                             (float ,value 1d0) ,variant-ffi-type))
+     (t ,@otherwise)))
+
+(defmacro read-simple-variant ((variant-type variant variant-ffi-type) &body otherwise)
+  "The value of the Variant at VARIANT, if it's null, a bool, an int or a float,
+read in one piece of C code; otherwise, evaluate OTHERWISE with VARIANT-TYPE
+bound to its variant type. VARIANT is a pointer, or an address if
+VARIANT-FFI-TYPE is :UINT64-T."
+  `(let ((,variant-type (ffi:c-inline (*variant-get-type* ,variant)
+                                      (:pointer-void ,variant-ffi-type) :int
+                                      "((int (*)(void *))#0)((void *)#1)" :one-liner t)))
+     (cond ((= ,variant-type +variant-type-nil+) nil)
+           ((= ,variant-type +variant-type-bool+)
+            (/= 0 (raw-from-variant ,variant +variant-type-bool+ :uint8-t "uint8_t"
+                                    ,variant-ffi-type)))
+           ((= ,variant-type +variant-type-int+)
+            (raw-from-variant ,variant +variant-type-int+ :int64-t "int64_t" ,variant-ffi-type))
+           ((= ,variant-type +variant-type-float+)
+            (raw-from-variant ,variant +variant-type-float+ :double "double" ,variant-ffi-type))
+           (t ,@otherwise))))
 
 (defun write-variant (variant value)
   "Construct a Variant at VARIANT, uninitialized memory, from the Lisp VALUE,
@@ -651,21 +702,28 @@ bool, a string a String, a VECTOR2 a Vector2, a specialized vector a packed
 array, a simple vector an Array, a hash table a Dictionary, and a GODOT-OBJECT
 an Object (but not a raw pointer, which might point to something else, such as
 a StringName), and :NULL null. Destroy it with VARIANT-DESTROY."
-  ;; Bools, ints and floats, the most common Variants (signal arguments, the
-  ;; further arguments of vararg calls), are made right here, in one piece of C
-  ;; code each, as calling their VARIANT-WRITERs by name took several times as
-  ;; long; the order of the types is that of LISP-VARIANT-TYPE
-  (typecase value
-    (boolean (variant-from-raw variant +variant-type-bool+ :uint8-t "uint8_t" (if value 1 0)))
-    ((signed-byte 64) (variant-from-raw variant +variant-type-int+ :int64-t "int64_t" value))
-    (real (variant-from-raw variant +variant-type-float+ :double "double" (float value 1d0)))
-    (t
-     (let ((variant-type (or (lisp-variant-type value)
-                             (error "Can't make a Variant from ~s" value))))
-       (if (= variant-type +variant-type-nil+)
-           ;; A Variant of all zeros is null, as Variant() in C++ makes it
-           (clear-foreign-object variant 'variant)
-           (write-variant-as variant (find-value-type variant-type) value))))))
+  (write-simple-variant (variant :pointer-void) value
+    (let ((variant-type (or (lisp-variant-type value)
+                            (error "Can't make a Variant from ~s" value))))
+      (if (= variant-type +variant-type-nil+)
+          ;; A Variant of all zeros is null, as Variant() in C++ makes it
+          (clear-foreign-object variant 'variant)
+          (write-variant-as variant (find-value-type variant-type) value)))))
+
+(defun write-variant-at (address value &optional (errorp t))
+  "WRITE-VARIANT for the Variant at ADDRESS, an integer. If ERRORP is false, a
+VALUE that can't be a Variant makes null instead of signaling an error."
+  (write-simple-variant (address :uint64-t) value
+    (let ((variant (address-pointer address)))
+      (if (or errorp (lisp-variant-type value))
+          (write-variant variant value)
+          (clear-foreign-object variant 'variant)))))
+
+(declaim (inline destroy-variant-at))
+(defun destroy-variant-at (address)
+  "Destroy the Variant at ADDRESS, an integer."
+  (ffi:c-inline (*variant-destroy* address) (:pointer-void :uint64-t) :void
+                "((void (*)(void *))#0)((void *)#1)" :one-liner t))
 
 (defun write-variant-as (variant value-type value)
   "Construct a Variant of VALUE-TYPE at VARIANT, uninitialized memory, from the
@@ -753,24 +811,22 @@ here and in the code generators."
 (defun read-variant (variant)
   "The value of the Variant at VARIANT as a Lisp value, by its type: NIL for
 Nil, otherwise as in *VALUE-TYPES*."
-  ;; The type, and bools, ints and floats, are read right here, in one piece of
-  ;; C code each, as calling VARIANT-GET-TYPE and their VARIANT-READERs by name
-  ;; took several times as long (see WRITE-VARIANT)
-  (let ((variant-type (ffi:c-inline (*variant-get-type* variant) (:pointer-void :pointer-void) :int
-                                    "((int (*)(void *))#0)(#1)" :one-liner t)))
-    (cond ((= variant-type +variant-type-nil+) nil)
-          ((= variant-type +variant-type-bool+)
-           (/= 0 (raw-from-variant variant +variant-type-bool+ :uint8-t "uint8_t")))
-          ((= variant-type +variant-type-int+)
-           (raw-from-variant variant +variant-type-int+ :int64-t "int64_t"))
-          ((= variant-type +variant-type-float+)
-           (raw-from-variant variant +variant-type-float+ :double "double"))
+  (read-simple-variant (variant-type variant :pointer-void)
+    (read-variant-of-type variant variant-type)))
+
+(defun read-variant-at (address)
+  "READ-VARIANT for the Variant at ADDRESS, an integer."
+  (read-simple-variant (variant-type address :uint64-t)
+    (read-variant-of-type (address-pointer address) variant-type)))
+
+(defun read-variant-of-type (variant variant-type)
+  "The value of the Variant at VARIANT, of VARIANT-TYPE, as a Lisp value, as in
+*VALUE-TYPES*."
+  (let* ((value-type (find-value-type variant-type))
+         (variant-reader (value-type-variant-reader value-type)))
+    (cond (variant-reader
+           (funcall variant-reader variant))
+          ((and (value-type-ffi-type value-type) (value-type-reader value-type))
+           (read-variant-as variant value-type))
           (t
-           (let* ((value-type (find-value-type variant-type))
-                  (variant-reader (value-type-variant-reader value-type)))
-             (cond (variant-reader
-                    (funcall variant-reader variant))
-                   ((and (value-type-ffi-type value-type) (value-type-reader value-type))
-                    (read-variant-as variant value-type))
-                   (t
-                    (error "Unsupported type for a Variant: variant type ~s" variant-type))))))))
+           (error "Unsupported type for a Variant: variant type ~s" variant-type)))))

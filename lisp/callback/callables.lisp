@@ -97,8 +97,12 @@ nothing for a Lisp CALLABLE."
 ;;                                       GDExtensionCallError *r_error)
 ;;
 ;; The pointers are integers, as for METHOD-PTRCALL (see PTRCALL-BOUND-METHOD),
-;; so that no pointer objects are made for them, except for the arguments'
-;; Variants and a result.
+;; so that no pointer objects are made for them, and bools, ints and floats are
+;; read and written without one (READ-VARIANT-AT, WRITE-VARIANT-AT), and the
+;; function is called with up to three arguments without making a list for
+;; APPLY. Measured calling it from C, with an int argument and result: 217–223
+;; ns and 16 bytes, against 414–446 ns and 112 bytes with a pointer object for
+;; each Variant and APPLY.
 ;;
 ;; The result of the function is returned as a Variant, if it can be one (see
 ;; VARIANT-VALUE-P); NIL, and values that can't be Variants yet, return null.
@@ -114,17 +118,22 @@ nothing for a Lisp CALLABLE."
     (ffi:c-inline (r-error) (:uint64-t) :void
                   "{ int32_t *e = (int32_t *)#0; e[0] = 0; e[1] = 0; e[2] = 0; }"
                   :one-liner nil)
-    (let ((result (apply (callable-function (address-handle-value *callables*
-                                                                  callable-userdata))
-                         (loop for i below argument-count
-                               collect (read-variant (argument-pointer args i))))))
-      (let ((variant-type (and result (lisp-variant-type result))))
-        (when variant-type
-          ;; R-RETURN is a Variant already (Nil). Written before the pool
-          ;; gives back its references, so an object in it stays alive.
-          (let ((r-return (address-pointer r-return)))
-            (variant-destroy r-return)
-            (write-variant-as r-return (find-value-type variant-type) result)))))))
+    (let* ((function (callable-function (address-handle-value *callables*
+                                                              callable-userdata)))
+           (result (macrolet ((argument (index)
+                                `(read-variant-at (argument-address args ,index))))
+                     (case argument-count
+                       (0 (funcall function))
+                       (1 (funcall function (argument 0)))
+                       (2 (funcall function (argument 0) (argument 1)))
+                       (3 (funcall function (argument 0) (argument 1) (argument 2)))
+                       (t (apply function (loop for i below argument-count
+                                                collect (argument i))))))))
+      (when result
+        ;; R-RETURN is a Variant already (Nil). Written before the pool gives
+        ;; back its references, so an object in it stays alive.
+        (destroy-variant-at r-return)
+        (write-variant-at r-return result nil)))))
 
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (define-callback callable-free :void ((callable-userdata :pointer-void))

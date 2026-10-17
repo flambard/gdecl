@@ -85,6 +85,9 @@
   (:method "call_kept" test-node-call-kept :arguments (("argument" :int)) :return-type :int)
   (:method "free_kept" test-node-free-kept)
   (:method "make_lisp_callable" test-node-make-lisp-callable :return-type :callable)
+  (:method "make_arguments_callable" test-node-make-arguments-callable
+           :return-type :callable)
+  (:method "make_echo_callable" test-node-make-echo-callable :return-type :callable)
   (:method "is_own_callable" test-node-own-callable-p
            :arguments (("callable" :callable)) :return-type :bool)
   (:method "count_engine_callables" test-node-count-engine-callables
@@ -179,6 +182,15 @@ arguments and returns how many there were."
 (defun test-node-make-lisp-callable (node)
   (setf (test-node-own-callable node)
         (gdext:callable node (lambda (x) (* 10 x)))))
+
+(defun test-node-make-arguments-callable (node)
+  "A Lisp callable that returns its arguments as an Array."
+  (gdext:callable node (lambda (&rest arguments) (coerce arguments 'vector))))
+
+(defun test-node-make-echo-callable (node)
+  "A Lisp callable that returns its argument, or, without one, a value that
+can't be a Variant."
+  (gdext:callable node (lambda (&optional (value (list 'not 'a 'variant))) value)))
 
 (defun test-node-own-callable-p (node callable)
   (eq callable (test-node-own-callable node)))

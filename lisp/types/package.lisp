@@ -153,9 +153,13 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:make-temporary-name
            #:destroy-temporary-name
            #:write-variant
+           #:write-variant-at
+           #:destroy-variant-at
+           #:address-pointer
            #:variant-value-p
            #:lisp-variant-type
            #:read-variant
+           #:read-variant-at
            #:read-variant-result
            ;; The autorelease pool
            #:*release-reference-function*
