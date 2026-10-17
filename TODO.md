@@ -1,6 +1,6 @@
 # TODO
 
-What's left to do in gdecl, from reviews and from comparing what gdecl does with what a game needs. Items keep their letters when others are done, so they can be referred to (e.g. "TODO R" in `CLAUDE.md`); finished items move to Done at the end. File references are in `lisp/` unless shown otherwise. gdecl's first principle applies to all of it: performance first, and shift work from run time to compile time (`CLAUDE.md`).
+What's left to do in gdecl, from reviews and from comparing what gdecl does with what a game needs. Items keep their letters when others are done, so they can be referred to (e.g. "TODO R" in `CLAUDE.md`); finished items move to Done at the end. File references are to files in the layers' directories under `lisp/` (see Layers in `CLAUDE.md`) unless shown otherwise. gdecl's first principle applies to all of it: performance first, and shift work from run time to compile time (`CLAUDE.md`).
 
 ## Performance
 

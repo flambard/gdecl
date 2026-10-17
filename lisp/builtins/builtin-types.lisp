@@ -2,7 +2,7 @@
 ;;;; such as Vector2 and Basis, with their functions named like Godot's methods,
 ;;;; <type>-<method> (VECTOR2-NORMALIZED). Plain Lisp, without calls into Godot.
 ;;;; Everything exported from here is for applications: the packages
-;;;; GD-EXTENSION and GODOT re-export all of it (see packages.lisp).
+;;;; GD-EXTENSION and GODOT re-export all of it (see their package.lisp).
 ;;;; GD-EXTENSION-TYPES converts them to and from raw values.
 
 (in-package :gd-extension-builtins)

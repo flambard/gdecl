@@ -91,6 +91,8 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 
 `gd-extension-builtins`, `gd-extension-types` and `gd-extension-callback` are gdecl's internal layers; applications don't need them. `gdecl-json` reads `extension_api.json` when your code is compiled.
 
+Each package is a layer of gdecl, in a directory of its own in `lisp/`, built only on the layers below it: `ffi/`, `builtins/`, `types/` and `callback/` at the bottom, then `gd-extension/`, `godot/` with Godot's API, and `clos/` on top.
+
 ## Defining classes
 
 `define-class` defines a class in one form, like a GDScript script:

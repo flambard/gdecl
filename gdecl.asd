@@ -1,3 +1,7 @@
+;;; gdecl's layers, from the bottom up, one module per directory of lisp/, each
+;;; with its packages in its package.lisp. A module's :DEPENDS-ON lists the
+;;; layers it uses; see Layers in CLAUDE.md.
+
 (defsystem "gdecl"
     :description "Framework for programming Godot with Common Lisp (ECL)"
     :author "Markus Flambard"
@@ -6,39 +10,69 @@
     :homepage "https://github.com/flambard/gdecl"
     :source-control (:git "https://github.com/flambard/gdecl.git")
     :pathname "lisp/"
-    :components ((:file "packages")
-                 (:file "gd-extension-ffi" :depends-on ("packages" "json"))
-                 (:file "builtin-types" :depends-on ("packages"))
-                 (:file "gd-extension-types" :depends-on ("gd-extension-ffi" "builtin-types"))
-                 (:file "strings" :depends-on ("gd-extension-types"))
-                 (:file "autorelease-pool" :depends-on ("gd-extension-types"))
-                 ;; The package GD-EXTENSION-CALLBACK
-                 (:file "gd-extension-callback" :depends-on ("gd-extension-ffi" "strings" "autorelease-pool"))
-                 (:file "handle-tables" :depends-on ("gd-extension-callback"))
-                 (:file "initialize" :depends-on ("gd-extension-callback"))
-                 (:file "instance-bindings" :depends-on ("initialize" "handle-tables"))
-                 (:file "extension-classes" :depends-on ("instance-bindings"))
-                 (:file "bound-methods" :depends-on ("extension-classes"))
-                 (:file "callables" :depends-on ("bound-methods"))
-                 (:file "json" :depends-on ("packages"))
-                 (:file "extension-api" :depends-on ("gd-extension-ffi" "json"))
-                 ;; The package GD-EXTENSION
-                 (:file "gd-extension" :depends-on ("gd-extension-ffi" "gd-extension-types"
-                                                    "callables" "extension-api"))
-                 (:file "engine-methods" :depends-on ("gd-extension"))
-                 (:file "engine-objects" :depends-on ("gd-extension"))
-                 (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))
-                 (:file "containers" :depends-on ("gd-extension" "engine-api"))
-                 (:file "references" :depends-on ("engine-methods"))
-                 (:file "signals" :depends-on ("engine-methods"))
-                 (:file "registration" :depends-on ("gd-extension" "engine-methods" "engine-objects"))
-                 (:file "define-class" :depends-on ("registration" "references" "engine-objects"))
-                 (:file "objects" :depends-on ("registration" "references" "engine-objects"))
-                 ;; The order of the framework's startup and shutdown steps
-                 (:file "lifecycle" :depends-on ("define-class" "registration" "gd-extension"))
-                 (:file "godot-engine-classes" :depends-on ("engine-api" "containers"))
-                 (:file "godot-utility" :depends-on ("engine-api" "containers"))
-                 ;; The package GODOT-CLOS, a prototype of the high-level layer
-                 (:file "godot-class" :depends-on ("define-class" "objects" "godot-engine-classes"))
-                 (:file "godot-functions" :depends-on ("godot-class" "registration"))
-                 (:file "godot-registration" :depends-on ("godot-functions"))))
+    :components ((:module "util"
+                  :components ((:file "package")
+                               (:file "json" :depends-on ("package"))))
+                 ;; The GDExtension C interface
+                 (:module "ffi"
+                  :depends-on ("util")
+                  :components ((:file "package")
+                               (:file "gd-extension-ffi" :depends-on ("package"))))
+                 ;; Godot's builtin types in plain Lisp
+                 (:module "builtins"
+                  :components ((:file "package")
+                               (:file "builtin-types" :depends-on ("package"))))
+                 ;; Converting values between Godot and Lisp
+                 (:module "types"
+                  :depends-on ("ffi" "builtins")
+                  :components ((:file "package")
+                               (:file "gd-extension-types" :depends-on ("package"))
+                               (:file "strings" :depends-on ("gd-extension-types"))
+                               (:file "autorelease-pool" :depends-on ("gd-extension-types"))))
+                 ;; What Godot calls into
+                 (:module "callback"
+                  :depends-on ("ffi" "types")
+                  :components ((:file "package")
+                               (:file "gd-extension-callback" :depends-on ("package"))
+                               (:file "handle-tables" :depends-on ("gd-extension-callback"))
+                               (:file "initialize" :depends-on ("gd-extension-callback"))
+                               (:file "instance-bindings" :depends-on ("initialize" "handle-tables"))
+                               (:file "extension-classes" :depends-on ("instance-bindings"))
+                               (:file "bound-methods" :depends-on ("extension-classes"))
+                               (:file "callables" :depends-on ("bound-methods"))))
+                 ;; The public, Lisp-style layer, and the code generators of
+                 ;; Godot's API
+                 (:module "gd-extension"
+                  :depends-on ("util" "ffi" "builtins" "types" "callback")
+                  :components ((:file "package")
+                               (:file "extension-api" :depends-on ("package"))
+                               (:file "gd-extension" :depends-on ("package" "extension-api"))
+                               (:file "engine-methods" :depends-on ("gd-extension"))
+                               (:file "engine-objects" :depends-on ("gd-extension"))
+                               (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))
+                               (:file "containers" :depends-on ("gd-extension" "engine-api"))
+                               (:file "references" :depends-on ("engine-methods"))
+                               (:file "signals" :depends-on ("engine-methods"))
+                               (:file "registration" :depends-on ("gd-extension" "engine-methods"
+                                                                  "engine-objects"))
+                               (:file "define-class" :depends-on ("registration" "references"
+                                                                  "engine-objects"))
+                               (:file "objects" :depends-on ("registration" "references"
+                                                             "engine-objects"))
+                               ;; The order of the framework's startup and
+                               ;; shutdown steps
+                               (:file "lifecycle" :depends-on ("define-class" "registration"
+                                                               "gd-extension"))))
+                 ;; Godot's API, generated from extension_api.json
+                 (:module "godot"
+                  :depends-on ("builtins" "gd-extension")
+                  :components ((:file "package")
+                               (:file "godot-engine-classes" :depends-on ("package"))
+                               (:file "godot-utility" :depends-on ("package"))))
+                 ;; A prototype of the high-level layer: classes as CLOS classes
+                 (:module "clos"
+                  :depends-on ("types" "callback" "gd-extension" "godot")
+                  :components ((:file "package")
+                               (:file "godot-class" :depends-on ("package"))
+                               (:file "godot-functions" :depends-on ("godot-class"))
+                               (:file "godot-registration" :depends-on ("godot-functions"))))))
