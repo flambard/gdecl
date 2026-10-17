@@ -10,7 +10,7 @@ GDExtension is a low-level C interface, not meant to be used directly by applica
 
 The aim is a very high-level way of programming Godot, with the option to drop down to lower-level concepts exactly where a task is performance sensitive: one method of a class, or one hot loop, without giving up the high level elsewhere. The lower layers stay available for that, and for what the higher ones don't cover yet.
 
-The long-term ambition is to program Godot at a high level in Lisp, with Godot's classes, inheritance, virtual methods, properties and signals expressed naturally. CLOS looks like a very good fit: define Godot classes with `defclass`-like forms, implement virtual methods such as `_process` with `defmethod`, and redefine classes in a running game. Whether it fits is still to be found out, though: if CLOS can't be made fast enough for code that runs every frame, a more specialized DSL, or a mix of the two, may fit better. That will be decided by prototyping and measuring.
+The long-term ambition is to program Godot at a high level in Lisp, with Godot's classes, inheritance, virtual methods, properties and signals expressed naturally. That's CLOS, in the package `godot-clos`: define Godot classes with `defclass`, implement virtual methods such as `_process` with `defmethod`, and redefine classes in a running game. It costs a little more per call than `define-class`, a smaller DSL in `godot-dsl`, which stays as a faster, lower layer for where a class's hot code needs it.
 
 ## Requirements
 
@@ -86,15 +86,17 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 | `godot` | `gd` | Godot's API: engine methods, enums and constants, and the builtin types such as `vector2` |
 | `godot-utility` | `gd-util` | Godot's utility functions, the global functions of GDScript, such as `randf-range` |
 | `gd-extension` | `gdext` | gdecl itself: registering classes, signals, references, and the macros that generate Godot's API |
-| `godot-dsl` | | `define-class`, see [Defining classes](#defining-classes) |
+| `godot-dsl` | | `define-class`, a faster, lower-level way to define classes, see [Defining classes](#defining-classes) |
 | `gd-extension-ffi` | `gdext-ffi` | The GDExtension C interface, one-to-one, for what the others don't cover yet |
-| `godot-clos` | | A prototype: classes as CLOS classes, see [Classes as CLOS classes](#classes-as-clos-classes-a-prototype) |
+| `godot-clos` | | Classes as CLOS classes, the high-level way to define classes, see [Classes as CLOS classes](#classes-as-clos-classes) |
 
 `gd-extension-builtins`, `gd-extension-types` and `gd-extension-callback` are gdecl's internal layers; applications don't need them. `extension-api-json` looks things up in `extension_api.json` when your code is compiled, read with `gdecl-json`.
 
 Each package is a layer of gdecl, in a directory of its own in `lisp/`, built only on the layers below it: `extension-api/`, `ffi/`, `types/` and `callback/` at the bottom, then `gd-extension/`, `godot/` with Godot's API, and on top `dsl/` and `clos/`, the two ways of defining classes.
 
 ## Defining classes
+
+There are two ways: CLOS classes with `godot-clos` (see [Classes as CLOS classes](#classes-as-clos-classes)), the high-level way, with inheritance, mixins, method combination and redefinition at a REPL; and `define-class`, faster but without those, for dropping down where a class's hot code needs it.
 
 `define-class`, in the package `godot-dsl`, defines a class in one form, like a GDScript script:
 
@@ -144,9 +146,9 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 (gdext:add-initialize-hook 'start)
 ```
 
-### Classes as CLOS classes (a prototype)
+### Classes as CLOS classes
 
-`godot-clos` is a prototype of another way to define classes, with CLOS: a class is a `defclass` with the metaclass `godot-class`, and what Godot calls are generic functions, so they're implemented with `defmethod`, with inheritance, mixins, `:before`/`:after`/`:around` methods and `call-next-method`:
+`godot-clos` is the high-level way to define classes, with CLOS: a class is a `defclass` with the metaclass `godot-class`, and what Godot calls are generic functions, so they're implemented with `defmethod`, with inheritance, mixins, `:before`/`:after`/`:around` methods and `call-next-method`:
 
 ```lisp
 (defclass player (area-2d)                           ; extends Area2D (the struct of define-engine-class)
@@ -175,7 +177,7 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
   ```
 - Redefining a class, or adding a method, at a REPL updates the instances and registers what's new with Godot. Godot can't remove anything, change a class's parent, or call a virtual method that a class implemented only after Godot first asked (TODO J).
 
-A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, and an accessor 50–60 ns more than a struct accessor (see TODO P).
+A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, and an accessor 50–60 ns more than a struct accessor (see TODO AM for running a class's hot methods at `define-class`'s speed).
 
 ## Calling Godot
 

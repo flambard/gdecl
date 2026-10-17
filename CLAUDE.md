@@ -8,7 +8,7 @@ GDExtension is a low-level C interface, not meant to be used directly by applica
 
 Principles:
 
-- **Build up gradually.** Each layer is built on the ones below it (see Layers), with the highest-level concepts on top of `gd-extension`: so far `godot-dsl` (`define-class`) and the prototype `godot-clos` (see The high-level layer below). Grow the framework from what the applications built on it need, and move code from an application into gdecl once the pattern is clear.
+- **Build up gradually.** Each layer is built on the ones below it (see Layers), with the highest-level concepts on top of `gd-extension`: `godot-clos`, the high-level layer, and `godot-dsl` (`define-class`), a faster, lower one (see The high-level layer below). Grow the framework from what the applications built on it need, and move code from an application into gdecl once the pattern is clear.
 - **High level by default, drop down where it matters.** Applications should be able to program at a very high level, and drop down to lower-level concepts exactly where a task is performance sensitive, without giving up the high level elsewhere: one method of a high-level class, or one hot loop, can use a lower layer. So the layers must work together: high-level objects can be passed to everything below (as `godot-object`s are through `object-pointer`), a high-level class can have methods bound the low-level way, and the lower layers stay usable and documented. Speed is opt-in step by step: type declarations, non-allocating operations, dispatch resolved once.
 - **Performance first: shift work from run time to compile time.** gdecl is for games, so every design is judged by what it costs per frame. Do at compile time (macros, code generated from `extension_api.json`) what can be done then, and at initialization or registration what has to wait for Godot (method binds, StringNames, constructors, cached once); keep only what must happen per call at run time. Prefer `ptrcall` to Variant calls, avoid allocating in calls that happen every frame (`_process`, `_physics_process`), and prefer deterministic, explicit resource handling (such as the autorelease pool, decided per method when the code is generated) to run-time machinery such as GC finalizers. See Performance in ECL for what that means in practice.
 - **Improve gdecl as you go.** When an application needs something gdecl lacks, or something in it could be better, improve gdecl rather than working around it in the application. Keep such changes general.
@@ -30,29 +30,21 @@ Where to look for inspiration:
 - **GDScript**: the API application developers know: `extends`, `@export`, `signal`, virtual methods such as `_ready` that you just define, `$Node` paths, `@onready`.
 - **Godot C# (`GodotSharp`)**: the closest model, a garbage-collected binding. Engine classes are generated from `extension_api.json` with method binds cached in static fields, builtin types such as `Vector2` are implemented in C#, user classes use attributes and a source generator writes the registration code, and `RefCounted` lifetimes are tied to the managed object.
 
-### The high-level layer: CLOS, a specialized DSL, or both (open)
+### The high-level layer: CLOS, with a fast path (decided, TODO P)
 
 The ambition is to program Godot at a high level in Lisp: Godot's object-oriented concepts (classes and inheritance, virtual methods, properties, signals) expressed naturally, at least as easy as GDScript and C#, and fast enough for games.
 
-CLOS is the leading candidate, but not yet a decision. Godot's model is class-based like GDScript's and C#'s, and CLOS adds what they lack: generic functions with method combination (e.g. `:before` methods on `_ready`), the MOP for registering classes behind the scenes, and redefining classes in a running game (`update-instance-for-redefined-class`), which is probably Lisp's strongest selling point here. Something like:
+Decided on 2026-10-17: CLOS, `godot-clos`, is the high-level layer. A class is a `defclass` with the metaclass `godot-class`, and what Godot calls are generic functions, so classes get inheritance, mixins, method combination (e.g. `:before` methods on `_ready`) and redefinition in a running game (`update-instance-for-redefined-class`), which is probably Lisp's strongest selling point here. `define-class` (`godot-dsl`) stays as a faster, lower layer, a struct and functions called by name, for dropping down, but gets no new high-level features: inheritance between Lisp classes, redefinition at a REPL and the rest of GDScript go into `godot-clos`.
 
-```lisp
-(define-godot-class player (sprite-2d)
-  ((speed :initform 400.0 :type float :export t))
-  (:signals (hit)))
+Why: a call from Godot into a generic function costs 0.53–0.54 µs, against 0.35–0.39 µs into a `define-class` function, and an accessor 80 ns against 25 ns for a struct accessor. That's about 0.2 ms a frame for 1,000 objects with `_process`, about 1%, and small next to what entering Lisp costs at all (TODO N), which both pay. CLOS's dispatch can't be made cheaper by resolving it once (see below), so where a class's hot code needs `define-class`'s speed, it drops down: a hot virtual method bound to a plain function, and faster slot access (TODO AM, which the decision rests on).
 
-(defmethod process ((self player) delta) ...)
-```
-
-The risk is per-frame cost. ECL's dynamic machinery is expensive per call (see Performance in ECL), and generic function dispatch and `slot-value` are likely similar. So it may fit better to have a more specialized DSL, macros that compile Godot-specific definitions into tight code (as `define-class` and the invokers of `ptrcall-invoker-form` already do), or a hybrid: CLOS for defining and redefining, with dispatch resolved once (an effective method found per class and virtual, e.g. in `get_virtual_call_data`, not per call) and specialized code generated for the per-frame paths. `define-class` is already a small DSL, with a syntax meant to be able to expand into whichever fits, without changing applications much.
-
-The prototype `godot-clos` (see Layers) is the CLOS answer, with the per-call costs in TODO P. What it rests on:
+What `godot-clos` rests on:
 
 - **A CLOS class can inherit from structs** in ECL, when `validate-superclass` allows it: a `godot-class` inherits from the struct of its engine class, so its instances are `godot-object`s to every layer below, with no change to them. The structs' slots come first, so `pointer` is at location 0 (`+godot-object-pointer-location+`, which `types` checks against the struct when it's loaded), where the structs' accessors read it, provided mixins come before the struct in the superclasses (checked when the class is finalized). `standard-object` is added to the superclasses, since redefinition needs its methods.
 - **ECL gives fast slot access only to `standard-class`** (see Performance in ECL), so `godot-class` sets up the location table and optimized accessors itself.
 - **Dispatch isn't resolved once.** ECL's method functions take their arguments as a list, so calling an effective method computed once is no faster than the generic function (measured: 137 ns against 160 ns, and it conses).
 
-Whichever it is, dropping down must work from inside it (see the principles): a high-level class whose hot methods are written closer to the metal. Decide by measuring and prototyping, as for the FFI work: measure CLOS in ECL (a generic function call, `slot-value` against an accessor, `make-instance`, calling a precomputed effective method), and write a real class, such as the first game's Player, both ways, comparing ease of use and `make bench` numbers (TODO P). Other open questions: a macro over `defclass` or a metaclass; generated classes for engine classes, and only for those used; RefCounted lifetimes tied to their Lisp objects (finalizers), now that every Godot object has one Lisp object.
+Open questions: generated classes for engine classes, and only for those used, instead of the structs of `define-engine-class`; RefCounted lifetimes tied to their Lisp objects (finalizers), now that every Godot object has one Lisp object.
 
 ## Layers
 
@@ -66,8 +58,8 @@ From the bottom up; dependencies only go downwards. Each layer is a directory of
 | `callback/` | `gd-extension-callback` | What Godot calls into |
 | `gd-extension/` | `gd-extension` | The public, Lisp-style layer, and the code generators |
 | `godot/` | `godot`, `godot-utility` | Godot's API, generated |
-| `dsl/` | `godot-dsl` | `define-class`, a small DSL: a class in one form, with a struct for its instances |
-| `clos/` | `godot-clos` | The high-level layer (a prototype): classes as CLOS classes |
+| `dsl/` | `godot-dsl` | `define-class`, a small DSL: a class in one form, with a struct for its instances; faster and lower-level than `godot-clos` |
+| `clos/` | `godot-clos` | The high-level layer: classes as CLOS classes |
 
 The layers load in this order, each after those it uses (an arrow from A to B means A uses B). `ffi` and `extension-api` depend on nothing in gdecl:
 
@@ -100,8 +92,8 @@ Many layers also use layers further down directly: `gd-extension` uses all the l
 - `gd-extension-callback` (`callback/`): everything Godot calls into, and the tables behind the callbacks, in files loaded in this order: `gd-extension-callback.lisp` (`define-callback`, threads, `with-callback-protection`), `handle-tables.lisp` (the tables of the Lisp values Godot holds handles to), `initialize.lisp` (`initialize` and `deinitialize`, called from `src/gdecl.c`, their hooks, and initialize cells), `instance-bindings.lisp` (`lisp-object`, the Object value type), `extension-classes.lisp` (classes, instances, which virtuals a class implements, notifications), `bound-methods.lisp` (methods and virtual methods, invokers, `call-virtual-with-data`) and `callables.lisp` (Callables in both directions, see Callables in Rules and pitfalls).
 - `gd-extension` (`gd-extension/`): the public, Lisp-style layer, in several files (see the header of `gd-extension.lisp`). `api-types.lisp` turns the types of `extension_api.json` into variant types for the code generators, and signals `unsupported-api-type` for those gdecl can't convert yet; it's here rather than in `extension-api/` because it needs the variant types of `gd-extension-ffi`.
 - `godot` and `godot-utility` (`godot/`): Godot's API generated from `extension_api.json` (`define-engine-class`, `define-global-enums`, `define-utility-functions`). Applications add the engine classes they use to `godot`.
-- `godot-dsl` (`dsl/`): `define-class` (`define-class.lisp`), which expands into the registration functions of `gd-extension` and a struct that includes the engine class's. It uses a few internals of `gd-extension`, listed in its `:import-from` clauses.
-- `godot-clos` (`clos/`): a prototype of the high-level layer (TODO P), classes as CLOS classes: the metaclass `godot-class` (`godot-class.lisp`), the generic functions Godot calls, virtual methods, methods and `notification` (`godot-functions.lisp`), and registering the classes (`godot-registration.lisp`). It uses a few internals of `gd-extension`, listed in its `:import-from` clauses.
+- `godot-dsl` (`dsl/`): `define-class` (`define-class.lisp`), which expands into the registration functions of `gd-extension` and a struct that includes the engine class's. A faster, lower layer than `godot-clos`, for dropping down; it gets no new high-level features (see The high-level layer). It uses a few internals of `gd-extension`, listed in its `:import-from` clauses.
+- `godot-clos` (`clos/`): the high-level layer (see The high-level layer), classes as CLOS classes: the metaclass `godot-class` (`godot-class.lisp`), the generic functions Godot calls, virtual methods, methods and `notification` (`godot-functions.lisp`), and registering the classes (`godot-registration.lisp`). It uses a few internals of `gd-extension`, listed in its `:import-from` clauses.
 
 Consequences of the layering that aren't obvious:
 

@@ -1,7 +1,7 @@
 (in-package :godot-clos)
 
 ;;;
-;;; Godot classes as CLOS classes (a prototype, see TODO P)
+;;; Godot classes as CLOS classes, the high-level layer (see TODO P)
 ;;;
 ;;; GODOT-CLASS is the metaclass of Lisp classes that are Godot extension
 ;;; classes:
