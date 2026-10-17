@@ -13,7 +13,7 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 
 ## The high-level layer (see "The high-level layer" in `CLAUDE.md`)
 
-- [ ] **AM. Slot access for code that drops down inside a CLOS class.** A hot virtual method can be a plain function now (`:direct-functions`, see Done), but its slots are read with accessors, two generic function calls per `incf` (80 ns, against 25 ns for a struct accessor), and ECL inlines the accessors of sealed classes only at `(safety 0)` (see Performance in ECL in `CLAUDE.md`). Something like inlined functions per slot that use `standard-instance-access` at the slot's location, made when the class is finalized and kept valid when it's redefined; measure with `make bench` (`CLOS: (incf (clos-benchmarks-ticks self))`).
+- [ ] **AM. Faster slot access in CLOS classes, when an application needs it.** A CLOS accessor is a generic function call, 80 ns for an `incf`, against 25 ns with a struct accessor. For now, hot code drops down by keeping its data in a struct the object holds in one slot (see the README, Classes as CLOS classes), and the game shows that the calls into Lisp, not slot access, cost the most per frame. If an application needs more: (2) a `with-fast-slots` macro that looks up each slot's location once (a `gethash` in the class's location table, about 20 ns) and then uses `standard-instance-access`, for loops; or (3) inlined accessors per class, which check the instance's class and layout and fall back to the generic accessor. Both have to bring an instance up to date first after its class was redefined at a REPL, which ECL does lazily, on the next slot access through the usual paths, and to allow for subclasses and mixins that put an inherited slot at another location; ECL inlines the accessors of sealed classes only at `(safety 0)`, and sealing rules out redefinition. Measure with `make bench` (`CLOS: (incf (clos-benchmarks-ticks self))`).
 - [ ] **AN. Rounding out `godot-clos`.** Invokers for the generated property getters and setters, which use the generic path (`bind-method` with types at runtime); `make-instance` of a RefCounted class, which signals an error now; and V in CLOS style.
 - [ ] **J. Tables keyed by name, updated in place (with the REPL work).** The handle tables (`handle-tables.lisp`) are keyed by `(1+ index)` pointers, and those of classes and methods (`*extension-classes*`, `*bound-methods*`) are append-only. `godot-clos` works around that: it records what it has registered for each class and registers only what's new when a class is redefined at a REPL or a method added (`godot-registration.lisp`). `define-class` can't be evaluated again, which Godot refuses, and gets no REPL redefinition (P). Left: key classes and methods by name, and update entries in place, in `handle-tables.lisp` (with R); and Godot caches `get_virtual_call_data`, so a virtual method a class implements only after Godot first asked isn't called.
 
@@ -41,11 +41,11 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 
 ## Suggested order
 
-1. AM: the faster slot access left of dropping down inside a CLOS class.
-2. AH and N: a vararg call from Lisp (0.85–0.9 µs, `emit_signal`) and calls into Lisp (0.3–0.75 µs) are now the biggest costs per frame left.
-3. AN, V and W as applications need them; V's export hints are the likeliest.
-4. O, if measurements show it matters.
-5. J with the REPL work, and R when an application uses threads.
+1. AH and N: a vararg call from Lisp (0.85–0.9 µs, `emit_signal`) and calls into Lisp (0.3–0.75 µs) are now the biggest costs per frame left.
+2. AN, V and W as applications need them; V's export hints are the likeliest.
+3. O, if measurements show it matters.
+4. J with the REPL work, and R when an application uses threads.
+5. AM when an application's hot code needs faster slot access than a struct gives.
 6. X when there's a reason to extend the editor.
 7. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
 

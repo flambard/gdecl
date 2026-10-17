@@ -186,8 +186,25 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 
   (defun mob-physics-process (mob delta) ...)
   ```
+- For dropping down where hot code reads and writes slots many times, keep that data in a struct the object holds in one slot. An accessor of a `godot-class` is a generic function, about 40 ns a call, and a struct accessor about 10 ns: the hot code then pays for one accessor to get the struct, and struct access from there. Exported slots, which are properties in Godot, stay slots of the class.
 
-A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, about 100 ns for a virtual method such as `_process`, which `:direct-functions` avoids; and an accessor 50–60 ns more than a struct accessor (see TODO AM).
+  ```lisp
+  (defstruct motion
+    (velocity (vector3))
+    (distance 0d0))
+
+  (defclass mob (character-body-3d)
+    ((motion :initform (make-motion) :reader mob-motion))
+    (:metaclass godot-class)
+    (:direct-functions (physics-process mob-physics-process)))
+
+  (defun mob-physics-process (mob delta)
+    (let ((motion (mob-motion mob)))   ; one generic accessor
+      (incf (motion-distance motion) delta)  ; struct accessors from here
+      ...))
+  ```
+
+A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, about 100 ns for a virtual method such as `_process`, which `:direct-functions` avoids; and an accessor 50–60 ns more than a struct accessor, which keeping hot data in a struct avoids.
 
 ## Calling Godot
 
