@@ -40,10 +40,6 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
   - Editor plugins: classes extending `EditorPlugin`, `EditorInspectorPlugin` or `EditorExportPlugin` must be registered at the editor level and added with `editor_add_plugin`. Needs startup steps per level (`lifecycle.lisp`), with ECL already booted then (it is, from the scene level).
   - Lisp as a script language, attached to nodes like GDScript: a `ScriptLanguageExtension` and a `ScriptExtension` (60 and 37 virtual methods) and script instances (`script_instance_create3`). A large piece of work; worth it only if attaching scripts to nodes in the editor matters more than `define-class`.
 
-## Small things
-
-- [ ] **AK. Expansions that don't depend on exports.** `make expansions-check` compares the expansions as text, printed with `gd-extension` as the current package, so a symbol that stops being accessible there, such as one no longer exported from `types`, prints with its package prefix and shows as a change though the code is the same (it happened when unused exports were removed). Print every symbol with its home package in `canonical-form` (`test/expansions.lisp`), so that only real changes, and moves between packages, show.
-
 ## Suggested order
 
 1. P: the high-level layer is gdecl's ambition, so decide its direction before building much more on either class layer. What's left is dropping down inside a CLOS class. It also decides U, much of V, and AI.
@@ -53,7 +49,6 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 5. J with the REPL work, and R when an application uses threads.
 6. X when there's a reason to extend the editor.
 7. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
-8. AK any time; it's small.
 
 ## Done
 
@@ -63,3 +58,4 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 - From the review of the code's structure on 2026-10-16: the out-of-date documentation (Y), splitting `gd-extension-callback.lisp` (AB), the misplaced code and exports (AG), the constants copied by hand from `extension_api.json` (AF), strings, names and the autorelease pool in the types layer (AD), the code generators' call targets and shared builder (AE), what's known about each type in its value type (AC), the framework's startup and shutdown order in one place (Z), and one handle table abstraction for the callbacks' tables (AA). With them: `make expansions-baseline`/`expansions-check` for checking generator changes, and `make test` failing on unexpected Godot errors.
 - From the restructuring of 2026-10-17: the layers as directories of `lisp/`, each a module of `gdecl.asd` that lists the layers it uses, with its packages in its own `package.lisp`; `define-class` in a layer of its own, `godot-dsl`, beside `godot-clos`, which gives the high-level layer packages of its own (from P); `extension_api.json` read into Lisp structs in one layer, `extension-api`, which `ffi` no longer depends on (the sizes of Godot's opaque values moved to `types`); the class layers built on `gd-extension` and `godot` only (`invoker-form`, `report-error`, and where a `godot-object` keeps its pointer); unused exports and imports removed; the game ported to `godot-clos`.
 - AJ: `define-builtin-type` checks, when the code is compiled, that a builtin type's components add up to its size in `extension_api.json`.
+- AK: `make expansions-check` writes symbols with their home package, so changing what a package exports doesn't show as a change.
