@@ -33,10 +33,11 @@
                 #:notification-filter-pointer
                 #:instance-object
                 #:lisp-object)
-  ;; Internal, but imported by GODOT-CLOS, the prototype of the high-level
-  ;; layer, which must find them when this is read
+  ;; Internal, but imported by the layers above that define classes,
+  ;; GODOT-DSL and GODOT-CLOS
   (:intern #:add-class-definition
            #:inherits-class-p
+           #:engine-object-type
            #:virtual-signatures
            #:godot-property-name
            #:*engine-object-types*)
@@ -78,7 +79,6 @@
            #:with-reference
            #:setf-reference
            ;; Classes
-           #:define-class
            #:register-class
            #:set-class-notifications
            #:register-singleton

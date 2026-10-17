@@ -13,7 +13,7 @@
 
 (setf *framework-initialize*
       '(;; Before the application's hooks, which make instances of the classes
-        register-defined-classes)       ; define-class.lisp
+        register-defined-classes)       ; registration.lisp
 
       *framework-deinitialize*
       '(;; While their classes are still registered, as freeing an instance

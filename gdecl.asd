@@ -55,20 +55,22 @@
                                (:file "signals" :depends-on ("engine-methods"))
                                (:file "registration" :depends-on ("gd-extension" "engine-methods"
                                                                   "engine-objects"))
-                               (:file "define-class" :depends-on ("registration" "references"
-                                                                  "engine-objects"))
                                (:file "objects" :depends-on ("registration" "references"
                                                              "engine-objects"))
                                ;; The order of the framework's startup and
                                ;; shutdown steps
-                               (:file "lifecycle" :depends-on ("define-class" "registration"
-                                                               "gd-extension"))))
+                               (:file "lifecycle" :depends-on ("registration" "gd-extension"))))
                  ;; Godot's API, generated from extension_api.json
                  (:module "godot"
                   :depends-on ("builtins" "gd-extension")
                   :components ((:file "package")
                                (:file "godot-engine-classes" :depends-on ("package"))
                                (:file "godot-utility" :depends-on ("package"))))
+                 ;; DEFINE-CLASS, a small DSL that defines a class in one form
+                 (:module "dsl"
+                  :depends-on ("callback" "gd-extension" "godot")
+                  :components ((:file "package")
+                               (:file "define-class" :depends-on ("package"))))
                  ;; A prototype of the high-level layer: classes as CLOS classes
                  (:module "clos"
                   :depends-on ("types" "callback" "gd-extension" "godot")

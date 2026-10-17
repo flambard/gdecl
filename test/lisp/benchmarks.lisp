@@ -43,7 +43,7 @@ three times, and print the best time and the bytes allocated per run."
 ;;; run to time calls from Lisp into Godot
 ;;;
 
-(gdext:define-class lisp-benchmarks ("LispBenchmarks" "Node2D")
+(define-class lisp-benchmarks ("LispBenchmarks" "Node2D")
   ((ticks 0))
   ;; Without connections, for timing emit_signal, a vararg method
   (:signal "pinged" ("value" :int))

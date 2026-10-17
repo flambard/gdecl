@@ -230,6 +230,48 @@ framework's shutdown (see lifecycle.lisp)."
   (setf *registered-classes* '()))
 
 ;;;
+;;; Classes registered when Godot initializes the extension
+;;;
+;;; The layers above that define classes, DEFINE-CLASS and GODOT-CLOS, add a
+;;; function that registers each class with ADD-CLASS-DEFINITION, so the
+;;; classes are registered when Godot initializes the extension, in the order
+;;; they were defined, by REGISTER-DEFINED-CLASSES, a step of the framework's
+;;; startup (see lifecycle.lisp), before the application's initialize hooks.
+;;;
+
+;; The registration functions of the classes added with ADD-CLASS-DEFINITION:
+;; a list of (class-name . function), in the order they were added
+(defvar *class-definitions* '())
+
+(defun add-class-definition (class-name function)
+  "Make FUNCTION, which registers the class CLASS-NAME, run when Godot initializes
+the extension, or now if it has (e.g. at a REPL). Defining the class again
+replaces the function, keeping its place in the order."
+  (let ((definition (assoc class-name *class-definitions* :test #'string=)))
+    (if definition
+        (setf (cdr definition) function)
+        (setf *class-definitions*
+              (append *class-definitions* (list (cons class-name function))))))
+  (when *class-library*
+    (funcall function))
+  class-name)
+
+(defun register-defined-classes ()
+  "Register the classes added with ADD-CLASS-DEFINITION. A step of the
+framework's startup (see lifecycle.lisp). A class that fails to register is
+reported, and the others are still registered."
+  (loop for (class-name . function) in *class-definitions*
+        do (handler-case (funcall function)
+             (error (e)
+               (report-error (format nil "registering the class ~a" class-name) e)))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun godot-property-name (slot-name)
+    "The name of the property of the slot SLOT-NAME, a symbol, in Godot style:
+mob-scene becomes \"mob_scene\"."
+    (substitute #\_ #\- (string-downcase (symbol-name slot-name)))))
+
+;;;
 ;;; Singletons
 ;;;
 

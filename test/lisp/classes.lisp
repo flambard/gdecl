@@ -10,7 +10,7 @@
 (defvar *resources-destroyed* 0
   "The number of TestResources Godot has freed.")
 
-(gdext:define-class test-resource ("TestResource" "Resource")
+(define-class test-resource ("TestResource" "Resource")
   ((value 0 :export :int))
   (:destructor test-resource-destroyed))
 
@@ -22,7 +22,7 @@
 ;;; TestNode: properties, methods, signals, :onready slots and virtual methods
 ;;;
 
-(gdext:define-class test-node ("TestNode" "Node2D")
+(define-class test-node ("TestNode" "Node2D")
   ((count 0 :export :int)
    (speed 1.5d0 :export :float)
    (title "" :export :string)
@@ -134,7 +134,7 @@ arguments and returns how many there were."
 ;;; TestBareNode: :onready slots without a _ready of its own
 ;;;
 
-(gdext:define-class test-bare-node ("TestBareNode" "Node")
+(define-class test-bare-node ("TestBareNode" "Node")
   ((child nil :onready "Child"))
   (:method "get_child_slot" test-bare-node-child :return-type :object))
 
@@ -143,7 +143,7 @@ arguments and returns how many there were."
 ;;; signals an error
 ;;;
 
-(gdext:define-class test-failing-node ("TestFailingNode" "Node")
+(define-class test-failing-node ("TestFailingNode" "Node")
   ((broken (error "A constructor error, expected by the tests"))))
 
 ;;;
@@ -159,7 +159,7 @@ arguments and returns how many there were."
 ;;; TestSingleton: an engine singleton, which GDScript uses by name like Input
 ;;;
 
-(gdext:define-class test-singleton ("TestSingleton" "Object")
+(define-class test-singleton ("TestSingleton" "Object")
   ((count 0))
   (:singleton t)
   (:method "next" test-singleton-next :return-type :int))
@@ -178,7 +178,7 @@ arguments and returns how many there were."
 (defvar *kept-resource* nil
   "A RefCounted object kept with SETF-REFERENCE by keep_resource.")
 
-(gdext:define-class lisp-tests ("LispTests" "Node")
+(define-class lisp-tests ("LispTests" "Node")
   ()
   (:method "run" lisp-tests-run :arguments (("root" :object)) :return-type :int)
   (:method "resources_destroyed" (lambda (tests)

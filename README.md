@@ -40,11 +40,11 @@ my-app/
                (:file "my-app" :depends-on ("packages"))))
 ```
 
-**The package** uses Godot's API, and refers to gdecl's own macros with the prefix `gdext:`:
+**The package** uses Godot's API and one of gdecl's two ways of defining classes, `godot-dsl` (`define-class`) or `godot-clos` (CLOS classes), and refers to gdecl's own macros with the prefix `gdext:`:
 
 ```lisp
 (defpackage #:my-app
-  (:use #:cl #:godot #:godot-utility))
+  (:use #:cl #:godot #:godot-utility #:godot-dsl))
 ```
 
 **The Makefile** names your ASDF system and the GDExtension library to build into your Godot project, and includes gdecl's make rules:
@@ -85,20 +85,21 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 |---|---|---|
 | `godot` | `gd` | Godot's API: engine methods, enums and constants, and the builtin types such as `vector2` |
 | `godot-utility` | `gd-util` | Godot's utility functions, the global functions of GDScript, such as `randf-range` |
-| `gd-extension` | `gdext` | gdecl itself: defining classes, signals, references, and the macros that generate Godot's API |
+| `gd-extension` | `gdext` | gdecl itself: registering classes, signals, references, and the macros that generate Godot's API |
+| `godot-dsl` | | `define-class`, see [Defining classes](#defining-classes) |
 | `gd-extension-ffi` | `gdext-ffi` | The GDExtension C interface, one-to-one, for what the others don't cover yet |
 | `godot-clos` | | A prototype: classes as CLOS classes, see [Classes as CLOS classes](#classes-as-clos-classes-a-prototype) |
 
 `gd-extension-builtins`, `gd-extension-types` and `gd-extension-callback` are gdecl's internal layers; applications don't need them. `gdecl-json` reads `extension_api.json` when your code is compiled.
 
-Each package is a layer of gdecl, in a directory of its own in `lisp/`, built only on the layers below it: `ffi/`, `builtins/`, `types/` and `callback/` at the bottom, then `gd-extension/`, `godot/` with Godot's API, and `clos/` on top.
+Each package is a layer of gdecl, in a directory of its own in `lisp/`, built only on the layers below it: `ffi/`, `builtins/`, `types/` and `callback/` at the bottom, then `gd-extension/`, `godot/` with Godot's API, and on top `dsl/` and `clos/`, the two ways of defining classes.
 
 ## Defining classes
 
-`define-class` defines a class in one form, like a GDScript script:
+`define-class`, in the package `godot-dsl`, defines a class in one form, like a GDScript script:
 
 ```lisp
-(gdext:define-class player ("Player" "Area2D")      ; class_name Player extends Area2D
+(define-class player ("Player" "Area2D")            ; class_name Player extends Area2D
   ((speed 400 :export :int)                          ; @export var speed = 400
    screen-size                                       ; var screen_size
    (sprite nil :onready "AnimatedSprite2D"))         ; @onready var sprite = $AnimatedSprite2D

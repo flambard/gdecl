@@ -1,44 +1,16 @@
-(in-package :gd-extension)
+(in-package :godot-dsl)
 
 ;;;
 ;;; Defining classes
 ;;;
 ;;; DEFINE-CLASS defines an extension class in one form: the struct of its
 ;;; instances' Lisp objects (which includes GODOT-OBJECT), and the registration
-;;; of the class, its properties, signals, methods and virtual methods. The
-;;; classes are registered when Godot initializes the extension, in the order
-;;; they were defined, by REGISTER-DEFINED-CLASSES, a step of the framework's
-;;; startup (see lifecycle.lisp), before the application's initialize hooks.
+;;; of the class, its properties, signals, methods and virtual methods, with
+;;; the functions of GD-EXTENSION (registration.lisp). The classes are
+;;; registered when Godot initializes the extension, in the order they were
+;;; defined (see ADD-CLASS-DEFINITION), before the application's initialize
+;;; hooks.
 ;;;
-
-;; The registration functions of the classes defined with DEFINE-CLASS: a list
-;; of (class-name . function), in the order they were defined
-(defvar *class-definitions* '())
-
-(defun add-class-definition (class-name function)
-  "Make FUNCTION, which registers the class CLASS-NAME, run when Godot initializes
-the extension, or now if it has (e.g. at a REPL). Defining the class again
-replaces the function, keeping its place in the order."
-  (let ((definition (assoc class-name *class-definitions* :test #'string=)))
-    (if definition
-        (setf (cdr definition) function)
-        (setf *class-definitions*
-              (append *class-definitions* (list (cons class-name function))))))
-  (when *class-library*
-    (funcall function))
-  class-name)
-
-(defun register-defined-classes ()
-  "Register the classes defined with DEFINE-CLASS. A step of the framework's
-startup (see lifecycle.lisp). A class that fails to register is reported, and
-the others are still registered."
-  (loop for (class-name . function) in *class-definitions*
-        do (handler-case (funcall function)
-             (error (e)
-               (report-error (format nil "registering the class ~a" class-name) e)))))
-
-;; For the :ONREADY slots
-(define-engine-method node-get-node ("Node" "get_node"))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-arguments (return-type-form argument-type-forms)
@@ -65,11 +37,6 @@ so that redefining the function takes effect, or a form such as (LAMBDA ...)."
 evaluated, so they can be keywords or variant type constants."
     `(list ,@(loop for (name type) in arguments
                    collect `(list ,name ,type))))
-
-  (defun godot-property-name (slot-name)
-    "The name of the property of the slot SLOT-NAME, a symbol, in Godot style:
-mob-scene becomes \"mob_scene\"."
-    (substitute #\_ #\- (string-downcase (symbol-name slot-name))))
 
   (defstruct (class-slot (:conc-name class-slot-))
     "A slot of DEFINE-CLASS, while its expansion is generated (only at

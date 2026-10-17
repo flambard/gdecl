@@ -16,8 +16,9 @@
 ;;; utility functions), containers.lisp (packed arrays, Arrays and
 ;;; Dictionaries), references.lisp, signals.lisp, registration.lisp
 ;;; (registering classes, methods, properties, signals, virtual methods and
-;;; singletons), define-class.lisp and objects.lisp (making and freeing
-;;; objects).
+;;; singletons, and the classes registered when Godot initializes the
+;;; extension) and objects.lisp (making and freeing objects). DEFINE-CLASS is
+;;; a layer of its own above, GODOT-DSL (dsl/).
 ;;;
 
 ;;;
