@@ -55,8 +55,11 @@
                                (:file "references" :depends-on ("engine-methods"))
                                (:file "signals" :depends-on ("engine-methods" "containers"))
                                (:file "callables" :depends-on ("containers"))
+                               ;; After containers and signals, which add value
+                               ;; types, for the invokers made in advance
                                (:file "registration" :depends-on ("gd-extension" "engine-methods"
-                                                                  "engine-objects"))
+                                                                  "engine-objects" "containers"
+                                                                  "signals"))
                                (:file "objects" :depends-on ("registration" "references"
                                                              "engine-objects"))
                                ;; The order of the framework's startup and

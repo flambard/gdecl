@@ -78,6 +78,34 @@ types when they're expanded, such as DEFINE-CLASS."
     (ptrcall-invoker-form (variant-type return-type)
                           (mapcar #'variant-type argument-types))))
 
+;;; Invokers made in advance, when gdecl is compiled, for the signatures of
+;;; property getters (a result of any type, no arguments) and setters (one
+;;; argument, no result), so that methods bound with types known only at
+;;; runtime, such as the getters and setters of GODOT-CLOS's properties, get
+;;; one too (see BIND-METHOD). After containers.lisp and signals.lisp, which
+;;; add value types.
+
+(defmacro signature-invokers (kind)
+  "A vector, indexed by variant type, of the invokers (see INVOKER-FORM) of
+getters (KIND :GETTER) or setters (:SETTER) of that type, or NIL for the types
+that have none."
+  `(vector ,@(loop for type below +variant-type-variant-max+
+                   collect (ecase kind
+                             (:getter (ptrcall-invoker-form type '()))
+                             (:setter (ptrcall-invoker-form +variant-type-nil+
+                                                            (list type)))))))
+
+(defparameter *getter-invokers* (signature-invokers :getter))
+(defparameter *setter-invokers* (signature-invokers :setter))
+
+(defun signature-invoker (return-type argument-types)
+  "The invoker made in advance for a method with RETURN-TYPE and ARGUMENT-TYPES
+(variant types), if it has the signature of a getter or a setter, or NIL."
+  (cond ((and (null argument-types) (/= return-type +variant-type-nil+))
+         (svref *getter-invokers* return-type))
+        ((and (= return-type +variant-type-nil+) (= (length argument-types) 1))
+         (svref *setter-invokers* (first argument-types)))))
+
 (defun bind-method (class-name method-name function
                     &key (return-type +variant-type-nil+) arguments invoker)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
@@ -85,12 +113,15 @@ ARGUMENTS is a list of (name type), and RETURN-TYPE the type of the return
 value (:NIL for none), where a type is as in VARIANT-TYPE, e.g. :INT or
 :VECTOR2. FUNCTION is called with the instance's Lisp object (see
 REGISTER-CLASS) and the arguments as Lisp values. INVOKER is as in
-REGISTER-METHOD, generated with INVOKER-FORM."
+REGISTER-METHOD, generated with INVOKER-FORM; without it, a method with the
+signature of a getter or a setter gets one made in advance (SIGNATURE-INVOKER),
+and others go through the generic dispatcher."
   (let* ((return-type (variant-type return-type))
          (arguments (loop for (name type) in arguments
                           collect (list name (variant-type type))))
          (argument-count (length arguments))
-         (has-return-value (/= return-type +variant-type-nil+)))
+         (has-return-value (/= return-type +variant-type-nil+))
+         (invoker (or invoker (signature-invoker return-type (mapcar #'second arguments)))))
     (with-string-name (method-name-string method-name)
       (with-property-infos (return-info (and has-return-value `(("" ,return-type))))
         (with-property-infos (args-info arguments)

@@ -75,6 +75,10 @@ func _init() -> void:
 	lisp.connect_lisp_handler()
 	report("handled.emit(1), Lisp handler", func(): for i in COUNT: lisp.handled.emit(1))
 
+	# A property's getter and setter
+	report("lisp.get_speed() (define-class property)", func(): for i in COUNT: lisp.get_speed())
+	report("lisp.set_speed(x) (define-class property)", func(): for i in COUNT: lisp.set_speed(2.0))
+
 	lisp.run(COUNT)
 	lisp.free()
 
@@ -83,6 +87,8 @@ func _init() -> void:
 	report("clos.tick(delta) (CLOS generic function, ptrcall)", func(): for i in COUNT: clos.tick(0.016))
 	report("clos.call(\"tick\", delta) (CLOS generic function, Variant call)",
 		func(): for i in COUNT: clos.call("tick", 0.016))
+	report("clos.get_speed() (CLOS property)", func(): for i in COUNT: clos.get_speed())
+	report("clos.set_speed(x) (CLOS property)", func(): for i in COUNT: clos.set_speed(2.0))
 	clos.run(COUNT)
 
 	# Notifications: to an engine class, to a CLOS class without a method for

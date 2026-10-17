@@ -44,7 +44,9 @@ three times, and print the best time and the bytes allocated per run."
 ;;;
 
 (define-class lisp-benchmarks ("LispBenchmarks" "Node2D")
-  ((ticks 0))
+  ((ticks 0)
+   ;; A property, for timing its getter and setter (run_benchmarks.gd)
+   (speed 1d0 :export :float))
   ;; Without connections, for timing emit_signal, a vararg method
   (:signal "pinged" ("value" :int))
   ;; For timing signal handlers, in GDScript and in Lisp (connect_lisp_handler)
@@ -94,7 +96,9 @@ three times, and print the best time and the bytes allocated per run."
 ;;;
 
 (defclass clos-benchmarks (node-2d)
-  ((ticks :initform 0 :accessor clos-benchmarks-ticks))
+  ((ticks :initform 0 :accessor clos-benchmarks-ticks)
+   ;; A property, for timing its getter and setter (run_benchmarks.gd)
+   (speed :initform 1d0 :export :float))
   (:metaclass godot-class))
 
 ;; An empty _process, dispatched through the generic function

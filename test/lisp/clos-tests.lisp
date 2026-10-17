@@ -127,3 +127,14 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
                                    (:direct-functions (ready identity))))
                (error () :rejected))))
   (check (not (class-db-class-exists "ClosDirectReadyNode"))))
+
+(deftest clos-make-instance-ref-counted
+  ;; An object of a RefCounted class comes with a reference, in the autorelease
+  ;; pool, as with MAKE-OBJECT; it's freed when the pool gives it back, which
+  ;; the leak check at exit would show otherwise
+  (let ((resource (make-instance 'clos-resource :value 3)))
+    (check (typep resource 'clos-resource))
+    (check (typep resource 'ref-counted))
+    (check (= 3 (clos-resource-value resource)))
+    (check (= 3 (object-get resource "value")))
+    (check (= 1 (ref-counted-get-reference-count resource)))))

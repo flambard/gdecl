@@ -154,3 +154,11 @@
 (defclass clos-direct-sub-node (clos-direct-node)
   ()
   (:metaclass godot-class))
+
+;;;
+;;; ClosResource: a RefCounted class, made with MAKE-INSTANCE
+;;;
+
+(defclass clos-resource (resource)
+  ((value :initform 0 :initarg :value :export :int :reader clos-resource-value))
+  (:metaclass godot-class))
