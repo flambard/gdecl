@@ -70,6 +70,26 @@ From the bottom up; dependencies only go downwards. Each layer is a directory of
 | `dsl/` | `godot-dsl` | `define-class`, a small DSL: a class in one form, with a struct for its instances |
 | `clos/` | `godot-clos` | The high-level layer (a prototype): classes as CLOS classes |
 
+Each layer uses the one below it, so the layers load in this order (an arrow from A to B means A uses B):
+
+```
+   dsl/     clos/
+      \      /
+      godot/
+        │
+   gd-extension/
+        │
+     callback/
+        │
+      types/
+      /     \
+   ffi/   builtins/
+    │
+   util/
+```
+
+Many layers also use layers further down directly: `gd-extension` uses all the layers below it, `godot` uses `builtins`, `callback` uses `ffi`, `dsl` uses `callback` and `gd-extension`, and `clos` uses `types`, `callback` and `gd-extension`. Each module's `:depends-on` in `gdecl.asd` lists exactly the layers its code uses (in `:use`, `:import-from` and package-qualified symbols), shortcuts included, so keep it in step when a layer starts or stops using another.
+
 - `gd-extension-ffi` (`ffi/`): the GDExtension C interface, one-to-one, without Lisp conveniences. Each interface function is a variable named after the C function (`*string-name-new-with-utf8-chars*` for `string_name_new_with_utf8_chars`), set in `load-interface`, and a wrapper function of the same name without earmuffs. Also ECL foreign-memory helpers (see Performance in ECL), and reading `extension_api.json` at compile time (`extension-api-json`, `api-builtin-size`), with gdecl's own small JSON reader (`gdecl-json`, `util/`).
 - `gd-extension-builtins` (`builtins/builtin-types.lisp`): Godot's builtin types (`vector2`, `basis`, …) in plain Lisp. Everything it exports is for applications: `gd-extension` and `godot` re-export all of it through export lists computed when their packages are read (`gd-extension/package.lisp`, `godot/package.lisp`), so a new symbol is exported in one place only.
 - `gd-extension-types` (`types/`): converting between raw values, Lisp values and Variants.
@@ -90,6 +110,8 @@ Consequences of the layering that aren't obvious:
 - The types layer can't refer to the callback layer, so `gd-extension-callback` adds the value types of Object (whose Lisp values are the objects' Lisp objects) and Callable.
 - Releasing a reference needs an engine method, so `gd-extension` sets `*release-reference-function*` for the autorelease pool in the types layer; likewise the `literal-macro` of StringName and NodePath.
 - `gd-extension` can't depend on `godot`, so it defines the few engine methods it needs itself, and its own few constants, such as `+connect-one-shot+`, with `api-constant`.
+- The code generators in `gd-extension` (`define-engine-class`, `define-global-enums`, `define-utility-functions`) define and export their functions in the packages of `godot`, but only when `godot` (or an application) expands them; `gd-extension` never expands them itself, so it doesn't depend on `godot`.
+- `dsl` and `clos` give each class's registration to `add-class-definition` in `gd-extension` (`registration.lisp`), and `register-defined-classes`, a step of the framework's startup, registers the classes in the order they were defined.
 
 ## Startup and shutdown
 
