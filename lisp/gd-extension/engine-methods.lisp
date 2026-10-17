@@ -455,16 +455,15 @@ it's not supported (yet): parsed by the value type's DEFAULT-PARSER."
       (and parser (funcall parser default value-type))))
 
   (defun engine-method-arguments (method)
-    "The arguments of METHOD (a method from extension_api.json), as a list of
-ENGINE-ARGUMENTs. Only the last arguments with supported default values become
-optional."
-    (let* ((arguments (json-get method "arguments"))
+    "The arguments of METHOD (an API-METHOD), as a list of ENGINE-ARGUMENTs. Only
+the last arguments with supported default values become optional."
+    (let* ((arguments (api-method-arguments method))
            (types (mapcar (lambda (argument)
-                            (engine-method-variant-type (json-get argument "type")
-                                                        (json-get argument "name")))
+                            (engine-method-variant-type (api-argument-type argument)
+                                                        (api-argument-name argument)))
                           arguments))
            (defaults (mapcar (lambda (argument type)
-                               (let ((default (json-get argument "default_value")))
+                               (let ((default (api-argument-default-value argument)))
                                  (and default (api-default-form default type))))
                              arguments types))
            (first-optional (1+ (or (position nil defaults :from-end t) -1))))
@@ -472,7 +471,7 @@ optional."
             for type in types
             for default in defaults
             for i from 0
-            collect (make-engine-argument (engine-method-argument-symbol (json-get argument "name"))
+            collect (make-engine-argument (engine-method-argument-symbol (api-argument-name argument))
                                           type
                                           (and (>= i first-optional) default)))))
 
@@ -491,10 +490,9 @@ OBJECT (a variable, or NIL if it takes no object), then the ARGUMENTS
       ,@(when rest `(&rest ,rest))))
 
   (defun documented-argument-names (function rest)
-    "The names of the arguments of FUNCTION (a method or utility function from
-extension_api.json) for a docstring, and \"...\" if REST isn't NIL."
-    (append (mapcar (lambda (argument) (json-get argument "name"))
-                    (json-get function "arguments"))
+    "The names of the arguments of FUNCTION (an API-METHOD, a method or utility
+function) for a docstring, and \"...\" if REST isn't NIL."
+    (append (mapcar #'api-argument-name (api-method-arguments function))
             (and rest '("..."))))
 
   (defun literal-names-compiler-macro (name arguments first-position)
@@ -549,24 +547,22 @@ with Variants. A REF-COUNTED-RESULT goes into the autorelease pool."
     "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
 signature from extension_api.json."
     (multiple-value-bind (method defining-class) (api-method class-name method-name)
-      (when (json-get method "is_virtual")
+      (when (api-method-virtual-p method)
         (error "~a.~a is a virtual method, which can't be called through a method bind"
                class-name method-name))
-      (let* ((vararg (json-get method "is_vararg"))
-             (static (json-get method "is_static"))
+      (let* ((vararg (api-method-vararg-p method))
+             (static (api-method-static-p method))
              ;; The result comes with a reference (a Ref<T>), which goes into
              ;; the autorelease pool
-             (ref-counted-result (let ((return-value (json-get method "return_value")))
-                                   (and return-value
-                                        (api-ref-counted-class-p (json-get return-value "type")))))
+             (ref-counted-result (let ((type (api-method-return-type method)))
+                                   (and type (api-ref-counted-class-p type))))
              ;; A method of a singleton's class is called on the singleton
              (singleton (and (not static) (api-singleton defining-class)))
-             (hash (json-get method "hash"))
-             (return-value (json-get method "return_value"))
-             (return-type (if return-value
-                              (engine-method-variant-type (json-get return-value "type")
-                                                          "the result")
-                              +variant-type-nil+))
+             (hash (api-method-hash method))
+             (return-type (let ((type (api-method-return-type method)))
+                            (if type
+                                (engine-method-variant-type type "the result")
+                                +variant-type-nil+)))
              (arguments (engine-method-arguments method)))
         (when extra-arguments
           (unless vararg

@@ -1,8 +1,8 @@
 ;;;; The packages GDECL-JSON, a small JSON reader, and GD-EXTENSION-API:
 ;;;; extension_api.json, Godot's description of its API, read with it when the
-;;;; code is compiled. GD-EXTENSION-API re-exports JSON-GET, for reading the
-;;;; JSON objects its lookups return. This is the lowest layer: it depends on
-;;;; nothing else in gdecl.
+;;;; code is compiled into Lisp structs, so that nothing above depends on how
+;;;; the file is laid out. This is the lowest layer: it depends on nothing else
+;;;; in gdecl.
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gdecl-json
@@ -15,33 +15,48 @@
 (defpackage #:gd-extension-api
   (:documentation "extension_api.json, Godot's description of its API, read when
 the code is compiled: the sizes of the builtin types, and the engine classes,
-methods, enums, constants and utility functions, as JSON objects, read with
-JSON-GET. Only for code generation: the library loaded into Godot never reads
-it.")
+their methods, enums and constants, and the utility functions, as Lisp structs
+(API-CLASS, API-METHOD, API-ARGUMENT, API-ENUM). Only for code generation: the
+library loaded into Godot never reads it.")
   (:nicknames #:gdext-api)
   (:use #:cl)
   (:import-from #:gdecl-json
                 #:read-json-file
                 #:json-get)
-  (:export ;; The file
-           #:*extension-api-file*
-           #:extension-api-json
-           #:json-get
+  (:export #:*extension-api-file*
            ;; Builtin types
            #:api-builtin-size
            #:api-builtin-method-hash
            ;; Engine classes
-           #:extension-api
-           #:extension-api-classes
            #:api-class
+           #:api-class-name
+           #:api-class-parent-name
+           #:api-class-methods
+           #:api-class-enums
+           #:api-class-constants
+           #:api-class-names
            #:api-class-parents
            #:api-singleton
            #:api-ref-counted-class-p
+           ;; Methods and utility functions
            #:api-method
+           #:api-method-name
+           #:api-method-hash
+           #:api-method-arguments
+           #:api-method-return-type
+           #:api-method-vararg-p
+           #:api-method-static-p
+           #:api-method-virtual-p
+           #:api-argument
+           #:api-argument-name
+           #:api-argument-type
+           #:api-argument-default-value
            #:api-virtual-methods
-           ;; Global scope
            #:api-utility-functions
+           ;; Enums and constants
+           #:api-enum
+           #:api-enum-name
+           #:api-enum-values
            #:api-global-enums
-           ;; Constants
            #:api-constant-value
            #:api-constant))

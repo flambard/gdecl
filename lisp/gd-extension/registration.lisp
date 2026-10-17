@@ -323,14 +323,14 @@ a list of (class-name return-type argument-types problem): variant types, or a
 string PROBLEM that says why the method can't be bound."
     (loop for (class-name . method) in (api-virtual-methods virtual-name)
           collect (handler-case
-                      (let ((return-value (json-get method "return_value")))
+                      (let ((return-type (api-method-return-type method)))
                         (list class-name
-                              (if return-value
-                                  (api-variant-type (json-get return-value "type"))
+                              (if return-type
+                                  (api-variant-type return-type)
                                   +variant-type-nil+)
                               (mapcar (lambda (argument)
-                                        (api-variant-type (json-get argument "type")))
-                                      (json-get method "arguments"))
+                                        (api-variant-type (api-argument-type argument)))
+                                      (api-method-arguments method))
                               nil))
                     (unsupported-api-type (e)
                       (list class-name nil nil (princ-to-string e)))))))

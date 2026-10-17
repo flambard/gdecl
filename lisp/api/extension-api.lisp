@@ -52,21 +52,114 @@ compiled."
         (error "No size of the builtin class ~a in ~a" class-name *extension-api-file*))))
 
 ;;;
-;;; The API
+;;; The API, as Lisp data
+;;;
+;;; The parts of the API that the layers above use are read into the structs
+;;; below when the file is first read, so that nothing outside this file
+;;; depends on how extension_api.json is laid out: an engine class is an
+;;; API-CLASS, its methods and the utility functions are API-METHODs, their
+;;; arguments API-ARGUMENTs, and enums API-ENUMs. The values of enums and the
+;;; constants of classes are (name . value). Types are named as Godot names
+;;; them, such as "int", "Vector2", "Node" or "enum::Node.ProcessMode".
 ;;;
 
+(defstruct (api-argument (:copier nil))
+  "An argument of an API-METHOD."
+  ;; The name, a string
+  name
+  ;; The name of the type
+  type
+  ;; The default value, a string in GDScript syntax, or NIL if it has none
+  default-value)
+
+(defstruct (api-method (:copier nil))
+  "A method of an engine or builtin class, or a utility function."
+  ;; The name, a string, such as "get_node"
+  name
+  ;; The hash that Godot looks it up with
+  hash
+  ;; The API-ARGUMENTs
+  arguments
+  ;; The name of the type of the result, or NIL if there's none
+  return-type
+  vararg-p
+  static-p
+  virtual-p)
+
+(defstruct (api-enum (:copier nil))
+  "An enum of an engine class, or a global enum."
+  ;; The name, a string, such as "ProcessMode"
+  name
+  ;; (name . value) for each of its values, in order
+  values)
+
+(defstruct (api-class (:copier nil))
+  "An engine class."
+  ;; The name, a string, such as "Node2D"
+  name
+  ;; The name of the class it inherits from, or NIL for Object
+  parent-name
+  ref-counted-p
+  ;; The API-METHODs the class itself defines, not those it inherits
+  methods
+  ;; The API-ENUMs
+  enums
+  ;; (name . value) for each of its constants
+  constants)
+
+;;;
+;;; Reading the JSON into the structs, the only place that knows its layout
+;;;
+
+(defun read-named-values (values)
+  "VALUES, JSON objects of enum values or constants, as a list of (name . value)."
+  (loop for value in values
+        collect (cons (json-get value "name") (json-get value "value"))))
+
+(defun read-api-enum (enum)
+  (make-api-enum :name (json-get enum "name")
+                 :values (read-named-values (json-get enum "values"))))
+
+(defun read-api-method (method)
+  "METHOD, the JSON object of a method or utility function, as an API-METHOD.
+Methods of engine classes have their result's type in return_value, those of
+builtin classes and utility functions in return_type."
+  (make-api-method
+   :name (json-get method "name")
+   :hash (json-get method "hash")
+   :arguments (loop for argument in (json-get method "arguments")
+                    collect (make-api-argument
+                             :name (json-get argument "name")
+                             :type (json-get argument "type")
+                             :default-value (json-get argument "default_value")))
+   :return-type (let ((return-value (json-get method "return_value")))
+                  (if return-value
+                      (json-get return-value "type")
+                      (json-get method "return_type")))
+   :vararg-p (json-get method "is_vararg")
+   :static-p (json-get method "is_static")
+   :virtual-p (json-get method "is_virtual")))
+
+(defun read-api-class (class)
+  (make-api-class :name (json-get class "name")
+                  :parent-name (json-get class "inherits")
+                  :ref-counted-p (json-get class "is_refcounted")
+                  :methods (mapcar #'read-api-method (json-get class "methods"))
+                  :enums (mapcar #'read-api-enum (json-get class "enums"))
+                  :constants (read-named-values (json-get class "constants"))))
+
 (defstruct extension-api
-  ;; The classes (JSON objects) by name
+  ;; The API-CLASSes by name
   (classes (make-hash-table :test #'equal))
   ;; The names of the engine singletons by the names of their classes
   (singletons (make-hash-table :test #'equal))
-  ;; The utility functions (JSON objects), such as randf_range
+  ;; The utility functions, such as randf_range, as API-METHODs
   (utility-functions '())
-  ;; The global enums (JSON objects), such as Error and Key
+  ;; The global enums, such as Error and Key, as API-ENUMs
   (global-enums '())
-  ;; The builtin classes (JSON objects), such as Vector2 and PackedByteArray,
-  ;; by name
-  (builtin-classes (make-hash-table :test #'equal)))
+  ;; The methods of the builtin classes, such as Vector2 and PackedByteArray,
+  ;; as lists of API-METHODs by the classes' names
+  (builtin-class-methods (make-hash-table :test #'equal)))
 
 (defvar *extension-api* nil
   "The EXTENSION-API, read from *EXTENSION-API-FILE* when first needed.")
@@ -76,19 +169,32 @@ compiled."
       (let ((json (extension-api-json))
             (api (make-extension-api)))
         (dolist (class (json-get json "classes"))
-          (setf (gethash (json-get class "name") (extension-api-classes api)) class))
+          (setf (gethash (json-get class "name") (extension-api-classes api))
+                (read-api-class class)))
         (dolist (class (json-get json "builtin_classes"))
-          (setf (gethash (json-get class "name") (extension-api-builtin-classes api)) class))
-        (setf (extension-api-utility-functions api) (json-get json "utility_functions")
-              (extension-api-global-enums api) (json-get json "global_enums"))
+          (setf (gethash (json-get class "name") (extension-api-builtin-class-methods api))
+                (mapcar #'read-api-method (json-get class "methods"))))
+        (setf (extension-api-utility-functions api)
+              (mapcar #'read-api-method (json-get json "utility_functions"))
+              (extension-api-global-enums api)
+              (mapcar #'read-api-enum (json-get json "global_enums")))
         (dolist (singleton (json-get json "singletons"))
           (setf (gethash (json-get singleton "type") (extension-api-singletons api))
                 (json-get singleton "name")))
         (setf *extension-api* api))))
 
+;;;
+;;; Looking things up
+;;;
+
 (defun api-class (class-name)
-  "The engine class CLASS-NAME (a string) as a JSON object, or NIL."
+  "The engine class CLASS-NAME (a string) as an API-CLASS, or NIL."
   (values (gethash class-name (extension-api-classes (extension-api)))))
+
+(defun api-class-names ()
+  "The names of all engine classes, in no particular order."
+  (loop for class-name being the hash-keys of (extension-api-classes (extension-api))
+        collect class-name))
 
 (defun api-singleton (class-name)
   "The name of the engine singleton whose class is CLASS-NAME, such as \"Input\",
@@ -99,36 +205,34 @@ or NIL if the class has no singleton."
   "The engine classes and the classes they inherit from, as an alist of
 (class-name . parent-class-name), where PARENT-CLASS-NAME is NIL for Object."
   (loop for class being the hash-values of (extension-api-classes (extension-api))
-        collect (cons (json-get class "name") (json-get class "inherits"))))
+        collect (cons (api-class-name class) (api-class-parent-name class))))
 
-(defun json-class-method (class method-name)
-  "The method METHOD-NAME (a string) of CLASS, a class from extension_api.json,
-as a JSON object, or NIL if the class itself has none."
-  (find method-name (json-get class "methods")
-        :key (lambda (method) (json-get method "name"))
-        :test #'string=))
+(defun find-api-method (method-name methods)
+  "The API-METHOD named METHOD-NAME (a string) in METHODS, or NIL."
+  (find method-name methods :key #'api-method-name :test #'string=))
 
 (defun api-builtin-method-hash (class-name method-name)
   "The hash of the method METHOD-NAME of the builtin class CLASS-NAME (strings),
 such as \"PackedByteArray\" and \"size\"."
-  (let* ((class (or (gethash class-name (extension-api-builtin-classes (extension-api)))
-                    (error "No builtin class ~a in ~a" class-name *extension-api-file*)))
-         (method (or (json-class-method class method-name)
-                     (error "No method ~a in the builtin class ~a" method-name class-name))))
-    (json-get method "hash")))
+  (multiple-value-bind (methods found)
+      (gethash class-name (extension-api-builtin-class-methods (extension-api)))
+    (unless found
+      (error "No builtin class ~a in ~a" class-name *extension-api-file*))
+    (api-method-hash (or (find-api-method method-name methods)
+                         (error "No method ~a in the builtin class ~a" method-name class-name)))))
 
 (defun api-ref-counted-class-p (type)
-  "True if TYPE, a type name from extension_api.json, is an engine class that's
-RefCounted, such as a Resource."
+  "True if TYPE, a type name, is an engine class that's RefCounted, such as a
+Resource."
   (let ((class (api-class type)))
-    (and class (json-get class "is_refcounted"))))
+    (and class (api-class-ref-counted-p class))))
 
 (defun api-utility-functions ()
-  "The utility functions of @GlobalScope, such as randf_range, as JSON objects."
+  "The utility functions of @GlobalScope, such as randf_range, as API-METHODs."
   (extension-api-utility-functions (extension-api)))
 
 (defun api-global-enums ()
-  "The global enums, such as Error and Key, as JSON objects."
+  "The global enums, such as Error and Key, as API-ENUMs."
   (extension-api-global-enums (extension-api)))
 
 (defun api-constant-value (name &optional class-name)
@@ -136,18 +240,16 @@ RefCounted, such as a Resource."
 global enum, or with CLASS-NAME a value of an enum or a constant of that engine
 class, or NIL if there's none."
   (flet ((find-value (values)
-           (let ((value (find name values
-                              :key (lambda (value) (json-get value "name"))
-                              :test #'string=)))
-             (and value (list (json-get value "value"))))))
+           (let ((value (assoc name values :test #'string=)))
+             (and value (list (cdr value))))))
     (first (if class-name
                (let ((class (or (api-class class-name)
                                 (error "No engine class ~a in ~a"
                                        class-name *extension-api-file*))))
-                 (or (some (lambda (enum) (find-value (json-get enum "values")))
-                           (json-get class "enums"))
-                     (find-value (json-get class "constants"))))
-               (some (lambda (enum) (find-value (json-get enum "values")))
+                 (or (some (lambda (enum) (find-value (api-enum-values enum)))
+                           (api-class-enums class))
+                     (find-value (api-class-constants class))))
+               (some (lambda (enum) (find-value (api-enum-values enum)))
                      (api-global-enums))))))
 
 (defmacro api-constant (name &optional class-name)
@@ -160,13 +262,13 @@ DEFINE-ENGINE-CLASS define in GODOT."
              *extension-api-file*)))
 
 (defun api-method (class-name method-name)
-  "The method METHOD-NAME of the engine class CLASS-NAME (both strings) as a JSON
-object, looked up in the class and then in the classes it inherits from. The
-second value is the name of the class that defines it."
-  (loop for name = class-name then (json-get class "inherits")
+  "The method METHOD-NAME of the engine class CLASS-NAME (both strings) as an
+API-METHOD, looked up in the class and then in the classes it inherits from.
+The second value is the name of the class that defines it."
+  (loop for name = class-name then (api-class-parent-name class)
         for class = (and name (api-class name))
         while class
-        do (let ((method (json-class-method class method-name)))
+        do (let ((method (find-api-method method-name (api-class-methods class))))
              (when method
                (return (values method name))))
         finally (error "No method ~a in the engine class ~a or the classes it inherits from (~a)"
@@ -174,10 +276,9 @@ second value is the name of the class that defines it."
 
 (defun api-virtual-methods (method-name)
   "The virtual methods named METHOD-NAME (a string) of all engine classes, as a
-list of (class-name . method), with the method as a JSON object, sorted by
-class name."
+list of (class-name . api-method), sorted by class name."
   (sort (loop for class being the hash-values of (extension-api-classes (extension-api))
-              for method = (json-class-method class method-name)
-              when (and method (json-get method "is_virtual"))
-                collect (cons (json-get class "name") method))
+              for method = (find-api-method method-name (api-class-methods class))
+              when (and method (api-method-virtual-p method))
+                collect (cons (api-class-name class) method))
         #'string< :key #'car))

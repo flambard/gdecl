@@ -44,10 +44,10 @@ or NIL), interned in the current package, and the DEFCONSTANT of it."
       (values symbol `(defconstant ,symbol ,value ,documentation))))
 
   (defun class-constant-defconstants (class)
-    "The names and DEFCONSTANTs of the enum values and constants of CLASS, a JSON
-object from extension_api.json, as two lists."
-    (let ((class-name (json-get class "name"))
-          (prefix (lisp-style-class-name (json-get class "name")))
+    "The names and DEFCONSTANTs of the enum values and constants of CLASS, an
+API-CLASS, as two lists."
+    (let ((class-name (api-class-name class))
+          (prefix (lisp-style-class-name (api-class-name class)))
           (names '())
           (forms '()))
       (flet ((add (name value documentation)
@@ -55,14 +55,13 @@ object from extension_api.json, as two lists."
                    (constant-defconstant prefix name value documentation)
                  (push symbol names)
                  (push form forms))))
-        (dolist (enum (json-get class "enums"))
-          (dolist (value (json-get enum "values"))
-            (add (json-get value "name") (json-get value "value")
-                 (format nil "~a.~a, of the enum ~a." class-name (json-get value "name")
-                         (json-get enum "name")))))
-        (dolist (constant (json-get class "constants"))
-          (add (json-get constant "name") (json-get constant "value")
-               (format nil "The constant ~a.~a." class-name (json-get constant "name")))))
+        (dolist (enum (api-class-enums class))
+          (loop for (name . value) in (api-enum-values enum)
+                do (add name value
+                        (format nil "~a.~a, of the enum ~a." class-name name
+                                (api-enum-name enum)))))
+        (loop for (name . value) in (api-class-constants class)
+              do (add name value (format nil "The constant ~a.~a." class-name name))))
       (values (reverse names) (reverse forms))))
 
   (defun exporting-progn (package names forms result)
@@ -87,12 +86,11 @@ current package: the class name in Lisp style (Node2D is NODE-2D), or with
 
   (defun engine-object-type-form (class-name class)
     "The names to export, and the forms that define the struct of the objects of
-the engine class CLASS-NAME (CLASS from extension_api.json), see
-engine-objects.lisp."
+the engine class CLASS-NAME (CLASS is its API-CLASS), see engine-objects.lisp."
     (let* ((type (engine-object-type-name class-name))
            (constructor (intern (format nil "%MAKE-~a" (symbol-name type)))))
       (values (list type)
-              `((defstruct (,type (:include ,(engine-object-type (json-get class "inherits")))
+              `((defstruct (,type (:include ,(engine-object-type (api-class-parent-name class)))
                                   (:constructor ,constructor)
                                   (:copier nil)
                                   (:predicate nil)
@@ -127,9 +125,9 @@ application defines the others it uses, and they're added to GODOT too."
          (*package* (find-package :godot))
          (names '())
          (forms '()))
-    (dolist (method (json-get class "methods"))
-      (let ((method-name (json-get method "name")))
-        (unless (json-get method "is_virtual")
+    (dolist (method (api-class-methods class))
+      (let ((method-name (api-method-name method)))
+        (unless (api-method-virtual-p method)
           (let* ((name (intern (format nil "~a-~a" prefix (lisp-style-method-name method-name))))
                  ;; NIL if the method has types that can't be converted yet
                  (form (handler-case (engine-method-defun name class-name method-name '())
@@ -151,13 +149,13 @@ becomes GODOT:+OK+ and KEY_ESCAPE GODOT:+KEY-ESCAPE+."
         (names '())
         (forms '()))
     (dolist (enum (api-global-enums))
-      (dolist (value (json-get enum "values"))
-        (multiple-value-bind (symbol form)
-            (constant-defconstant nil (json-get value "name") (json-get value "value")
-                                  (format nil "~a, of the global enum ~a."
-                                          (json-get value "name") (json-get enum "name")))
-          (push symbol names)
-          (push form forms))))
+      (loop for (name . value) in (api-enum-values enum)
+            do (multiple-value-bind (symbol form)
+                   (constant-defconstant nil name value
+                                         (format nil "~a, of the global enum ~a."
+                                                 name (api-enum-name enum)))
+                 (push symbol names)
+                 (push form forms))))
     (exporting-progn :godot (reverse names) (reverse forms) nil)))
 
 ;;;
@@ -184,12 +182,12 @@ dumped from another version of Godot? Run make godot-api."
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun utility-function-defun (name function)
-    "The DEFUN of NAME, a function that calls the utility function FUNCTION, a
-JSON object from extension_api.json, like those of DEFINE-ENGINE-METHOD."
-    (let* ((function-name (json-get function "name"))
-           (vararg (json-get function "is_vararg"))
-           (hash (json-get function "hash"))
-           (return-type (let ((type (json-get function "return_type")))
+    "The DEFUN of NAME, a function that calls the utility function FUNCTION, an
+API-METHOD, like those of DEFINE-ENGINE-METHOD."
+    (let* ((function-name (api-method-name function))
+           (vararg (api-method-vararg-p function))
+           (hash (api-method-hash function))
+           (return-type (let ((type (api-method-return-type function)))
                           (if type
                               (engine-method-variant-type type "the result")
                               +variant-type-nil+)))
@@ -222,7 +220,7 @@ to Godot's output, also in the editor."
         (names '())
         (forms '()))
     (dolist (function (api-utility-functions))
-      (let* ((function-name (json-get function "name"))
+      (let* ((function-name (api-method-name function))
              (lisp-name (cond ((string= function-name "print") "GODOT-PRINT")
                               ((find-symbol (lisp-style-method-name function-name)
                                             :common-lisp)

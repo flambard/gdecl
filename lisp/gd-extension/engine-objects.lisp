@@ -26,7 +26,7 @@ with DEFINE-ENGINE-CLASS, or GODOT-OBJECT. For code generation: the classes
 the class inherits from are looked up in extension_api.json. CLASS-CONSTRUCTOR
 walks the same classes at runtime, from *ENGINE-CLASS-PARENTS*, and finds the
 constructor of this type."
-    (loop for name = class-name then (json-get class "inherits")
+    (loop for name = class-name then (api-class-parent-name class)
           for class = (and name (api-class name))
           while class
           do (let ((type (gethash name *engine-object-types*)))
