@@ -8,7 +8,8 @@
   (:nicknames #:gdext-ffi)
   (:use #:cl)
   (:import-from #:extension-api-json
-                #:api-builtin-size)
+                #:api-builtin-size
+                #:*extension-api-file*)
   (:export #:load-interface
            #:*class-library*
            #:get-proc-address
