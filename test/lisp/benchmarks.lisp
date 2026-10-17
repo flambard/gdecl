@@ -88,7 +88,9 @@ three times, and print the best time and the bytes allocated per run."
     (benchmark "Input.is_action_pressed(\"ui_up\")" count
       (input-is-action-pressed "ui_up"))
     (benchmark "emit_signal(\"pinged\", 1) (vararg)" count
-      (object-emit-signal benchmarks "pinged" 1))))
+      (object-emit-signal benchmarks "pinged" 1))
+    (benchmark "emit_signal(\"pinged\", 1) (vararg, :extra-arguments ((value :int)))" count
+      (emit-int benchmarks "pinged" 1))))
 
 ;;;
 ;;; ClosBenchmarks: LispBenchmarks's tick and engine calls, with a class defined

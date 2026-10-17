@@ -119,6 +119,7 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
   (:export ;; Foreign memory for Godot's opaque values (opaque-values.lisp)
            #:+string-name-size+
            #:+string-size+
+           #:+variant-size+
            #:+node-path-size+
            #:string-name
            #:godot-string

@@ -10,4 +10,4 @@
                  (:file "lisp-tests" :depends-on ("packages" "framework" "engine-classes" "classes"))
                  (:file "clos-classes" :depends-on ("packages" "engine-classes"))
                  (:file "clos-tests" :depends-on ("packages" "framework" "lisp-tests" "clos-classes"))
-                 (:file "benchmarks" :depends-on ("packages"))))
+                 (:file "benchmarks" :depends-on ("packages" "engine-classes"))))

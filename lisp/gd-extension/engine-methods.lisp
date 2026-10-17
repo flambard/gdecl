@@ -236,6 +236,114 @@ are pointers already). NIL for other methods."
                 (funcall from-raw form)
                 form))))))
 
+  (defun inline-variant-call-form (target arguments return-type name)
+    "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
+CALL-TARGET), a vararg method, with object_method_bind_call in one piece of C
+code (FFI:C-INLINE), like INLINE-PTRCALL-FORM: the Variants of the arguments
+are made from their raw values on the C stack, with the constructors in
+*VARIANT-FROM-TYPE-CONSTRUCTORS*, and destroyed there, so nothing is allocated
+for them. For calls whose ARGUMENTS (ENGINE-ARGUMENTs) are all of simple types
+(bool, int, float, Object), StringNames and NodePaths, or builtin types made of
+floats, such as the extra arguments of DEFINE-ENGINE-METHOD, and whose
+RETURN-TYPE is none, bool, int or float. NIL for other calls, and for utility
+functions. NAME, the function's name, is for the error when the call fails."
+    (when (utility-target-p target)
+      (return-from inline-variant-call-form nil))
+    (let ((inputs '())                  ; (form ffi-type), in order
+          (declarations '())            ; C code before the call
+          (count (length arguments))
+          (variant-words (/ +variant-size+ 8)))
+      (labels ((input (form ffi-type)
+                 (push (list form ffi-type) inputs)
+                 (c-inline-argument-reference (1- (length inputs))))
+               (construct (i variant-type pointer)
+                 ;; Variant I from the raw value at POINTER, with the constructor
+                 ;; for VARIANT-TYPE
+                 (format nil "((void (*)(void *, void *))~a)(v[~d], ~a);"
+                         (input `(aref *variant-from-type-constructors* ,variant-type)
+                                :pointer-void)
+                         i pointer)))
+        (let ((call (format nil "((void (*)(void *, void *, const void **, long long, void *, void *))~a)(~a, ~a, args, ~d, ret, err);"
+                            (input '*object-method-bind-call* :pointer-void)
+                            (input (call-target-function target) :pointer-void)
+                            (input (call-target-object target) :pointer-void)
+                            count))
+              (destroy (input '*variant-destroy* :pointer-void)))
+          (loop for argument in arguments
+                for i from 0
+                for argument-name = (argument-name argument)
+                for type = (argument-variant-type argument)
+                for value-type = (and (integerp type) (find-value-type type nil))
+                do (cond ((null value-type)
+                          (return-from inline-variant-call-form nil))
+                         ;; A simple type: the raw value in a C variable
+                         ((value-type-to-raw value-type)
+                          (let ((ffi-type (value-type-ffi-type value-type)))
+                            (push (format nil "~a a~d = ~a;" (c-type-name ffi-type) i
+                                          (input (funcall (value-type-to-raw value-type)
+                                                          argument-name)
+                                                 ffi-type))
+                                  declarations)
+                            (push (construct i type (format nil "&a~d" i)) declarations)))
+                         ;; Pointers to the StringName or NodePath already
+                         ((value-type-by-pointer value-type)
+                          (push (construct i type (input argument-name :pointer-void))
+                                declarations))
+                         ;; A builtin type made of floats: an array of its
+                         ;; components
+                         ((float-layout type)
+                          (push (format nil "float a~d[] = { ~{~a~^, ~} };" i
+                                        (loop for accessors in (float-layout type)
+                                              collect (input (reduce (lambda (form accessor)
+                                                                       `(,accessor ,form))
+                                                                     accessors
+                                                                     :initial-value argument-name)
+                                                             :float)))
+                                declarations)
+                          (push (construct i type (format nil "a~d" i)) declarations))
+                         (t (return-from inline-variant-call-form nil))))
+          (let* ((result-type (and (not (eql return-type +variant-type-nil+))
+                                   (integerp return-type)
+                                   (find-value-type return-type nil)))
+                 (ffi-type (and result-type (value-type-ffi-type result-type)))
+                 (from-raw (and result-type (value-type-from-raw result-type))))
+            ;; A result of type none, bool, int or float (not an Object, whose
+            ;; reference the Variant would give back)
+            (when (or (and result-type (not from-raw))
+                      (eql return-type +variant-type-object+)
+                      (eql return-type :variant))
+              (return-from inline-variant-call-form nil))
+            (let* ((c-type (and ffi-type (c-type-name ffi-type)))
+                   (code (format nil "{ long long v[~d][~d]; long long ret[~d] = { 0 }; int err[3] = { 0, 0, 0 }; ~{~a ~}const void *args[~d] = { ~{~a~^, ~} }; ~a ~@[~a ~]~{((void (*)(void *))~a)(~a); ~}@(return 0) = err[0];~@[ @(return 1) = r;~] }"
+                                 (max 1 count) variant-words variant-words
+                                 (reverse declarations)
+                                 (max 1 count)
+                                 (if (plusp count)
+                                     (loop for i below count collect (format nil "v[~d]" i))
+                                     '("0"))
+                                 call
+                                 (and c-type
+                                      (format nil "~a r = 0; if (err[0] == 0) ((void (*)(void *, void *))~a)(&r, ret);"
+                                              c-type
+                                              (input `(aref *type-from-variant-constructors*
+                                                            ,return-type)
+                                                     :pointer-void)))
+                                 (loop for variant in (append (loop for i below count
+                                                                    collect (format nil "v[~d]" i))
+                                                              '("ret"))
+                                       append (list destroy variant))
+                                 c-type))
+                   (call-error (gensym "CALL-ERROR"))
+                   (result (gensym "RESULT")))
+              `(multiple-value-bind (,call-error ,@(when c-type (list result)))
+                   (ffi:c-inline ,(mapcar #'first (reverse inputs))
+                                 ,(mapcar #'second (reverse inputs))
+                                 ,(if c-type `(values :int ,ffi-type) :int)
+                                 ,code)
+                 (unless (= ,call-error +call-ok+)
+                   (error "Calling ~a failed with call error ~d" ',name ,call-error))
+                 ,(when c-type (funcall from-raw result)))))))))
+
   (defun ptrcall-method-form (target arguments return-type)
     "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
 CALL-TARGET) with ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. Methods
@@ -535,8 +643,11 @@ with Variants. A REF-COUNTED-RESULT goes into the autorelease pool."
                    (call (temporary-names-form
                           arguments
                           (if vararg
-                              (variant-call-method-form target arguments return-type
-                                                        :rest rest :name name)
+                              (or (and (not rest)
+                                       (inline-variant-call-form target arguments return-type
+                                                                 name))
+                                  (variant-call-method-form target arguments return-type
+                                                            :rest rest :name name))
                               (ptrcall-method-form target arguments return-type)))))
               (if ref-counted-result
                   `(autorelease-reference ,call)

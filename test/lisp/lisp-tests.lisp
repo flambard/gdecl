@@ -349,6 +349,26 @@ types of Godot objects.")
     (check (equal '(1 "one") (subseq heard 0 2)))
     (check (same-object-p node (fourth heard)))))
 
+(deftest vararg-methods-with-extra-arguments
+  ;; Extra arguments of simple types and a builtin type made of floats: the
+  ;; call is made in one piece of C code, with the Variants on the C stack
+  (let ((test-node (new-test-node))
+        (other (new-node "Node2D"))
+        (heard nil))
+    (gdext:connect-signal test-node "pinged" (lambda (&rest arguments) (setf heard arguments)))
+    (check (= +ok+ (emit-typed test-node "pinged" 7 (vector2 1.0 2.0) other t)))
+    (check (equalp (list 7 (vector2 1.0 2.0)) (subseq heard 0 2)))
+    (check (same-object-p other (third heard)))
+    (check (eq t (fourth heard)))
+    ;; The signal's name known only at runtime: a temporary StringName
+    (emit-typed test-node (concatenate 'string "pin" "ged") 8 (vector2 0.0 0.0) nil nil)
+    (check (eql 8 (first heard)))
+    (check (null (third heard)))
+    ;; A String isn't a simple type, so this one is called through foreign
+    ;; memory, as before
+    (check (= +ok+ (emit-text test-node "pinged" "text")))
+    (check (equal '("text") heard))))
+
 (deftest static-and-singleton-methods
   (check (plusp (length (resource-generate-scene-unique-id))))
   (check (class-db-class-exists "Node2D"))

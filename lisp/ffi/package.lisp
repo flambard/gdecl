@@ -35,6 +35,8 @@
            #:classdb-get-method-bind
            #:object-method-bind-ptrcall
            #:*object-method-bind-ptrcall*
+           #:*object-method-bind-call*
+           #:*variant-destroy*
            #:object-method-bind-call
            #:classdb-register-extension-class-signal
            #:variant-destroy

@@ -14,6 +14,15 @@
 ;; A singleton with a Dictionary result (get_version_info)
 (gdext:define-engine-class "Engine")
 
+;; Vararg methods with extra arguments of known types: simple types, called in
+;; one piece of C code, and a String, which isn't
+(gdext:define-engine-method emit-typed ("Object" "emit_signal")
+  :extra-arguments ((number :int) (vector :vector2) (object :object) (flag :bool)))
+(gdext:define-engine-method emit-text ("Object" "emit_signal")
+  :extra-arguments ((text :string)))
+(gdext:define-engine-method emit-int ("Object" "emit_signal")
+  :extra-arguments ((value :int)))
+
 ;; A static method whose Variant argument comes before a String
 (gdext:define-engine-method json-stringify ("JSON" "stringify"))
 
