@@ -47,6 +47,7 @@
            #:call-variant-from-type-constructor
            #:call-type-from-variant-constructor
            #:variant-get-type
+           #:*variant-get-type*
            #:string-new-with-utf8-chars
            #:string-destructor
            #:node-path-destructor

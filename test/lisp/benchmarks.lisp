@@ -95,7 +95,17 @@ three times, and print the best time and the bytes allocated per run."
     (benchmark "emit_signal(\"pinged\", 1) (vararg)" count
       (object-emit-signal benchmarks "pinged" 1))
     (benchmark "emit_signal(\"pinged\", 1) (vararg, :extra-arguments ((value :int)))" count
-      (emit-int benchmarks "pinged" 1))))
+      (emit-int benchmarks "pinged" 1))
+    ;; Converting Variants, for signal arguments, Variant calls and the further
+    ;; arguments of vararg calls
+    (gd-extension-ffi:with-foreign-memory ((variant 'gd-extension-types:variant))
+      (benchmark "write-variant of an int, and variant-destroy" count
+        (gd-extension-types:write-variant variant 1)
+        (gd-extension-ffi:variant-destroy variant))
+      (gd-extension-types:write-variant variant 1)
+      (benchmark "read-variant of an int" count
+        (gd-extension-types:read-variant variant))
+      (gd-extension-ffi:variant-destroy variant))))
 
 ;;;
 ;;; ClosBenchmarks: LispBenchmarks's tick and engine calls, with a class defined
