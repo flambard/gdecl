@@ -95,6 +95,21 @@ where the raw return value goes."
               (reference-for-caller result))
             (write-value r-ret return-type result))))))
 
+(defun write-failed-result (method r-ret)
+  "After METHOD, a BOUND-METHOD called with ptrcall, signaled an error, store the
+default value of its return type at R-RET, such as 0, false or Vector2(0, 0)
+(the type's constructor 0), or null for an Object, so that the caller doesn't
+read whatever was there before. A return type with a destructor, such as
+String, is left as it is: Godot passes such a value constructed already, an
+empty one when GDScript calls."
+  (let ((return-type (bound-method-return-type method)))
+    (when (and return-type (null (value-type-destructor return-type)))
+      (let ((variant-type (value-type-variant-type return-type)))
+        (if (= variant-type +variant-type-object+)
+            (setf (foreign-ref r-ret :pointer-void) (ffi:make-null-pointer :void))
+            (call-ptr-constructor (variant-get-ptr-constructor variant-type 0) r-ret
+                                  (ffi:make-null-pointer :void)))))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-argument-form (value-type args index)
     "A form that reads argument INDEX, of VALUE-TYPE, from ARGS, the array of
@@ -188,10 +203,15 @@ value as Variants, as in call_func."
 ;;                                       GDExtensionClassInstancePtr p_instance,
 ;;                                       const GDExtensionConstTypePtr *p_args,
 ;;                                       GDExtensionTypePtr r_ret)
+;;
+;; If the method fails, its return value is the default value of its type
+;; (WRITE-FAILED-RESULT), written only then, so it costs nothing per call.
 (define-callback method-ptrcall :void
     ((method-userdata :pointer-void) (instance :pointer-void)
      (args :pointer-void) (r-ret :pointer-void))
-  (with-callback-protection ((bound-method-name (userdata-method method-userdata)))
+  (with-callback-protection ((bound-method-name (userdata-method method-userdata))
+                             (catching-errors
+                               (write-failed-result (userdata-method method-userdata) r-ret)))
     (ptrcall-bound-method method-userdata instance args r-ret)))
 
 ;; void (*GDExtensionClassMethodCall)(void *method_userdata,
@@ -219,5 +239,8 @@ value as Variants, as in call_func."
     ((instance :pointer-void) (name :pointer-void) (virtual-call-userdata :pointer-void)
      (args :pointer-void) (r-ret :pointer-void))
   (declare (ignore name))
-  (with-callback-protection ((bound-method-name (userdata-method virtual-call-userdata)))
+  (with-callback-protection ((bound-method-name (userdata-method virtual-call-userdata))
+                             (catching-errors
+                               (write-failed-result (userdata-method virtual-call-userdata)
+                                                    r-ret)))
     (ptrcall-bound-method virtual-call-userdata instance args r-ret)))

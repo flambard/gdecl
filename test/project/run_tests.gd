@@ -134,9 +134,20 @@ func test_errors() -> void:
 	print("[test] expect error")
 	# Called with Variants: a typed call is a ptrcall, which returns 0 for an int
 	check(node.call("fail") == null, "a method that signals an error returns null")
+	# A typed call is a ptrcall: a failing method returns its type's default
+	# value, not what an earlier call left where the caller keeps the result
+	check(node.add(2, 3) == 5, "an int result before a failing method")
 	print("[test] expect error")
-	# A typed call is a ptrcall, which returns 0 for an int
-	check(node.fail() == 0, "a method that signals an error returns 0 with ptrcall")
+	check(node.fail() == 0, "a failing method returns 0 for an int with ptrcall")
+	check(node.scale_vector(Vector2(1, 2), 2) == Vector2(2, 4), "a Vector2 result before")
+	print("[test] expect error")
+	check(node.fail_vector() == Vector2(), "and Vector2(0, 0) for a Vector2")
+	check(node.is_null(null), "a bool result before")
+	print("[test] expect error")
+	check(node.fail_bool() == false, "and false for a bool")
+	check(node.get_self() == node, "an Object result before")
+	print("[test] expect error")
+	check(node.fail_object() == null, "and null for an Object")
 	# Call errors, which Godot reports with the expected count or type
 	print("[test] expect error")
 	check(node.callv("add", [1]) == null, "too few arguments")

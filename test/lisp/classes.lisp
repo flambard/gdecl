@@ -69,6 +69,9 @@
   (:method "listen" test-node-listen :arguments (("emitter" :object)))
   (:method "heard_pinged" test-node-heard-pinged-p :return-type :bool)
   (:method "fail" test-node-fail :return-type :int)
+  (:method "fail_vector" test-node-fail :return-type :vector2)
+  (:method "fail_bool" test-node-fail :return-type :bool)
+  (:method "fail_object" test-node-fail :return-type :object)
   ;; Callables and Signals as values
   (:method "call_callable" test-node-call-callable
            :arguments (("callable" :callable) ("argument" :int)) :return-type :int)
