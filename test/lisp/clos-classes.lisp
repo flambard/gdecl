@@ -162,3 +162,16 @@
 (defclass clos-resource (resource)
   ((value :initform 0 :initarg :value :export :int :reader clos-resource-value))
   (:metaclass godot-class))
+
+;;;
+;;; ClosReferenceNode: exported slots that keep references to their RefCounted
+;;; values, set by an :INITARG and by an :INITFORM, not through the property's
+;;; setter
+;;;
+
+(defclass clos-reference-node (node)
+  ((given :initform nil :initarg :given :export :object :class "TestResource"
+          :reader clos-reference-given)
+   (made :initform (gdext:make-object "TestResource") :initarg :made :export :object
+         :class "TestResource" :reader clos-reference-made))
+  (:metaclass godot-class))

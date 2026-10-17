@@ -21,6 +21,7 @@ instance.")
                 #:bind-property
                 #:bind-signal
                 #:bind-virtual
+                #:add-reference
                 #:setf-reference
                 #:release-reference
                 #:add-class-definition

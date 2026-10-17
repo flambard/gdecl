@@ -138,3 +138,33 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
     (check (= 3 (clos-resource-value resource)))
     (check (= 3 (object-get resource "value")))
     (check (= 1 (ref-counted-get-reference-count resource)))))
+
+(deftest exported-reference-slots
+  ;; An exported slot of a RefCounted class keeps a reference to its value, as
+  ;; a Ref<T> does: through the property's setter, and also when the value
+  ;; comes from an :INITARG or an initform
+  (let ((set (class-db-instantiate "TestResource")) ; One reference, in the pool
+        (given (class-db-instantiate "TestResource"))
+        (node (make-instance 'clos-reference-node)))
+    (node-add-child *root* node)
+    ;; The setter takes a reference
+    (object-set node "given" set)
+    (check (= 2 (ref-counted-get-reference-count set)))
+    ;; An :INITARG's value: the slot has a reference of its own
+    (let ((given-node (make-instance 'clos-reference-node :given given)))
+      (node-add-child *root* given-node)
+      (check (= 2 (ref-counted-get-reference-count given))))
+    ;; An initform's value, made in Godot's create_instance callback: it's still
+    ;; there after the callback returns
+    (check (gdext:valid-object-p (clos-reference-made node)))
+    (let ((dsl-node (class-db-instantiate "TestReferenceNode")))
+      (node-add-child *root* dsl-node)
+      (check (gdext:valid-object-p (test-reference-node-made dsl-node))))
+    ;; An :INITARG replacing an initform's value: the slot keeps the new value,
+    ;; and gives back the initform's, which the leak check at exit would show
+    ;; otherwise
+    (let* ((replacement (class-db-instantiate "TestResource"))
+           (replaced-node (make-instance 'clos-reference-node :made replacement)))
+      (node-add-child *root* replaced-node)
+      (check (eq replacement (clos-reference-made replaced-node)))
+      (check (= 2 (ref-counted-get-reference-count replacement))))))

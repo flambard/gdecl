@@ -174,6 +174,7 @@ The measured costs behind the code's design; check them with `make bench` (see B
 - Arguments never take a reference: the caller owns those Variants.
 - The copy of a Godot Callable in an `engine-callable` goes into the pool too (`autorelease-callable`), so a Callable read from Godot is valid until the call returns; destroying it clears the struct's pointer, so using it afterwards signals an error instead of reading freed memory. `keep-callable` makes a copy that isn't in the pool.
 - `setf-reference` takes the new reference before giving back the old one, in case they're the same object.
+- An exported slot of a RefCounted `:class` owns a reference to its value, given back when Godot frees the instance, so every way gdecl puts a value there takes one: the property's setter (`setf-reference`), the constructor for the values of initforms (in both class layers: an initform's object is made in `create_instance`, whose pool gives back its first reference when the callback returns), `godot-clos`'s `make-instance` for initargs (taking the new values' references, then giving back the replaced ones), and an instance updated after its class is redefined with a new such slot (`godot-registration.lisp`). Writing the slot directly is the application's to handle with `setf-reference`.
 
 ## Build
 

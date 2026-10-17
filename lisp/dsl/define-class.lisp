@@ -222,7 +222,21 @@ initialize hooks of the application run."
                           collect `(,ref-counted (inherits-class-p ,(class-slot-class slot)
                                                                    "RefCounted"))))
             (register-class ,class-name ,parent-class-name
-                            :constructor (lambda (pointer) (,make-name :pointer pointer))
+                            ;; The slots that keep references take them for the
+                            ;; values of their initforms too, made in Godot's
+                            ;; create_instance callback, whose autorelease pool
+                            ;; gives back the first reference
+                            :constructor (lambda (pointer)
+                                           (let ((object (,make-name :pointer pointer)))
+                                             ,@(loop for slot in slots
+                                                     for ref-counted = (class-slot-ref-counted slot)
+                                                     when ref-counted
+                                                       collect `(when ,ref-counted
+                                                                  (let ((value (,(class-slot-accessor slot)
+                                                                                object)))
+                                                                    (when value
+                                                                      (add-reference value)))))
+                                             object))
                             ,@(when destructor-form `(:destructor ,destructor-form))
                             ,@(when tool `(:tool ,tool)))
             ,@(loop for slot in slots

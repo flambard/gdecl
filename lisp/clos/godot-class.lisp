@@ -36,7 +36,8 @@
 ;;; This file has the metaclass, its slot options and the Lisp objects of its
 ;;; instances; godot-functions.lisp the generic functions that Godot calls; and
 ;;; godot-registration.lisp registering the classes with Godot, also when
-;;; they're redefined.
+;;; they're redefined, and making instances (MAKE-INSTANCE) with the references
+;;; of their exported slots.
 ;;;
 
 (defclass godot-class (standard-class)
@@ -342,16 +343,3 @@ REGISTER-CLASS."
       (setf constructor (cons *initialization-changes* (make-constructor class))
             (slot-value class 'constructor) constructor))
     (funcall (cdr constructor) pointer)))
-
-(defmethod make-instance ((class godot-class) &rest initargs)
-  "Make a Godot object of CLASS, which must be registered with Godot, and return
-its Lisp object, with its slots set from INITARGS, like CLASS.new() in
-GDScript. An object of a RefCounted class comes with a reference, as with
-GD-EXTENSION:MAKE-OBJECT: during a call from Godot it's in the autorelease
-pool, so take a reference of your own to keep the object (SETF-REFERENCE)."
-  (unless (class-registered-p class)
-    (error "~s isn't registered with Godot yet" (class-name class)))
-  (let ((object (gdext:make-object (godot-name class))))
-    (when initargs
-      (apply #'shared-initialize object '() initargs))
-    object))

@@ -86,12 +86,73 @@ called whenever Godot frees an instance."
                                when (typep superclass 'godot-class)
                                  append (class-reference-slots superclass))))))))
 
+;;;
+;;; The references of exported slots
+;;;
+;;; An exported slot of a RefCounted class keeps a reference to its value, like
+;;; a Ref<T>: the property's setter takes one (SETF-REFERENCE), and so does
+;;; making an instance, for the values of initforms and initargs
+;;; (TAKE-SLOT-REFERENCES and MAKE-INSTANCE), and updating one when its class is
+;;; redefined with a new such slot; RELEASE-SLOT-REFERENCES gives them back when
+;;; Godot frees the instance. An initform that makes a RefCounted object runs
+;;; in Godot's create_instance callback, whose autorelease pool gives back the
+;;; object's first reference when the callback returns, so the slot's own
+;;; reference keeps it.
+;;;
+
+(defun slot-reference-value (object slot-name)
+  "The value of the slot SLOT-NAME of OBJECT, or NIL if it's unbound."
+  (and (slot-boundp object slot-name) (slot-value object slot-name)))
+
+(defun take-slot-references (object &optional (slot-names (all-reference-slots
+                                                            (class-of object))))
+  "Take a reference to the value of each of the exported slots SLOT-NAMES of
+OBJECT that keep references, by default all of them, and return OBJECT."
+  (dolist (slot-name slot-names object)
+    (let ((value (slot-reference-value object slot-name)))
+      (when value
+        (gdext:add-reference value)))))
+
 (defun release-slot-references (object)
   "Give back the references the exported slots of OBJECT keep, when Godot frees
 it."
   (dolist (slot-name (all-reference-slots (class-of object)))
     (when (slot-boundp object slot-name)
       (gdext:release-reference (slot-value object slot-name)))))
+
+(defmethod update-instance-for-redefined-class :after
+    ((object standard-object) added-slots discarded-slots property-list &rest initargs)
+  (declare (ignore discarded-slots property-list initargs))
+  ;; A new exported slot that keeps references, with the value of its initform
+  (when (typep (class-of object) 'godot-class)
+    (take-slot-references object (intersection added-slots
+                                               (all-reference-slots (class-of object))))))
+
+(defmethod make-instance ((class godot-class) &rest initargs)
+  "Make a Godot object of CLASS, which must be registered with Godot, and return
+its Lisp object, with its slots set from INITARGS, like CLASS.new() in
+GDScript. An object of a RefCounted class comes with a reference, as with
+GD-EXTENSION:MAKE-OBJECT: during a call from Godot it's in the autorelease
+pool, so take a reference of your own to keep the object (SETF-REFERENCE)."
+  (unless (class-registered-p class)
+    (error "~s isn't registered with Godot yet" (class-name class)))
+  (let ((object (gdext:make-object (godot-name class))))
+    (when initargs
+      ;; The exported slots that keep references keep them to the values of
+      ;; INITARGS too: take those, then give back the ones of the values they
+      ;; replace (from initforms), as SETF-REFERENCE does
+      (let* ((slot-names (all-reference-slots class))
+             (old-values (mapcar (lambda (slot-name) (slot-reference-value object slot-name))
+                                 slot-names)))
+        (apply #'shared-initialize object '() initargs)
+        (loop for slot-name in slot-names
+              for old in old-values
+              for new = (slot-reference-value object slot-name)
+              unless (eq old new)
+                do (when new (gdext:add-reference new))
+                   (when old (gdext:release-reference old)))))
+    object))
+
 
 (defun register-godot-class (class)
   "Register CLASS with Godot, and what it has that Godot needs to know about."
@@ -101,7 +162,10 @@ it."
   (check-direct-functions class)
   (let ((parent-name (godot-parent-name class)))
     (gdext:register-class (godot-name class) parent-name
-                          :constructor (lambda (pointer) (make-lisp-object class pointer))
+                          ;; With references for the values of the initforms
+                          :constructor (lambda (pointer)
+                                         (take-slot-references
+                                          (make-lisp-object class pointer)))
                           :destructor 'release-slot-references
                           ;; Set by UPDATE-NOTIFICATIONS
                           :notification 'call-notification

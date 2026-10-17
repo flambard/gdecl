@@ -122,7 +122,7 @@ Slot options:
 | Option | Like in GDScript | |
 |---|---|---|
 | `:export type` | `@export var` | A property, with the methods `get_<name>` and `set_<name>` (`mob-scene` is `mob_scene`) |
-| `:class "PackedScene"` | `@export var x: PackedScene` | With `:export :object`: the class of the value, picked in the editor as a resource or a node. A RefCounted value is kept with a reference, given back when the instance is freed |
+| `:class "PackedScene"` | `@export var x: PackedScene` | With `:export :object`: the class of the value, picked in the editor as a resource or a node. A RefCounted value is kept with a reference, given back when the instance is freed: one the setter takes, and one taken for the value of the slot's initform (or, with `godot-clos`, an initarg) |
 | `:setter function` | `set(value):` | Your own setter, called with the instance and the value. It then handles references itself |
 | `:onready "Path"` | `@onready var x = $Path` | Set to that node when the instance is ready, before your `_ready` runs |
 | `:onready function` | `@onready var x = …` | Set to the result of calling the function with the instance |
@@ -318,7 +318,7 @@ A Signal is an `engine-signal`, the signal's object and name (`engine-signal-obj
 An engine method that returns a RefCounted object, such as a Resource, returns it with a reference, like a `Ref<T>` in C++.
 
 - In code that Godot calls (your methods, virtual methods, signal handlers and initialize hooks) you needn't care: the reference goes into an autorelease pool and is given back when the call returns.
-- To keep the object longer, e.g. in a slot, take a reference of your own with `setf-reference`, which works like assigning a `Ref<T>`: `(gdext:setf-reference (main-mob-scene main) scene)`. An exported slot with a RefCounted `:class` does that by itself.
+- To keep the object longer, e.g. in a slot, take a reference of your own with `setf-reference`, which works like assigning a `Ref<T>`: `(gdext:setf-reference (main-mob-scene main) scene)`. An exported slot with a RefCounted `:class` does that by itself, for values set through its property, its initform, or, with `godot-clos`, an initarg; a value you put into such a slot yourself, with `setf` of an accessor or `slot-value`, needs `setf-reference` instead, as the slot's reference is given back when the instance is freed.
 - `(gdext:with-reference (frames (animated-sprite-2d-get-sprite-frames sprite)) ...)` gives the reference back at the end of its body.
 - Outside a call from Godot, e.g. at a REPL, there's no pool: give the reference back with `release-reference` or `with-reference`.
 

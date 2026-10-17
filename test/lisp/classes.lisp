@@ -224,6 +224,11 @@ arguments and returns how many there were."
 ;;; TestBareNode: :onready slots without a _ready of its own
 ;;;
 
+;; An exported slot that keeps a reference to its RefCounted value, set by its
+;; initform, not through the property's setter
+(define-class test-reference-node ("TestReferenceNode" "Node")
+  ((made (gdext:make-object "TestResource") :export :object :class "TestResource")))
+
 (define-class test-bare-node ("TestBareNode" "Node")
   ((child nil :onready "Child"))
   (:method "get_child_slot" test-bare-node-child :return-type :object))
