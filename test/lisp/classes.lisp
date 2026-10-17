@@ -72,6 +72,7 @@
   (:method "listen" test-node-listen :arguments (("emitter" :object)))
   (:method "heard_pinged" test-node-heard-pinged-p :return-type :bool)
   (:method "fail" test-node-fail :return-type :int)
+  (:method "signal_condition" test-node-signal-condition)
   (:method "fail_vector" test-node-fail :return-type :vector2)
   (:method "fail_bool" test-node-fail :return-type :bool)
   (:method "fail_object" test-node-fail :return-type :object)
@@ -228,6 +229,14 @@ can't be a Variant."
 
 (defun test-node-own-signal (node)
   (gdext:engine-signal node "pinged"))
+
+(define-condition test-condition () ()
+  (:documentation "Signaled by a bound method, for the handlers of Lisp code that
+called into Godot."))
+
+(defun test-node-signal-condition (node)
+  (declare (ignore node))
+  (signal 'test-condition))
 
 (defun test-node-fail (node)
   (declare (ignore node))

@@ -94,6 +94,10 @@ three times, and print the best time and the bytes allocated per run."
       (node-2d-set-position benchmarks position))
     (benchmark "Input.is_action_pressed(\"ui_up\")" count
       (input-is-action-pressed "ui_up"))
+    ;; What every callback costs, around its work
+    (benchmark "with-callback-protection, around nothing" count
+      (gd-extension-callback::with-callback-protection ("benchmark")
+        nil))
     (benchmark "emit_signal(\"pinged\", 1) (vararg)" count
       (object-emit-signal benchmarks "pinged" 1))
     (benchmark "emit_signal(\"pinged\", 1) (vararg, :extra-arguments ((value :int)))" count

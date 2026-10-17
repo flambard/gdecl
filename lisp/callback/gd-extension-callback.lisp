@@ -174,18 +174,38 @@ output."
 ;; WITH-CALLBACK-PROTECTION catches errors with a handler made once: ECL's
 ;; HANDLER-BIND (and so HANDLER-CASE) conses a new handler cluster at every
 ;; entry, which is most of what a callback cost (measured with `make bench`).
-;; It binds ECL's internal SI:*HANDLER-CLUSTERS* the way HANDLER-BIND does.
+;; It binds ECL's internal SI:*HANDLER-CLUSTERS* the way HANDLER-BIND does, to
+;; the handler's cluster in front of the clusters already there. That cons is
+;; made only when those clusters change, which they rarely do, as Godot calls
+;; into Lisp from the same place, so callbacks allocate nothing: each use of
+;; CATCHING-ERRORS keeps the last one in a cell of its own. That's safe from
+;; any thread, as a cons is never changed once made, and the cell holds one or
+;; another (measured: 16 bytes less a callback).
 
 (defun throw-callback-error (condition)
   (throw 'callback-error condition))
+
+(defmacro handler-clusters-with (cluster cell)
+  "SI:*HANDLER-CLUSTERS* with CLUSTER in front: the cons in the car of CELL if
+it has the same clusters behind it, otherwise a new one, kept there. CELL
+starts with a cons whose cdr is no list of clusters."
+  (let ((cell-var (gensym "CELL"))
+        (clusters (gensym "CLUSTERS"))
+        (below (gensym "BELOW")))
+    `(let* ((,cell-var ,cell)
+            (,clusters (car ,cell-var))
+            (,below si:*handler-clusters*))
+       (if (eq (cdr ,clusters) ,below)
+           ,clusters
+           (setf (car ,cell-var) (cons ,cluster ,below))))))
 
 (defmacro catching-errors (&body body)
   "Evaluate BODY and return NIL, or, if BODY signals an error, the condition,
 after unwinding BODY. Like HANDLER-CASE, but cheaper."
   `(catch 'callback-error
      (let ((si:*handler-clusters*
-             (cons (load-time-value (list (cons 'error #'throw-callback-error)))
-                   si:*handler-clusters*)))
+             (handler-clusters-with (load-time-value (list (cons 'error #'throw-callback-error)))
+                                    (load-time-value (list (cons nil :none))))))
        ,@body
        nil)))
 

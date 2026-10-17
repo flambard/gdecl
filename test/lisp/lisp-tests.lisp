@@ -349,6 +349,33 @@ types of Godot objects.")
     (check (equal '(1 "one") (subseq heard 0 2)))
     (check (same-object-p node (fourth heard)))))
 
+(deftest callback-errors-under-other-handlers
+  ;; A callback catches its own errors, whatever handlers the Lisp code that
+  ;; called into Godot has: the cons that puts its handler in front of them is
+  ;; reused only while they're the same (see CATCHING-ERRORS)
+  (let ((node (new-test-node))
+        (outer nil))
+    (flet ((call-failing ()
+             (godot-print "[test] expect error")
+             (object-call node "fail")))
+      (check (null (call-failing)))
+      (handler-bind ((error (lambda (condition) (setf outer condition))))
+        (check (null (call-failing)))
+        (handler-bind ((error (lambda (condition) (setf outer condition))))
+          (check (null (call-failing)))))
+      (check (null outer))
+      (check (null (call-failing))))
+    ;; A condition that isn't an error reaches the handlers active when the
+    ;; callback was called, and only those
+    (let ((heard 0))
+      (handler-bind ((test-condition (lambda (condition)
+                                       (declare (ignore condition))
+                                       (incf heard))))
+        (object-call node "signal_condition"))
+      (check (= 1 heard))
+      (object-call node "signal_condition")
+      (check (= 1 heard)))))
+
 (deftest vararg-methods-with-extra-arguments
   ;; Extra arguments of simple types and a builtin type made of floats: the
   ;; call is made in one piece of C code, with the Variants on the C stack
