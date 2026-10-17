@@ -137,6 +137,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:godot-dictionary
            ;; Objects
            #:godot-object
+           #:+godot-object-pointer-slot+
+           #:+godot-object-pointer-location+
            #:make-godot-object
            #:godot-object-p
            #:godot-object-pointer

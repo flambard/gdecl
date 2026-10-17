@@ -1,7 +1,6 @@
 ;;;; The package GODOT-CLOS, a prototype of the high-level layer: Godot classes
-;;;; as CLOS classes. It uses gd-extension/ and godot/, with a few internals of
-;;;; GD-EXTENSION, listed in its :IMPORT-FROM clause, and of types/ only the
-;;;; layout of GODOT-OBJECT (GD-EXTENSION-TYPES::POINTER, in godot-class.lisp).
+;;;; as CLOS classes. It uses gd-extension/ and godot/ only, with a few
+;;;; internals of GD-EXTENSION, listed in its :IMPORT-FROM clause.
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:godot-clos
@@ -17,6 +16,8 @@ below.")
   (:import-from #:gd-extension
                 #:godot-object
                 #:godot-object-pointer
+                #:+godot-object-pointer-slot+
+                #:+godot-object-pointer-location+
                 #:invoker-form
                 #:report-error
                 #:add-class-definition

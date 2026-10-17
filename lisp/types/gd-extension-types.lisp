@@ -29,6 +29,24 @@ extension classes include it."
   ;; The Godot object pointer
   pointer)
 
+;; Where the pointer is, for classes that inherit from GODOT-OBJECT without
+;; being structs, such as the CLOS classes of GODOT-CLOS: GODOT-OBJECT-POINTER
+;; reads the slot at the location it has in the struct, so their instances
+;; must have it there too.
+(defconstant +godot-object-pointer-slot+ 'pointer
+  "The name of the slot of GODOT-OBJECT that holds the Godot object pointer.")
+
+(defconstant +godot-object-pointer-location+ 0
+  "The location of the slot +GODOT-OBJECT-POINTER-SLOT+ in GODOT-OBJECT, where
+GODOT-OBJECT-POINTER reads it, also in instances of classes that inherit from
+the struct.")
+
+;; Checked against where ECL puts the slot
+(assert (eql (clos:slot-definition-location
+              (find +godot-object-pointer-slot+ (clos:class-slots (find-class 'godot-object))
+                    :key #'clos:slot-definition-name))
+             +godot-object-pointer-location+))
+
 (defun freed-object-error (object)
   (error "The Godot object of ~s has been freed" object))
 

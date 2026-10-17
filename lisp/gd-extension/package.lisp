@@ -58,6 +58,8 @@
            #:godot-object
            #:godot-object-p
            #:godot-object-pointer
+           #:+godot-object-pointer-slot+
+           #:+godot-object-pointer-location+
            #:object-pointer
            #:valid-object-p
            ;; Making and freeing objects

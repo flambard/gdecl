@@ -18,8 +18,9 @@
 ;;; which the layers below take as they are: engine methods, the Object value
 ;;; type, instance bindings. That rests on two things ECL does: a standard
 ;;; class may inherit from structure classes when VALIDATE-SUPERCLASS allows
-;;; it, and the structs' slots come first, so POINTER is at location 0, where
-;;; the structs' accessors read it (checked when a class is finalized).
+;;; it, and the structs' slots come first, so the pointer is at
+;;; +GODOT-OBJECT-POINTER-LOCATION+, where the structs' accessors read it
+;;; (checked when a class is finalized).
 ;;; STANDARD-OBJECT is added to the superclasses, as the CPL otherwise ends
 ;;; with STRUCTURE-OBJECT, and redefining a class needs the methods on
 ;;; STANDARD-OBJECT that update its instances.
@@ -219,8 +220,9 @@ superclasses, if they're given and it isn't there."
     ;; The accessors of the structs, such as GODOT-OBJECT-POINTER, read the
     ;; location the slot has in the struct. ECL puts the slots of mixins that
     ;; come after the struct in the superclasses before it.
-    (let ((pointer (find 'gd-extension-types::pointer slots :key #'clos:slot-definition-name)))
-      (unless (and pointer (eql (clos:slot-definition-location pointer) 0))
+    (let ((pointer (find +godot-object-pointer-slot+ slots :key #'clos:slot-definition-name)))
+      (unless (and pointer (eql (clos:slot-definition-location pointer)
+                                +godot-object-pointer-location+))
         (error "The mixins of ~s must come before the class it inherits from in Godot, in ~
                 its superclasses" (class-name class))))
     (setf (slot-value class 'constructor) nil)
@@ -281,17 +283,19 @@ instance of CLASS."
   (if (standard-initialization-p class)
       (let ((size (clos::class-size class))
             ;; (location . initfunction) of the slots with initforms, except
-            ;; POINTER at location 0
+            ;; the pointer's
             (initializers (loop for slot in (clos:class-slots class)
                                 for location = (clos:slot-definition-location slot)
                                 for initfunction = (clos:slot-definition-initfunction slot)
-                                when (and initfunction (typep location 'fixnum) (/= location 0))
+                                when (and initfunction (typep location 'fixnum)
+                                          (/= location +godot-object-pointer-location+))
                                   collect (cons location initfunction))))
         (lambda (pointer)
           (let ((object (si:allocate-raw-instance nil class size)))
             ;; So redefining the class updates it
             (si::instance-sig-set object)
-            (setf (clos:standard-instance-access object 0) pointer)
+            (setf (clos:standard-instance-access object +godot-object-pointer-location+)
+                  pointer)
             (loop for (location . initfunction) in initializers
                   do (setf (clos:standard-instance-access object location)
                            (funcall initfunction)))

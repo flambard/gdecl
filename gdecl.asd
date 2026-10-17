@@ -74,7 +74,7 @@
                                (:file "define-class" :depends-on ("package"))))
                  ;; A prototype of the high-level layer: classes as CLOS classes
                  (:module "clos"
-                  :depends-on ("types" "gd-extension" "godot")
+                  :depends-on ("gd-extension" "godot")
                   :components ((:file "package")
                                (:file "godot-class" :depends-on ("package"))
                                (:file "godot-functions" :depends-on ("godot-class"))

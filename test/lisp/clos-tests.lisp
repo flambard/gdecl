@@ -94,3 +94,18 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
     (setf *clos-redefined-notifications* '())
     (node-add-child *root* node)
     (check (null *clos-redefined-notifications*))))
+
+(defclass clos-misplaced-mixin ()
+  ((misplaced :initform 1))
+  (:documentation "A mixin that CLOS-MIXIN-ORDER puts after an engine class."))
+
+(deftest clos-mixin-order
+  ;; A mixin after the engine class in the superclasses would move the Godot
+  ;; object pointer from where the structs' accessors read it, so the class is
+  ;; rejected when it's defined, before it's registered with Godot. (Mixins
+  ;; first, as in CLOS-SUB-NODE, is the right order.)
+  (check (eq :rejected
+             (handler-case (eval '(defclass clos-misordered-node (node clos-misplaced-mixin) ()
+                                   (:metaclass godot-class)))
+               (error () :rejected))))
+  (check (not (class-db-class-exists "ClosMisorderedNode"))))
