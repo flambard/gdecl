@@ -17,8 +17,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; extension_api.json is next to gdecl.asd, two directories up from this file
-  ;; (lisp/api/). The path is taken when this file is compiled, since the
-  ;; library loaded into Godot has no source files.
+  ;; (lisp/extension-api/). The path is taken when this file is compiled, since
+  ;; the library loaded into Godot has no source files.
   (defvar *extension-api-file*
     (let ((this-file #.(or *compile-file-truename* *load-truename*)))
       (make-pathname :name "extension_api" :type "json"

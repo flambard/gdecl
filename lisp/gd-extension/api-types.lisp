@@ -1,9 +1,9 @@
 (in-package :gd-extension)
 
 ;;;
-;;; The types of extension_api.json (see GD-EXTENSION-API, api/) as gdecl's
-;;; variant types, for the code generators, and the condition they signal for
-;;; a type that gdecl can't convert yet.
+;;; The types of extension_api.json (see GD-EXTENSION-API, extension-api/) as
+;;; gdecl's variant types, for the code generators, and the condition they
+;;; signal for a type that gdecl can't convert yet.
 ;;;
 
 (define-condition unsupported-api-type (simple-error)

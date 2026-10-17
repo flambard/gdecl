@@ -11,13 +11,13 @@
     :source-control (:git "https://github.com/flambard/gdecl.git")
     :pathname "lisp/"
     :components (;; extension_api.json, read when the code is compiled
-                 (:module "api"
+                 (:module "extension-api"
                   :components ((:file "package")
                                (:file "json" :depends-on ("package"))
                                (:file "extension-api" :depends-on ("package" "json"))))
                  ;; The GDExtension C interface
                  (:module "ffi"
-                  :depends-on ("api")
+                  :depends-on ("extension-api")
                   :components ((:file "package")
                                (:file "gd-extension-ffi" :depends-on ("package"))))
                  ;; Godot's builtin types in plain Lisp, and converting values
@@ -43,7 +43,7 @@
                  ;; The public, Lisp-style layer, and the code generators of
                  ;; Godot's API
                  (:module "gd-extension"
-                  :depends-on ("api" "ffi" "types" "callback")
+                  :depends-on ("extension-api" "ffi" "types" "callback")
                   :components ((:file "package")
                                (:file "api-types" :depends-on ("package"))
                                (:file "gd-extension" :depends-on ("package" "api-types"))
