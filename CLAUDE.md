@@ -62,14 +62,14 @@ From the bottom up; dependencies only go downwards. Each layer is a directory of
 |---|---|---|
 | `extension-api/` | `gdecl-json`, `extension-api-json` | `extension_api.json`, read with a small JSON reader when the code is compiled |
 | `ffi/` | `gd-extension-ffi` | The GDExtension C interface |
-| `types/` | `gd-extension-builtins`, `gd-extension-types` | Godot's builtin types in plain Lisp, and converting values between Godot and Lisp |
+| `types/` | `gd-extension-builtins`, `gd-extension-types` | Godot's builtin types in plain Lisp, foreign memory for Godot's opaque values, and converting values between Godot and Lisp |
 | `callback/` | `gd-extension-callback` | What Godot calls into |
 | `gd-extension/` | `gd-extension` | The public, Lisp-style layer, and the code generators |
 | `godot/` | `godot`, `godot-utility` | Godot's API, generated |
 | `dsl/` | `godot-dsl` | `define-class`, a small DSL: a class in one form, with a struct for its instances |
 | `clos/` | `godot-clos` | The high-level layer (a prototype): classes as CLOS classes |
 
-Each layer uses the one below it, so the layers load in this order (an arrow from A to B means A uses B):
+The layers load in this order, each after those it uses (an arrow from A to B means A uses B). `ffi` and `extension-api` depend on nothing in gdecl:
 
 ```
    dsl/     clos/
@@ -81,16 +81,14 @@ Each layer uses the one below it, so the layers load in this order (an arrow fro
      callback/
         │
       types/
-        │
-       ffi/
-        │
-  extension-api/
+      /     \
+   ffi/   extension-api/
 ```
 
 Many layers also use layers further down directly: `gd-extension` uses all the layers below it, `godot` uses `types` (for the builtin types), `callback` uses `ffi`, `dsl` uses `callback` and `gd-extension`, and `clos` uses `types`, `callback` and `gd-extension`. Each module's `:depends-on` in `gdecl.asd` lists exactly the layers its code uses (in `:use`, `:import-from` and package-qualified symbols), shortcuts included, so keep it in step when a layer starts or stops using another.
 
 - `extension-api-json` (`extension-api/extension-api.lisp`): `extension_api.json`, the one place that knows the file: where it is (`*extension-api-file*`), reading it once with gdecl's own small JSON reader (the function `extension-api-json`; the package `gdecl-json`, `extension-api/json.lisp`), and looking things up in it when the code is compiled: the sizes of the builtin types (`api-builtin-size`), constants (`api-constant`), and the engine classes, methods, enums and utility functions that the code generators of `gd-extension` use. That the API comes from a JSON file is its own business: it reads the parts the layers above use into Lisp structs (`api-class`, `api-method` for methods and utility functions alike, `api-argument`, `api-enum`; enum values and constants as `(name . value)`), and its lookups return those, so JSON stays in `extension-api/`. Types keep Godot's names (`"Vector2"`, `"enum::Node.ProcessMode"`). Building the structs adds about 40 ms to the half second that reading the file takes. When a generator needs more of the API, add it to the structs and their readers (`read-api-class` etc.) rather than reading JSON elsewhere.
-- `gd-extension-ffi` (`ffi/`): the GDExtension C interface, one-to-one, without Lisp conveniences. Each interface function is a variable named after the C function (`*string-name-new-with-utf8-chars*` for `string_name_new_with_utf8_chars`), set in `load-interface`, and a wrapper function of the same name without earmuffs. Also ECL foreign-memory helpers (see Performance in ECL). It uses `extension-api-json` only for the sizes of Godot's builtin types.
+- `gd-extension-ffi` (`ffi/`): the GDExtension C interface, one-to-one, without Lisp conveniences. Each interface function is a variable named after the C function (`*string-name-new-with-utf8-chars*` for `string_name_new_with_utf8_chars`), set in `load-interface`, and a wrapper function of the same name without earmuffs. Also ECL foreign-memory helpers (see Performance in ECL). It depends on nothing else in gdecl: the sizes of Godot's opaque values, which only `extension_api.json` has, are in `types` (`opaque-values.lisp`).
 - `gd-extension-builtins` (`types/builtin-types.lisp`): Godot's builtin types (`vector2`, `basis`, …) in plain Lisp. Everything it exports is for applications: `gd-extension` and `godot` re-export all of it through export lists computed when their packages are read (`gd-extension/package.lisp`, `godot/package.lisp`), so a new symbol is exported in one place only.
 - `gd-extension-types` (`types/`): converting between raw values, Lisp values and Variants.
   - `*value-types*` (by variant type) is the one table of how each type converts, and the code generators look types up there instead of knowing them. A value type has its FFI type (the C type follows from it, `c-type-name`) and its readers and writers, and optionally:
@@ -98,7 +96,7 @@ Many layers also use layers further down directly: `gd-extension` uses all the l
     - `by-pointer` for StringName and NodePath, which engine methods take as a pointer, with `literal-macro` (`sname`, `npath`, set by `gd-extension`);
     - a `default-parser` for default values in `extension_api.json`;
     - `lisp-type`, the type specifier `write-variant` uses to find the variant type of a value (`lisp-variant-type`): a struct such as `vector2`, `hash-table`, or a vector type.
-  - In files of their own: Strings, StringNames and NodePaths (`strings.lisp`: creating, reading and destroying them; `gd-extension.lisp` keeps only the cached `sname` and `npath`), and the autorelease pool (`autorelease-pool.lisp`).
+  - In files of their own: foreign memory for Godot's values whose layout is opaque to GDExtension, the structs `variant`, `string-name`, `godot-string`, `packed-array` etc. and their sizes, such as `+variant-size+`, from `extension_api.json` (`opaque-values.lisp`); Strings, StringNames and NodePaths (`strings.lisp`: creating, reading and destroying them; `gd-extension.lisp` keeps only the cached `sname` and `npath`), and the autorelease pool (`autorelease-pool.lisp`).
 - `gd-extension-callback` (`callback/`): everything Godot calls into, and the tables behind the callbacks, in files loaded in this order: `gd-extension-callback.lisp` (`define-callback`, threads, `with-callback-protection`), `handle-tables.lisp` (the tables of the Lisp values Godot holds handles to), `initialize.lisp` (`initialize` and `deinitialize`, called from `src/gdecl.c`, their hooks, and initialize cells), `instance-bindings.lisp` (`lisp-object`, the Object value type), `extension-classes.lisp` (classes, instances, which virtuals a class implements, notifications), `bound-methods.lisp` (methods and virtual methods, invokers, `call-virtual-with-data`) and `callables.lisp`.
 - `gd-extension` (`gd-extension/`): the public, Lisp-style layer, in several files (see the header of `gd-extension.lisp`). `api-types.lisp` turns the types of `extension_api.json` into variant types for the code generators, and signals `unsupported-api-type` for those gdecl can't convert yet; it's here rather than in `extension-api/` because it needs the variant types of `gd-extension-ffi`.
 - `godot` and `godot-utility` (`godot/`): Godot's API generated from `extension_api.json` (`define-engine-class`, `define-global-enums`, `define-utility-functions`). Applications add the engine classes they use to `godot`.
@@ -158,7 +156,7 @@ The measured costs behind the code's design; check them with `make bench` (see B
   - C code in `ffi:clines` belongs to its file: ASDF compiles each file into a library of its own to load into the build image, so another file can't call a C function or use a variable defined there, not even a non-static one. Pass an address through Lisp instead, as `define-callback` does with `enter-lisp-address`.
   - `array-element-type` gives ECL's names for upgraded types, such as `ext:byte8` for `(unsigned-byte 8)`; compare with `upgraded-array-element-type`.
   - `doc/package-ffi-symbols.txt` and `doc/package-si-symbols.txt` list what ECL's `FFI` and `SI` export.
-- **Sizes and layouts** come from the `float_64` build configuration in `extension_api.json`: `real_t` is `float`. Don't copy sizes or enum values by hand: use `api-builtin-size` and `api-constant` (`extension-api/extension-api.lisp`), which expand to the value when the code is compiled, in any layer from `ffi` up. The FFI mirrors, generated by `define-builtin-type`, are named `godot-vector2` etc., so the plain names are free for the Lisp types.
+- **Sizes and layouts** come from the `float_64` build configuration in `extension_api.json`: `real_t` is `float`. Don't copy sizes or enum values by hand: use `api-builtin-size` and `api-constant` (`extension-api/extension-api.lisp`), which expand to the value when the code is compiled, in any layer that imports them (`types` and `gd-extension` so far). The FFI mirrors, generated by `define-builtin-type`, are named `godot-vector2` etc., so the plain names are free for the Lisp types.
 - **Basis:** Godot stores the rows, but the Lisp `basis` has the columns, as `basis.x` and `Basis(x, y, z)` in GDScript; `read-basis` and `write-basis` transpose.
 - **ptrcall:** every argument must be given, defaults too. An Object argument is a pointer to the object pointer. A float is always a double and an int an `int64_t`, whatever the `meta` in `extension_api.json`. Zero the return slot first: Godot assigns into it (`Ref<T>`, `PackedStringArray`), releasing the old value. Vararg methods can't be ptrcalled.
 - **One Lisp object per Godot object.** Every Object that Godot gives Lisp is mapped to its Lisp object through Godot's instance bindings (`lisp-object`, `instance-bindings.lisp`):

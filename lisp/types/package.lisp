@@ -1,6 +1,7 @@
 ;;;; The packages GD-EXTENSION-BUILTINS, Godot's builtin types in plain Lisp,
 ;;;; which depends on nothing else in gdecl, and GD-EXTENSION-TYPES, converting
-;;;; values between Godot and Lisp, which uses ffi/ and the builtin types.
+;;;; values between Godot and Lisp, which uses ffi/, the builtin types, and
+;;;; extension-api/ for the sizes of Godot's opaque values.
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gd-extension-builtins
@@ -112,7 +113,30 @@ GD-EXTENSION and GODOT re-export all of it, so a symbol is added here only.")
 Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
   (:nicknames #:gdext-types)
   (:use #:cl #:gd-extension-ffi #:gd-extension-builtins)
-  (:export #:godot-object
+  (:import-from #:extension-api-json
+                #:api-builtin-size
+                #:*extension-api-file*)
+  (:export ;; Foreign memory for Godot's opaque values (opaque-values.lisp)
+           #:+string-name-size+
+           #:+string-size+
+           #:+variant-size+
+           #:+node-path-size+
+           #:+callable-size+
+           #:+packed-string-array-size+
+           #:+packed-array-size+
+           #:+array-size+
+           #:+dictionary-size+
+           #:string-name
+           #:godot-string
+           #:variant
+           #:node-path
+           #:godot-callable
+           #:packed-string-array
+           #:packed-array
+           #:godot-array
+           #:godot-dictionary
+           ;; Objects
+           #:godot-object
            #:make-godot-object
            #:godot-object-p
            #:godot-object-pointer

@@ -17,16 +17,17 @@
                                (:file "extension-api" :depends-on ("package" "json"))))
                  ;; The GDExtension C interface
                  (:module "ffi"
-                  :depends-on ("extension-api")
                   :components ((:file "package")
                                (:file "gd-extension-ffi" :depends-on ("package"))))
                  ;; Godot's builtin types in plain Lisp, and converting values
                  ;; between Godot and Lisp
                  (:module "types"
-                  :depends-on ("ffi")
+                  :depends-on ("ffi" "extension-api")
                   :components ((:file "package")
                                (:file "builtin-types" :depends-on ("package"))
-                               (:file "gd-extension-types" :depends-on ("package" "builtin-types"))
+                               (:file "opaque-values" :depends-on ("package"))
+                               (:file "gd-extension-types" :depends-on ("package" "builtin-types"
+                                                                        "opaque-values"))
                                (:file "strings" :depends-on ("gd-extension-types"))
                                (:file "autorelease-pool" :depends-on ("gd-extension-types"))))
                  ;; What Godot calls into

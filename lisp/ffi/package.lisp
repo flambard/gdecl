@@ -1,15 +1,11 @@
 ;;;; The package GD-EXTENSION-FFI: the GDExtension C interface, one-to-one. It
-;;;; uses EXTENSION-API-JSON (extension-api/), for the sizes of Godot's builtin
-;;;; types.
+;;;; depends on nothing else in gdecl.
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gd-extension-ffi
   (:documentation "The Godot GDExtension C interface, mapped 1-to-1")
   (:nicknames #:gdext-ffi)
   (:use #:cl)
-  (:import-from #:extension-api-json
-                #:api-builtin-size
-                #:*extension-api-file*)
   (:export #:load-interface
            #:*class-library*
            #:get-proc-address
@@ -86,9 +82,6 @@
            #:packed-color-array-destructor
            #:array-destructor
            #:dictionary-destructor
-           #:packed-array
-           #:godot-array
-           #:godot-dictionary
            #:*variant-from-type-constructors*
            #:*string-name-equal-evaluator*
            #:*string-from-string-name-constructor*
@@ -150,20 +143,6 @@
            #:+call-error-instance-is-null+
            #:+call-error-method-not-const+
            ;; Structs
-           #:+string-name-size+
-           #:+string-size+
-           #:+variant-size+
-           #:+node-path-size+
-           #:+callable-size+
-           #:+packed-string-array-size+
-           #:+packed-array-size+
-           #:+array-size+
-           #:+dictionary-size+
-           #:string-name
-           #:godot-string
-           #:variant
-           #:node-path
-           #:godot-callable
            #:callable-custom-info2
            #:callable-userdata
            #:token
@@ -175,7 +154,6 @@
            #:less-than-func
            #:to-string-func
            #:get-argument-count-func
-           #:packed-string-array
            #:data
            #:godot-version
            #:major
