@@ -13,7 +13,7 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 
 ## The high-level layer (see "The high-level layer" in `CLAUDE.md`)
 
-- [ ] **AM. Dropping down inside a CLOS class.** The decision on P rests on this. A hot virtual method of a `godot-class`, such as `_physics_process`, bound to a plain Lisp function called by name, like `define-class`'s, instead of the generic function, e.g. with a class option `(:virtual "_physics_process" function)`: a call from Godot should then cost 0.35–0.39 µs, as into a `define-class` function, not 0.53–0.54 µs; measure it with `make bench`. And slot access for code that drops down: an accessor is two generic function calls per `incf` (80 ns, against 25 ns for a struct accessor), and ECL inlines the accessors of sealed classes only at `(safety 0)` (see Performance in ECL in `CLAUDE.md`), so something like inlined functions per slot that use `standard-instance-access` at the slot's location.
+- [ ] **AM. Slot access for code that drops down inside a CLOS class.** A hot virtual method can be a plain function now (`:direct-functions`, see Done), but its slots are read with accessors, two generic function calls per `incf` (80 ns, against 25 ns for a struct accessor), and ECL inlines the accessors of sealed classes only at `(safety 0)` (see Performance in ECL in `CLAUDE.md`). Something like inlined functions per slot that use `standard-instance-access` at the slot's location, made when the class is finalized and kept valid when it's redefined; measure with `make bench` (`CLOS: (incf (clos-benchmarks-ticks self))`).
 - [ ] **AN. Rounding out `godot-clos`.** Invokers for the generated property getters and setters, which use the generic path (`bind-method` with types at runtime); `make-instance` of a RefCounted class, which signals an error now; and V in CLOS style.
 - [ ] **J. Tables keyed by name, updated in place (with the REPL work).** The handle tables (`handle-tables.lisp`) are keyed by `(1+ index)` pointers, and those of classes and methods (`*extension-classes*`, `*bound-methods*`) are append-only. `godot-clos` works around that: it records what it has registered for each class and registers only what's new when a class is redefined at a REPL or a method added (`godot-registration.lisp`). `define-class` can't be evaluated again, which Godot refuses, and gets no REPL redefinition (P). Left: key classes and methods by name, and update entries in place, in `handle-tables.lisp` (with R); and Godot caches `get_virtual_call_data`, so a virtual method a class implements only after Godot first asked isn't called.
 
@@ -41,7 +41,7 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 
 ## Suggested order
 
-1. AM: the fast path the decision on P rests on; build and measure it before building much more on `godot-clos`.
+1. AM: the faster slot access left of dropping down inside a CLOS class.
 2. AH and N: a vararg call from Lisp (0.85–0.9 µs, `emit_signal`) and calls into Lisp (0.3–0.75 µs) are now the biggest costs per frame left.
 3. AN, V and W as applications need them; V's export hints are the likeliest.
 4. O, if measurements show it matters.
@@ -62,3 +62,4 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 - AL: a bound or virtual method that fails when called with ptrcall returns its type's default value (`write-failed-result`), not what was left where the caller keeps the result.
 - P, decided on 2026-10-17: CLOS, `godot-clos`, is the high-level layer, with a fast path for dropping down (AM); `define-class` (`godot-dsl`) stays as a faster, lower layer, without new high-level features. A call from Godot into a generic function costs 0.53–0.54 µs against 0.35–0.39 µs into a `define-class` function: 0.2 ms a frame for 1,000 objects with `_process`, about 1%, small next to what entering Lisp costs at all (N), while CLOS gives inheritance, mixins, method combination and redefinition at a REPL. The game is written with it.
 - U: a Lisp class extending a Lisp class works with `godot-clos`, which binds the inherited virtual methods itself, and is tested; `define-class` doesn't get it (P).
+- AM's first part: a `godot-class` can bind a virtual method to a plain function, `(:direct-functions (physics-process function))`, inherited by subclasses; measured with `make bench`, an empty `_process` costs 0.33–0.35 µs that way, as with `define-class` (0.32–0.35 µs), against 0.44–0.45 µs through the generic function.

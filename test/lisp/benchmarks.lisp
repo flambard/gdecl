@@ -52,7 +52,12 @@ three times, and print the best time and the bytes allocated per run."
   (:method "connect_lisp_handler" lisp-benchmarks-connect-lisp-handler)
   ;; Like _process(delta)
   (:method "tick" lisp-benchmarks-tick :arguments (("delta" :float)))
-  (:method "run" lisp-benchmarks-run :arguments (("count" :int))))
+  (:method "run" lisp-benchmarks-run :arguments (("count" :int)))
+  ;; An empty _process, for timing a virtual method (run_benchmarks.gd)
+  (:virtual "_process" lisp-benchmarks-process))
+
+(defun lisp-benchmarks-process (benchmarks delta)
+  (declare (ignore benchmarks delta)))
 
 (defun lisp-benchmarks-tick (benchmarks delta)
   (declare (ignore delta))
@@ -92,6 +97,10 @@ three times, and print the best time and the bytes allocated per run."
   ((ticks :initform 0 :accessor clos-benchmarks-ticks))
   (:metaclass godot-class))
 
+;; An empty _process, dispatched through the generic function
+(defmethod process ((benchmarks clos-benchmarks) delta)
+  (declare (ignore delta)))
+
 (define-godot-generic tick (self (delta :float)))
 
 (defmethod tick ((benchmarks clos-benchmarks) delta)
@@ -118,3 +127,17 @@ three times, and print the best time and the bytes allocated per run."
       (incf (clos-benchmarks-ticks benchmarks)))
     (benchmark "define-class: (incf (lisp-benchmarks-ticks self)), a struct accessor" count
       (incf (lisp-benchmarks-ticks (load-time-value (make-lisp-benchmarks)))))))
+
+;;;
+;;; ClosDirectBenchmarks: an empty _process bound to a plain function with
+;;; :DIRECT-FUNCTIONS, for comparing it with a generic function (ClosBenchmarks)
+;;; and with DEFINE-CLASS (LispBenchmarks)
+;;;
+
+(defclass clos-direct-benchmarks (node-2d)
+  ()
+  (:metaclass godot-class)
+  (:direct-functions (process clos-direct-benchmarks-process)))
+
+(defun clos-direct-benchmarks-process (benchmarks delta)
+  (declare (ignore benchmarks delta)))

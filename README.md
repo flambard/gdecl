@@ -176,8 +176,18 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
     ...)
   ```
 - Redefining a class, or adding a method, at a REPL updates the instances and registers what's new with Godot. Godot can't remove anything, change a class's parent, or call a virtual method that a class implemented only after Godot first asked (TODO J).
+- For dropping down where a class's code runs every frame, `(:direct-functions (physics-process mob-physics-process))` makes Godot call a plain function, by name, for a virtual method of the class's instances, instead of the generic function: no generic dispatch, so as fast as `define-class`. The class's methods for that virtual function aren't called from Godot then. Subclasses inherit it, unless they give their own. Not for `ready`, which sets the `:onready` slots first.
 
-A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, and an accessor 50–60 ns more than a struct accessor (see TODO AM for running a class's hot methods at `define-class`'s speed).
+  ```lisp
+  (defclass mob (character-body-3d)
+    (...)
+    (:metaclass godot-class)
+    (:direct-functions (physics-process mob-physics-process)))
+
+  (defun mob-physics-process (mob delta) ...)
+  ```
+
+A call from Godot into a generic function costs 150–200 ns more than into a `define-class` function, about 100 ns for a virtual method such as `_process`, which `:direct-functions` avoids; and an accessor 50–60 ns more than a struct accessor (see TODO AM).
 
 ## Calling Godot
 

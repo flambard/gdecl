@@ -109,3 +109,21 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
                                    (:metaclass godot-class)))
                (error () :rejected))))
   (check (not (class-db-class-exists "ClosMisorderedNode"))))
+
+(deftest clos-direct-functions
+  ;; Godot calls the direct function for _process, not the generic function,
+  ;; also for a subclass, which inherits it
+  (dolist (class-name '(clos-direct-node clos-direct-sub-node))
+    (let ((node (make-instance class-name)))
+      (node-add-child *root* node)
+      (object-notification node +node-notification-process+)
+      (check (= 1 (clos-direct-calls node)))
+      (check (= 0 (clos-generic-calls node)))))
+  ;; READY can't have one, which is found when the class is defined, before
+  ;; it's registered with Godot
+  (check (eq :rejected
+             (handler-case (eval '(defclass clos-direct-ready-node (node) ()
+                                   (:metaclass godot-class)
+                                   (:direct-functions (ready identity))))
+               (error () :rejected))))
+  (check (not (class-db-class-exists "ClosDirectReadyNode"))))

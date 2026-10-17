@@ -16,6 +16,12 @@ class Ticker:
 		ticks += 1
 
 
+# An empty _process in GDScript, for comparing virtual methods
+class Processor extends Node2D:
+	func _process(_delta: float) -> void:
+		pass
+
+
 # The best time of three runs of f, which runs something COUNT times, after a
 # warm-up run
 func best_usec(f: Callable) -> int:
@@ -87,6 +93,28 @@ func _init() -> void:
 	engine_node.free()
 	report("clos.notification(3900) (no method)", func(): for i in COUNT: clos.notification(3900))
 	report("clos.notification(3901) (CLOS method)", func(): for i in COUNT: clos.notification(3901))
+
+	# An empty _process, called as Godot calls it every frame, through
+	# NOTIFICATION_PROCESS: none, in GDScript, with DEFINE-CLASS, and with
+	# GODOT-CLOS through the generic function and through a direct function
+	var plain := Node2D.new()
+	var processor := Processor.new()
+	var lisp_process: LispBenchmarks = LispBenchmarks.new()
+	var direct: ClosDirectBenchmarks = ClosDirectBenchmarks.new()
+	report("_process: none (Node2D)",
+		func(): for i in COUNT: plain.notification(Node.NOTIFICATION_PROCESS))
+	report("_process: GDScript",
+		func(): for i in COUNT: processor.notification(Node.NOTIFICATION_PROCESS))
+	report("_process: define-class",
+		func(): for i in COUNT: lisp_process.notification(Node.NOTIFICATION_PROCESS))
+	report("_process: CLOS generic function",
+		func(): for i in COUNT: clos.notification(Node.NOTIFICATION_PROCESS))
+	report("_process: CLOS direct function",
+		func(): for i in COUNT: direct.notification(Node.NOTIFICATION_PROCESS))
+	plain.free()
+	processor.free()
+	lisp_process.free()
+	direct.free()
 	clos.free()
 
 	# Making and freeing objects: an engine class, a Lisp class defined with

@@ -97,6 +97,8 @@ it."
   "Register CLASS with Godot, and what it has that Godot needs to know about."
   (unless (clos:class-finalized-p class)
     (clos:finalize-inheritance class))
+  ;; Before anything is registered with Godot
+  (check-direct-functions class)
   (let ((parent-name (godot-parent-name class)))
     (gdext:register-class (godot-name class) parent-name
                           :constructor (lambda (pointer) (make-lisp-object class pointer))
@@ -166,15 +168,42 @@ it."
                            :invoker (method-invoker function))
         (push name (class-registered-methods class))))))
 
+(defun check-direct-functions (class)
+  "Signal an error if one of CLASS's own :DIRECT-FUNCTIONS isn't for a
+VIRTUAL-FUNCTION of an engine class that CLASS inherits from, which would
+otherwise be ignored."
+  (loop for (function-name) in (class-direct-functions class)
+        do (unless (member function-name *virtual-functions*)
+             (error "~s, in the :DIRECT-FUNCTIONS of ~s, isn't a virtual function (see ~
+                     DEFINE-VIRTUAL-FUNCTION)" function-name (class-name class)))
+           (let ((engine-class (virtual-engine-class (fdefinition function-name))))
+             (unless (inherits-class-p (godot-parent-name class) engine-class)
+               (error "~s, in the :DIRECT-FUNCTIONS of ~s, is a virtual method of ~a, which ~
+                       ~a doesn't inherit from" function-name (class-name class) engine-class
+                       (godot-name class))))))
+
+(defun class-direct-function (class function-name)
+  "The function that Godot calls directly for the VIRTUAL-FUNCTION FUNCTION-NAME
+of CLASS's instances, from the :DIRECT-FUNCTIONS of CLASS or the nearest
+GODOT-CLASS it inherits from that has one for it, or NIL."
+  (loop for ancestor in (cons class (godot-ancestors class))
+        for entry = (and (typep ancestor 'godot-class)
+                         (assoc function-name (class-direct-functions ancestor)))
+        when entry
+          return (cdr entry)))
+
 (defun bind-virtuals (class)
-  "Bind the VIRTUAL-FUNCTIONs that CLASS implements as its virtual methods."
+  "Bind the VIRTUAL-FUNCTIONs that CLASS implements as its virtual methods: the
+generic function, or its direct function (see CLASS-DIRECT-FUNCTION)."
   (dolist (function-name *virtual-functions*)
     (let* ((function (fdefinition function-name))
-           (name (godot-name function)))
+           (name (godot-name function))
+           (direct (class-direct-function class function-name)))
       (when (and (not (member name (class-bound-virtuals class) :test #'string=))
                  (inherits-class-p (godot-name class) (virtual-engine-class function))
-                 (funcall (virtual-implemented-p function) function class))
-        (funcall (virtual-binder function) (godot-name class) (virtual-function-name function))
+                 (or direct (funcall (virtual-implemented-p function) function class)))
+        (funcall (virtual-binder function) (godot-name class)
+                 (or direct (virtual-function-name function)))
         (push name (class-bound-virtuals class))))))
 
 (defun update-notifications (class)
@@ -190,6 +219,7 @@ it."
 (defun update-godot-class (class)
   "Register with Godot what CLASS, a registered GODOT-CLASS, has that isn't
 registered yet."
+  (check-direct-functions class)
   (register-properties class)
   (register-signals class)
   (register-methods class)

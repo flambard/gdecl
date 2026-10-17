@@ -130,3 +130,27 @@
 
 (define-godot-generic late-value (self)
   (:return-type :int))
+
+;;;
+;;; ClosDirectNode: a virtual method bound to a plain function with
+;;; :DIRECT-FUNCTIONS, and a subclass that inherits it
+;;;
+
+(defclass clos-direct-node (node)
+  ((direct-calls :initform 0 :accessor clos-direct-calls)
+   (generic-calls :initform 0 :accessor clos-generic-calls))
+  (:metaclass godot-class)
+  (:direct-functions (process clos-direct-process)))
+
+(defun clos-direct-process (node delta)
+  (declare (ignore delta))
+  (incf (clos-direct-calls node)))
+
+;; Not called from Godot, as PROCESS has a direct function
+(defmethod process ((node clos-direct-node) delta)
+  (declare (ignore delta))
+  (incf (clos-generic-calls node)))
+
+(defclass clos-direct-sub-node (clos-direct-node)
+  ()
+  (:metaclass godot-class))

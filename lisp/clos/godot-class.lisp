@@ -47,6 +47,10 @@
 names as strings, as BIND-SIGNAL takes them.")
    (tool :initform nil :reader class-tool-p
          :documentation "True if the class runs in the editor, see REGISTER-CLASS.")
+   (direct-functions :initform '() :reader class-direct-functions
+                     :documentation "The functions Godot calls directly for virtual methods of the
+class, from the :DIRECT-FUNCTIONS option: an alist of (virtual-function-name .
+function-name).")
    (onready-slots :initform '() :reader class-onready-slots
                   :documentation "The slots with :ONREADY, a list of (slot-name . onready),
 found when the class is finalized.")
@@ -75,6 +79,13 @@ see godot-class.lisp. Class options:
     GDScript, with names as symbols in Lisp style or strings, and types as in
     VARIANT-TYPE
   (:tool t), see REGISTER-CLASS
+  (:direct-functions (virtual-function function)...), for dropping down: Godot
+    calls FUNCTION, a plain function, by name, for the VIRTUAL-FUNCTION (such
+    as PHYSICS-PROCESS) of the class's instances, instead of the generic
+    function, so without generic dispatch, as fast as DEFINE-CLASS. The class's
+    methods for the virtual function aren't called from Godot then. Subclasses
+    inherit it, unless they give their own. Not for READY, which sets the
+    :ONREADY slots first.
 Slot options:
   :export type, a property, like @export var in GDScript, see DEFINE-CLASS
   :class class-name, of an :OBJECT property, see BIND-PROPERTY
@@ -134,9 +145,23 @@ superclasses, if they're given and it isn't there."
 (defmethod reinitialize-instance :around ((class godot-class) &rest initargs)
   (apply #'call-next-method class (with-standard-object initargs)))
 
+(defun parse-direct-functions (direct-functions class-name)
+  "DIRECT-FUNCTIONS, from the :DIRECT-FUNCTIONS option of the class CLASS-NAME, as
+an alist of (virtual-function-name . function-name)."
+  (loop for entry in direct-functions
+        collect (destructuring-bind (virtual-function function) entry
+                  (unless (and (symbolp virtual-function) (symbolp function))
+                    (error "A direct function of ~s is (virtual-function function), with both ~
+                            named by symbols: ~s" class-name entry))
+                  (when (eq virtual-function 'ready)
+                    (error "READY can't have a direct function in ~s: it sets the :ONREADY ~
+                            slots first" class-name))
+                  (cons virtual-function function))))
+
 (defmethod shared-initialize :after ((class godot-class) slot-names
                                      &key (godot-name nil godot-name-p) (signals nil signals-p)
-                                       (tool nil tool-p) (direct-slots nil direct-slots-p)
+                                       (tool nil tool-p) (direct-functions nil direct-functions-p)
+                                       (direct-slots nil direct-slots-p)
                                      &allow-other-keys)
   (declare (ignore slot-names direct-slots))
   ;; DEFCLASS gives an option as the list of what follows its name, e.g.
@@ -148,7 +173,10 @@ superclasses, if they're given and it isn't there."
   (when (or signals-p direct-slots-p)
     (setf (slot-value class 'signals) (mapcar #'parse-signal signals)))
   (when (or tool-p direct-slots-p)
-    (setf (slot-value class 'tool) (first tool))))
+    (setf (slot-value class 'tool) (first tool)))
+  (when (or direct-functions-p direct-slots-p)
+    (setf (slot-value class 'direct-functions)
+          (parse-direct-functions direct-functions (class-name class)))))
 
 ;;;
 ;;; Slot options
