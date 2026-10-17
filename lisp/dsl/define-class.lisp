@@ -14,14 +14,13 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun invoker-arguments (return-type-form argument-type-forms)
-    "The arguments :INVOKER and the invoker's form (see PTRCALL-INVOKER-FORM) for
+    "The arguments :INVOKER and the invoker's form (see INVOKER-FORM) for
 BIND-METHOD, for a method whose types are given as forms, as in VARIANT-TYPE, if
 they're all constants. Otherwise NIL, and the method's calls go through the
 generic dispatcher."
     (when (every #'constantp (cons return-type-form argument-type-forms))
-      (let ((form (ptrcall-invoker-form
-                   (variant-type (eval return-type-form))
-                   (mapcar (lambda (type) (variant-type (eval type))) argument-type-forms))))
+      (let ((form (invoker-form (eval return-type-form)
+                                (mapcar #'eval argument-type-forms))))
         (when form
           `(:invoker ,form)))))
 

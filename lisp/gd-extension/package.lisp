@@ -43,6 +43,8 @@
            #:*engine-object-types*)
   (:export #:add-initialize-hook
            #:add-deinitialize-hook
+           ;; Errors
+           #:report-error
            ;; Helpers
            #:variant-type
            #:with-string-name
@@ -86,6 +88,7 @@
            #:instance-object
            #:lisp-object
            ;; Binding
+           #:invoker-form
            #:bind-method
            #:bind-property
            #:bind-signal)

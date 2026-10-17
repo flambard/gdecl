@@ -66,6 +66,18 @@ usage). The property infos are destroyed when BODY exits, also on a non-local
 exit."
   `(call-with-property-infos ,properties (lambda (,variable) ,@body)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun invoker-form (return-type argument-types)
+    "The form of the invoker of a bound method with RETURN-TYPE and
+ARGUMENT-TYPES, types as in VARIANT-TYPE (e.g. :INT), for the :INVOKER of
+BIND-METHOD: a function generated for the signature, so that calls into the
+method don't build a list of the arguments or call converters by name (see
+REGISTER-METHOD). NIL if a type can't be converted that way, and then the
+method's calls go through the generic dispatcher. For macros that know the
+types when they're expanded, such as DEFINE-CLASS."
+    (ptrcall-invoker-form (variant-type return-type)
+                          (mapcar #'variant-type argument-types))))
+
 (defun bind-method (class-name method-name function
                     &key (return-type +variant-type-nil+) arguments invoker)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
@@ -73,7 +85,7 @@ ARGUMENTS is a list of (name type), and RETURN-TYPE the type of the return
 value (:NIL for none), where a type is as in VARIANT-TYPE, e.g. :INT or
 :VECTOR2. FUNCTION is called with the instance's Lisp object (see
 REGISTER-CLASS) and the arguments as Lisp values. INVOKER is as in
-REGISTER-METHOD; DEFINE-CLASS generates it."
+REGISTER-METHOD, generated with INVOKER-FORM."
   (let* ((return-type (variant-type return-type))
          (arguments (loop for (name type) in arguments
                           collect (list name (variant-type type))))

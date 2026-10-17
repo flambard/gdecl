@@ -174,10 +174,7 @@ OPTIONS are those of DEFGENERIC, and:
        (initialize-godot-method ',name ,godot-name ,return-type
                                 (list ,@(loop for (argument type) in arguments
                                               collect `(list ,(godot-style-name argument) ,type)))
-                                ,(ptrcall-invoker-form (variant-type return-type)
-                                                       (mapcar (lambda (argument)
-                                                                 (variant-type (second argument)))
-                                                               arguments))))))
+                                ,(invoker-form return-type (mapcar #'second arguments))))))
 
 ;;;
 ;;; The virtual methods of engine classes that most classes use. An

@@ -1,6 +1,7 @@
 ;;;; The package GODOT-CLOS, a prototype of the high-level layer: Godot classes
-;;;; as CLOS classes. It uses gd-extension/ and godot/, and a few internals of
-;;;; the layers below, listed in its :IMPORT-FROM clauses.
+;;;; as CLOS classes. It uses gd-extension/ and godot/, with a few internals of
+;;;; GD-EXTENSION, listed in its :IMPORT-FROM clause, and of types/ only the
+;;;; layout of GODOT-OBJECT (GD-EXTENSION-TYPES::POINTER, in godot-class.lisp).
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:godot-clos
@@ -13,13 +14,11 @@ DEFINE-GODOT-GENERIC, and NOTIFICATION. The classes inherit from the structs of 
 (DEFINE-ENGINE-CLASS), so their instances are GODOT-OBJECTs to the layers
 below.")
   (:use #:cl)
-  (:import-from #:gd-extension-types
-                #:godot-object
-                #:godot-object-pointer)
-  (:import-from #:gd-extension-callback
-                #:ptrcall-invoker-form
-                #:report-error)
   (:import-from #:gd-extension
+                #:godot-object
+                #:godot-object-pointer
+                #:invoker-form
+                #:report-error
                 #:add-class-definition
                 #:inherits-class-p
                 #:virtual-signatures
