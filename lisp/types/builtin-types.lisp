@@ -1,8 +1,8 @@
 ;;;; The package GD-EXTENSION-BUILTINS: Lisp versions of Godot's builtin types,
 ;;;; such as Vector2 and Basis, with their functions named like Godot's methods,
 ;;;; <type>-<method> (VECTOR2-NORMALIZED). Plain Lisp, without calls into Godot.
-;;;; Everything exported from here is for applications: the packages
-;;;; GD-EXTENSION and GODOT re-export all of it (see their package.lisp).
+;;;; Everything exported from here is for applications: the package GODOT
+;;;; re-exports all of it (see godot/package.lisp).
 ;;;; GD-EXTENSION-TYPES converts them to and from raw values.
 
 (in-package :gd-extension-builtins)

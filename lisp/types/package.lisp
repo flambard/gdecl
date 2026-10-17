@@ -7,7 +7,7 @@
 (defpackage #:gd-extension-builtins
   (:documentation "Lisp versions of Godot's builtin types, such as Vector2 and
 Basis, with their functions. Everything exported from here is for applications:
-GD-EXTENSION and GODOT re-export all of it, so a symbol is added here only.")
+GODOT re-exports all of it, so a symbol is added here only.")
   (:nicknames #:gdext-builtins)
   (:use #:cl)
   (:export #:vector2

@@ -93,8 +93,4 @@
            #:invoker-form
            #:bind-method
            #:bind-property
-           #:bind-signal)
-  ;; Everything GD-EXTENSION-BUILTINS exports, computed when this is read
-  #.`(:export ,@(let ((names '()))
-                  (do-external-symbols (symbol '#:gd-extension-builtins names)
-                    (push (symbol-name symbol) names)))))
+           #:bind-signal))
