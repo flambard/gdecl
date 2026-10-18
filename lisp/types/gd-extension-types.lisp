@@ -786,18 +786,23 @@ value at a pointer, VARIANT-READER and VARIANT-WRITER of a Variant, converted
 in one piece of C code, and the value type, whose TO-RAW and FROM-RAW (LAMBDA
 forms, see VALUE-TYPE) make the conversions between the Lisp and the raw value
 here and in the code generators, and FROM-ADDRESS, optionally, for a pointer
-type."
+type, which VARIANT-READER then reads as an integer, so that no pointer object
+is made for it."
   (let ((c-type (c-type-name ffi-type))
         (to-raw-function (coerce (eval to-raw) 'function))
-        (from-raw-function (coerce (eval from-raw) 'function)))
+        (from-raw-function (coerce (eval from-raw) 'function))
+        (from-address-function (and from-address (coerce (eval from-address) 'function))))
     `(progn
        (defun ,reader (pointer)
          ,(funcall from-raw-function `(foreign-ref pointer ,ffi-type)))
        (defun ,writer (pointer value)
          (setf (foreign-ref pointer ,ffi-type) ,(funcall to-raw-function 'value)))
        (defun ,variant-reader (variant)
-         ,(funcall from-raw-function
-                   `(raw-from-variant variant ,variant-type ,ffi-type ,c-type)))
+         ,(if from-address-function
+              (funcall from-address-function
+                       `(raw-from-variant variant ,variant-type :uint64-t "uint64_t"))
+              (funcall from-raw-function
+                       `(raw-from-variant variant ,variant-type ,ffi-type ,c-type))))
        (defun ,variant-writer (variant value)
          (variant-from-raw variant ,variant-type ,ffi-type ,c-type
                            ,(funcall to-raw-function 'value)))

@@ -103,6 +103,22 @@ Object results of engine methods and arguments of bound methods."
             (address-pointer address)
             (address-handle-value *bindings* binding)))))
 
+(defmacro inline-read-variant-at (address &optional variant-type)
+  "The value of the Variant at ADDRESS (a variable whose value is an integer), as
+READ-VARIANT-AT reads it, of VARIANT-TYPE if the caller knows it already: null,
+bools, ints, floats and Objects in C code here, inline, so without a call
+between files or a pointer object, and other types with READ-VARIANT-AT. For
+the per-call paths of the callbacks: measured with `make bench`, a Lisp
+Callable's Object argument took about 120 ns and nothing allocated, instead of
+240 ns and 64 bytes, and an int argument about 20 ns less."
+  (let ((type (gensym "TYPE")))
+    `(let ((,type ,(or variant-type `(variant-type-at ,address))))
+       (read-simple-variant (,address :uint64-t) ,type
+         (if (= ,type +variant-type-object+)
+             (address-lisp-object (raw-from-variant ,address +variant-type-object+
+                                                    :uint64-t "uint64_t" :uint64-t))
+             (read-variant-at ,address ,type))))))
+
 (defun free-bindings ()
   "Free the bindings of the objects that still exist, so that Godot doesn't call
 FREE-BINDING after Lisp is shut down, e.g. for engine singletons. The

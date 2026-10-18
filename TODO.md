@@ -6,8 +6,6 @@ What's left to do in gdecl, from reviews and from comparing what gdecl does with
 
 Measure with `make bench` before and after, against a build of `HEAD` in alternating runs (see Benchmarks in `CLAUDE.md`, which also has the typical times, and Performance in ECL for where the time of a call goes).
 
-- [ ] **O. Callables into Lisp have no invokers.** `callable-call` reads each argument with `read-variant-at` by its Variant's type, as a Lisp Callable's function, usually a lambda, has no declared types. For Callables of known types, e.g. for `connect-engine-signal` with a signal's declared types, an invoker like the Variant invokers of bound methods (`variant-invoker-form`, see O's first part in Done) would read them in C, but an int argument costs only about 42 ns there, so it would save little: do it if a signal handler shows up in measurements.
-
 ## The high-level layer (see "The high-level layer" in `CLAUDE.md`)
 
 - [ ] **AM. Faster slot access in CLOS classes, when an application needs it.** A CLOS accessor is a generic function call, 80 ns for an `incf`, against 25 ns with a struct accessor. For now, hot code drops down by keeping its data in a struct the object holds in one slot (see the README, Classes as CLOS classes), and a hot virtual method by binding it to a plain function (`:direct-functions`); the game shows that the calls into Lisp, not slot access, cost the most per frame. If an application needs more: a `with-fast-slots` macro that looks up each slot's location once (a `gethash` in the class's location table, about 20 ns) and then uses `standard-instance-access`, for loops; or inlined accessors per class, which check the instance's class and layout and fall back to the generic accessor. Both have to bring an instance up to date first after its class was redefined at a REPL, which ECL does lazily, on the next slot access through the usual paths, and to allow for subclasses and mixins that put an inherited slot at another location; ECL inlines the accessors of sealed classes only at `(safety 0)`, and sealing rules out redefinition. Measure with `make bench` (`CLOS: (incf (clos-benchmarks-ticks self))`).
@@ -38,12 +36,12 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 ## Suggested order
 
 1. V and W as applications need them; V's export hints are the likeliest. The calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`): what's left is mostly Godot's own part and ECL's boxed floats.
-2. O, if measurements of signal handlers show it matters.
-3. J with the REPL work, and R when an application uses threads.
-4. AM when an application's hot code needs faster slot access than a struct gives.
-5. X when there's a reason to extend the editor.
-6. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
+2. J with the REPL work, and R when an application uses threads.
+3. AM when an application's hot code needs faster slot access than a struct gives.
+4. X when there's a reason to extend the editor.
+5. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
 
 ## Done
 
 - O's first part: Variant calls into bound methods have invokers. A method whose types are known when the code is compiled gets one generated for its signature (`variant-invoker-form`), beside its ptrcall invoker, both from `invokers-form` (renamed from `invoker-form`; `bind-method` takes them as `:invokers`). It checks each argument's type once and reads and writes bools, ints, floats and Objects in C, where `call-bound-method` checked each type twice and called `read-variant-at` and `write-variant-as-at`, two calls between files. Against `HEAD` in alternating runs: `lisp.call("tick", delta)` and the same through an untyped variable 260–279 ns instead of 367–396 ns, a signal connected to a Lisp method, as the game's editor connections are, 393–402 ns instead of 526–552 ns, `lisp.call("get_ticks")` 222–223 ns instead of 309–338 ns, and a `godot-clos` generic function so 460–471 ns instead of 580–598 ns. Not yet checked: whether Godot calls an extension property's getter and setter, e.g. for `get()`, `set()` or an AnimationPlayer track, with a Variant call, which would make this per frame.
+- O, closed on 2026-10-18: Callables into Lisp. Measured, the gain was in reading Variants inline, not in knowing their types, which a Lisp Callable's function, usually a lambda, doesn't declare: code generated for an argument's type would read an int about 6 ns faster and an Object no faster. So `callable-call` reads null, bool, int, float and Object arguments inline in C (`inline-read-variant-at`, also used by `call-bound-method`'s generic path) and writes bool, int and float results inline, and the Object value type's Variant reader reads the object's address as an integer, without a pointer object. Against `HEAD` in alternating runs: a Lisp signal handler with an Object argument, like `body_entered`, 377–397 ns and nothing allocated instead of 560–584 ns and 64 bytes (with a GDScript handler 256–263 ns), with an int 308–324 ns instead of 330–344 ns; `callable-call` called from C with an Object 230–245 ns instead of 355–392 ns. `make bench` has the Object handler now (`touched`).

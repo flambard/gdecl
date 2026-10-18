@@ -49,8 +49,10 @@ three times, and print the best time and the bytes allocated per run."
    (speed 1d0 :export :float))
   ;; Without connections, for timing emit_signal, a vararg method
   (:signal "pinged" ("value" :int) :emitter emit-benchmark-pinged)
-  ;; For timing signal handlers, in GDScript and in Lisp (connect_lisp_handler)
+  ;; For timing signal handlers, in GDScript and in Lisp (connect_lisp_handler),
+  ;; with an int, and with an Object, like body_entered
   (:signal "handled" ("value" :int))
+  (:signal "touched" ("body" :object))
   (:method "connect_lisp_handler" lisp-benchmarks-connect-lisp-handler)
   ;; Like _process(delta)
   (:method "tick" lisp-benchmarks-tick :arguments (("delta" :float)))
@@ -78,10 +80,14 @@ three times, and print the best time and the bytes allocated per run."
   (incf (lisp-benchmarks-ticks benchmarks)))
 
 (defun lisp-benchmarks-connect-lisp-handler (benchmarks)
-  "Connect the signal handled to a Lisp function, a signal handler."
+  "Connect the signals handled and touched to Lisp functions, signal handlers."
   (gdext:connect-signal benchmarks "handled"
                         (lambda (value)
                           (declare (ignore value))
+                          (incf (lisp-benchmarks-ticks benchmarks))))
+  (gdext:connect-signal benchmarks "touched"
+                        (lambda (body)
+                          (declare (ignore body))
                           (incf (lisp-benchmarks-ticks benchmarks)))))
 
 (defun lisp-benchmarks-run (benchmarks count)

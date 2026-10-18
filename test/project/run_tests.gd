@@ -120,12 +120,14 @@ func test_callables_and_signals() -> void:
 	check(arguments.call("a", false, Vector2(1, 2)) == ["a", false, Vector2(1, 2)],
 			"a Lisp callable with three arguments")
 	check(arguments.call(1, 2, 3, 4) == [1, 2, 3, 4], "a Lisp callable with four arguments")
+	check(arguments.call(node) == [node], "a Lisp callable with an Object")
 	# Its result, of each simple type and others; one that can't be a Variant is null
 	var echo: Callable = node.make_echo_callable()
 	check(echo.call(true) == true and echo.call(7) == 7 and echo.call(2.5) == 2.5,
 			"a Lisp callable's bool, int and float results")
 	check(echo.call("text") == "text" and echo.call(Vector2(1, 2)) == Vector2(1, 2),
 			"a Lisp callable's other results")
+	check(echo.call(node) == node, "a Lisp callable's Object argument and result")
 	check(echo.call() == null, "a Lisp callable's result that can't be a Variant")
 	# Valid until the call from Godot returns, unless kept
 	node.store_callable(func(x): return x)

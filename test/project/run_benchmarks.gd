@@ -84,6 +84,11 @@ func _init() -> void:
 	lisp.handled.connect(handler)
 	report("handled.emit(1), GDScript handler", func(): for i in COUNT: lisp.handled.emit(1))
 	lisp.handled.disconnect(handler)
+	var body_handler := func(_body: Object) -> void: ticker.ticks += 1
+	lisp.touched.connect(body_handler)
+	report("touched.emit(node), an Object, GDScript handler",
+		func(): for i in COUNT: lisp.touched.emit(lisp))
+	lisp.touched.disconnect(body_handler)
 	# Connected to a method, as connections made in the editor are, which Godot
 	# calls with a Variant call
 	lisp.handled.connect(lisp.tick)
@@ -96,6 +101,8 @@ func _init() -> void:
 	lisp.handled.disconnect(ticker.tick)
 	lisp.connect_lisp_handler()
 	report("handled.emit(1), Lisp handler", func(): for i in COUNT: lisp.handled.emit(1))
+	report("touched.emit(node), an Object, Lisp handler",
+		func(): for i in COUNT: lisp.touched.emit(lisp))
 
 	# A property's getter and setter
 	report("lisp.get_speed() (define-class property)", func(): for i in COUNT: lisp.get_speed())

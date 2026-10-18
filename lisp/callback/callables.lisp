@@ -97,12 +97,17 @@ nothing for a Lisp CALLABLE."
 ;;                                       GDExtensionCallError *r_error)
 ;;
 ;; The pointers are integers, as for METHOD-PTRCALL (see PTRCALL-BOUND-METHOD),
-;; so that no pointer objects are made for them, and bools, ints and floats are
-;; read and written without one (READ-VARIANT-AT, WRITE-VARIANT-AT), and the
-;; function is called with up to three arguments without making a list for
-;; APPLY. Measured calling it from C, with an int argument and result: 217–223
-;; ns and 16 bytes, against 414–446 ns and 112 bytes with a pointer object for
-;; each Variant and APPLY.
+;; so that no pointer objects are made for them, and the function is called
+;; with up to three arguments without making a list for APPLY. Arguments that
+;; are null, bools, ints, floats or Objects are read in C code inline
+;; (INLINE-READ-VARIANT-AT), as are results that are bools, ints or floats
+;; written (WRITE-SIMPLE-VARIANT), without calls between files or pointer
+;; objects. A Lisp Callable's function, usually a LAMBDA, has no declared
+;; types, so they're read by the Variants' types, which costs only the checks
+;; of the type: measured with `make bench`, code generated for an argument's
+;; type read an int about 6 ns faster, and an Object no faster. Calling it from
+;; C, an Object argument took 235 ns and nothing allocated, instead of 365-373
+;; ns and 64 bytes, and an int argument and result 212 ns instead of 232-238 ns.
 ;;
 ;; The result of the function is returned as a Variant, if it can be one (see
 ;; VARIANT-VALUE-P); NIL, and values that can't be Variants yet, return null.
@@ -121,7 +126,8 @@ nothing for a Lisp CALLABLE."
     (let* ((function (callable-function (address-handle-value *callables*
                                                               callable-userdata)))
            (result (macrolet ((argument (index)
-                                `(read-variant-at (argument-address args ,index))))
+                                `(let ((address (argument-address args ,index)))
+                                   (inline-read-variant-at address))))
                      (case argument-count
                        (0 (funcall function))
                        (1 (funcall function (argument 0)))
@@ -133,7 +139,8 @@ nothing for a Lisp CALLABLE."
         ;; R-RETURN is a Variant already (Nil). Written before the pool gives
         ;; back its references, so an object in it stays alive.
         (destroy-variant-at r-return)
-        (write-variant-at r-return result nil)))))
+        (write-simple-variant (r-return :uint64-t) result
+          (write-variant-at r-return result nil))))))
 
 ;; void (*GDExtensionCallableCustomFree)(void *callable_userdata)
 (define-callback callable-free :void ((callable-userdata :pointer-void))

@@ -351,7 +351,7 @@ VALUE-TYPE, which ARGUMENT-TYPE-ERROR has checked it can be. The Variant
 invokers convert likewise (VARIANT-ARGUMENT-FORM)."
   (let ((type (value-type-variant-type value-type))
         (variant-type (variant-type-at address)))
-    (cond ((= variant-type type) (read-variant-at address variant-type))
+    (cond ((= variant-type type) (inline-read-variant-at address variant-type))
           ;; null for an Object
           ((= type +variant-type-object+) nil)
           ;; A float for an int, truncated like int() in GDScript
