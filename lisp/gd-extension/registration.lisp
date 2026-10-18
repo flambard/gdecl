@@ -67,39 +67,47 @@ exit."
   `(call-with-property-infos ,properties (lambda (,variable) ,@body)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun invoker-form (return-type argument-types)
-    "The form of the invoker of a bound method with RETURN-TYPE and
-ARGUMENT-TYPES, types as in VARIANT-TYPE (e.g. :INT), for the :INVOKER of
-BIND-METHOD: a function generated for the signature, so that calls into the
-method don't build a list of the arguments or call converters by name (see
-REGISTER-METHOD). NIL if a type can't be converted that way, and then the
-method's calls go through the generic dispatcher. For macros that know the
-types when they're expanded, such as DEFINE-CLASS."
-    (ptrcall-invoker-form (variant-type return-type)
-                          (mapcar #'variant-type argument-types))))
+  (defun variant-types-invokers-form (return-type argument-types)
+    "INVOKERS-FORM for RETURN-TYPE and ARGUMENT-TYPES given as variant types."
+    (let ((ptrcall-invoker (ptrcall-invoker-form return-type argument-types)))
+      (when ptrcall-invoker
+        `(cons ,ptrcall-invoker
+               ,(variant-invoker-form return-type argument-types)))))
+
+  (defun invokers-form (return-type argument-types)
+    "The form of the invokers of a bound method with RETURN-TYPE and
+ARGUMENT-TYPES, types as in VARIANT-TYPE (e.g. :INT), for the :INVOKERS of
+BIND-METHOD: functions generated for the signature, for calls with ptrcall and
+with Variants, so that calls into the method don't build a list of the
+arguments or call converters by name (see REGISTER-METHOD), as a cons of the
+two. NIL if a type can't be converted that way, and then the method's calls go
+through the generic dispatcher. For macros that know the types when they're
+expanded, such as DEFINE-CLASS."
+    (variant-types-invokers-form (variant-type return-type)
+                                 (mapcar #'variant-type argument-types))))
 
 ;;; Invokers made in advance, when gdecl is compiled, for the signatures of
 ;;; property getters (a result of any type, no arguments) and setters (one
 ;;; argument, no result), so that methods bound with types known only at
 ;;; runtime, such as the getters and setters of GODOT-CLOS's properties, get
-;;; one too (see BIND-METHOD). After containers.lisp and signals.lisp, which
+;;; them too (see BIND-METHOD). After containers.lisp and signals.lisp, which
 ;;; add value types.
 
-(defmacro signature-invokers (kind)
-  "A vector, indexed by variant type, of the invokers (see INVOKER-FORM) of
+(defmacro make-signature-invokers (kind)
+  "A vector, indexed by variant type, of the invokers (see INVOKERS-FORM) of
 getters (KIND :GETTER) or setters (:SETTER) of that type, or NIL for the types
 that have none."
   `(vector ,@(loop for type below +variant-type-variant-max+
                    collect (ecase kind
-                             (:getter (ptrcall-invoker-form type '()))
-                             (:setter (ptrcall-invoker-form +variant-type-nil+
-                                                            (list type)))))))
+                             (:getter (variant-types-invokers-form type '()))
+                             (:setter (variant-types-invokers-form +variant-type-nil+
+                                                                   (list type)))))))
 
-(defparameter *getter-invokers* (signature-invokers :getter))
-(defparameter *setter-invokers* (signature-invokers :setter))
+(defparameter *getter-invokers* (make-signature-invokers :getter))
+(defparameter *setter-invokers* (make-signature-invokers :setter))
 
-(defun signature-invoker (return-type argument-types)
-  "The invoker made in advance for a method with RETURN-TYPE and ARGUMENT-TYPES
+(defun signature-invokers (return-type argument-types)
+  "The invokers made in advance for a method with RETURN-TYPE and ARGUMENT-TYPES
 (variant types), if it has the signature of a getter or a setter, or NIL."
   (cond ((and (null argument-types) (/= return-type +variant-type-nil+))
          (svref *getter-invokers* return-type))
@@ -119,21 +127,21 @@ Variant call (measured: an empty method with an Object argument 0.47 µs, agains
       (list name type)))
 
 (defun bind-method (class-name method-name function
-                    &key (return-type +variant-type-nil+) arguments invoker)
+                    &key (return-type +variant-type-nil+) arguments invokers)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
 ARGUMENTS is a list of (name type), and RETURN-TYPE the type of the return
 value (:NIL for none), where a type is as in VARIANT-TYPE, e.g. :INT or
 :VECTOR2. FUNCTION is called with the instance's Lisp object (see
-REGISTER-CLASS) and the arguments as Lisp values. INVOKER is as in
-REGISTER-METHOD, generated with INVOKER-FORM; without it, a method with the
-signature of a getter or a setter gets one made in advance (SIGNATURE-INVOKER),
-and others go through the generic dispatcher."
+REGISTER-CLASS) and the arguments as Lisp values. INVOKERS are the invokers
+of REGISTER-METHOD for the signature, generated with INVOKERS-FORM; without
+them, a method with the signature of a getter or a setter gets those made in
+advance (SIGNATURE-INVOKERS), and others go through the generic dispatcher."
   (let* ((return-type (variant-type return-type))
          (arguments (loop for (name type) in arguments
                           collect (list name (variant-type type))))
          (argument-count (length arguments))
          (has-return-value (/= return-type +variant-type-nil+))
-         (invoker (or invoker (signature-invoker return-type (mapcar #'second arguments)))))
+         (invokers (or invokers (signature-invokers return-type (mapcar #'second arguments)))))
     (with-string-name (method-name-string method-name)
       (with-property-infos (return-info (and has-return-value
                                              (list (method-property-info "" return-type))))
@@ -154,7 +162,8 @@ and others go through the generic dispatcher."
                                                :name (format nil "~a.~a" class-name method-name)
                                                :return-type return-type
                                                :argument-types (mapcar #'second arguments)
-                                               :invoker invoker)
+                                               :ptrcall-invoker (car invokers)
+                                               :variant-invoker (cdr invokers))
               call-func (callback-pointer 'method-call)
               ptrcall-func (callback-pointer 'method-ptrcall)
               method-flags +method-flags-default+
@@ -395,8 +404,8 @@ string PROBLEM that says why the method can't be bound."
 (defun bind-virtual-with-signatures (class-name virtual-name function signatures)
   "Bind FUNCTION as the virtual method VIRTUAL-NAME of the class CLASS-NAME, with
 the signature from SIGNATURES (see VIRTUAL-SIGNATURES, with the signature's
-invoker, see REGISTER-METHOD, added to each) of the engine class that
-CLASS-NAME inherits from."
+ptrcall invoker, see REGISTER-METHOD, added to each; Godot calls virtual
+methods only with ptrcall) of the engine class that CLASS-NAME inherits from."
   (destructuring-bind (&optional defining-class return-type argument-types problem invoker)
       (find-if (lambda (signature) (inherits-class-p class-name (first signature)))
                signatures)
@@ -410,7 +419,7 @@ CLASS-NAME inherits from."
                  (register-method function :name (format nil "~a.~a" class-name virtual-name)
                                            :return-type return-type
                                            :argument-types argument-types
-                                           :invoker invoker))))
+                                           :ptrcall-invoker invoker))))
 
 (defmacro bind-virtual (class-name virtual-name function)
   "Make FUNCTION the class CLASS-NAME's implementation of the virtual method

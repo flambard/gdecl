@@ -14,7 +14,7 @@ signals, methods and virtual methods, given as functions called with the
 instance.")
   (:use #:cl)
   (:import-from #:gd-extension
-                #:invoker-form
+                #:invokers-form
                 #:register-class
                 #:register-singleton
                 #:bind-method

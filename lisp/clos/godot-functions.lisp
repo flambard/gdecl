@@ -137,18 +137,18 @@ OPTIONS are those of DEFGENERIC, and:
    (arguments :reader method-arguments
               :documentation "The arguments after the instance, a list of (name type), as
 BIND-METHOD takes them.")
-   (invoker :reader method-invoker
-            :documentation "The invoker for the signature, see REGISTER-METHOD, or NIL."))
+   (invokers :reader method-invokers
+             :documentation "The invokers for the signature, see INVOKERS-FORM, or NIL."))
   (:metaclass clos:funcallable-standard-class)
   (:documentation "A generic function that's a method that Godot and GDScript
 call by name, see DEFINE-GODOT-GENERIC."))
 
-(defun initialize-godot-method (name godot-name return-type arguments invoker)
+(defun initialize-godot-method (name godot-name return-type arguments invokers)
   (let ((function (fdefinition name)))
     (setf (slot-value function 'godot-name) godot-name
           (slot-value function 'return-type) return-type
           (slot-value function 'arguments) arguments
-          (slot-value function 'invoker) invoker)
+          (slot-value function 'invokers) invokers)
     (pushnew name *godot-methods*)
     name))
 
@@ -174,7 +174,7 @@ OPTIONS are those of DEFGENERIC, and:
        (initialize-godot-method ',name ,godot-name ,return-type
                                 (list ,@(loop for (argument type) in arguments
                                               collect `(list ,(godot-style-name argument) ,type)))
-                                ,(invoker-form return-type (mapcar #'second arguments))))))
+                                ,(invokers-form return-type (mapcar #'second arguments))))))
 
 ;;;
 ;;; The virtual methods of engine classes that most classes use. An

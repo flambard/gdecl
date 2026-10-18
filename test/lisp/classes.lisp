@@ -22,6 +22,10 @@
 ;;; TestNode: properties, methods, signals, :onready slots and virtual methods
 ;;;
 
+(defparameter *int-type* :int
+  "A type that DEFINE-CLASS knows only at runtime, so a method with it gets no
+invokers, and its calls go through the generic dispatcher.")
+
 (define-class test-node ("TestNode" "Node2D")
   ((count 0 :export :int)
    (speed 1.5d0 :export :float)
@@ -47,6 +51,9 @@
   (:signal "pinged" ("number" :int) ("text" :string) ("vector" :vector2) ("object" :object)
            ("flag" :bool) :emitter emit-test-pinged)
   (:method "add" test-node-add :arguments (("a" :int) ("b" :int)) :return-type :int)
+  ;; Without invokers, through the generic dispatcher
+  (:method "add_generically" test-node-add :arguments (("a" *int-type*) ("b" :int))
+           :return-type *int-type*)
   (:method "describe" test-node-describe
            :arguments (("flag" :bool) ("count" :int) ("scale" :float) ("object" :object))
            :return-type :string)

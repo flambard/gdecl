@@ -39,27 +39,31 @@ NIL if ERRORP is false."
   ;; VALUE-TYPEs; NIL as the return type means no return value
   return-type
   argument-types
-  ;; A function that does what PTRCALL-BOUND-METHOD does, generated for the
-  ;; method's signature (see PTRCALL-INVOKER-FORM), or NIL
-  (invoker nil))
+  ;; Functions that do what PTRCALL-BOUND-METHOD and CALL-BOUND-METHOD do,
+  ;; generated for the method's signature (see PTRCALL-INVOKER-FORM and
+  ;; VARIANT-INVOKER-FORM), or NIL
+  (ptrcall-invoker nil)
+  (variant-invoker nil))
 
 (define-handle-table *bound-methods*
   "The BOUND-METHODs, by method_userdata.")
 
 (defun register-method (function &key name (return-type +variant-type-nil+) argument-types
-                                      invoker)
+                                      ptrcall-invoker variant-invoker)
   "Register FUNCTION as a method and return its method_userdata. FUNCTION is
 called with the instance's Lisp object and one Lisp value per argument.
 RETURN-TYPE and ARGUMENT-TYPES are variant types. NAME, e.g. \"Player.start\",
-is used in error messages. INVOKER, if given, is the function of
-PTRCALL-INVOKER-FORM for the signature, which makes calls with ptrcall faster."
+is used in error messages. PTRCALL-INVOKER and VARIANT-INVOKER, if given, are
+the functions of PTRCALL-INVOKER-FORM and VARIANT-INVOKER-FORM for the
+signature, which make calls with ptrcall and with Variants faster."
   (add-handle *bound-methods*
               (make-bound-method :name name
                                  :function function
                                  :return-type (unless (= return-type +variant-type-nil+)
                                                 (method-value-type return-type))
                                  :argument-types (mapcar #'method-value-type argument-types)
-                                 :invoker invoker)))
+                                 :ptrcall-invoker ptrcall-invoker
+                                 :variant-invoker variant-invoker)))
 
 ;; With optional arguments, not keywords, which ECL's inlined code would parse
 ;; at runtime.
@@ -100,7 +104,7 @@ with ARGS and R-RET as in ptrcall_func: the addresses of an array of pointers
 to the raw argument values, and of where the raw return value goes. All are
 integers (see above)."
   (let* ((method (address-handle-value *bound-methods* method-address))
-         (invoker (bound-method-invoker method)))
+         (invoker (bound-method-ptrcall-invoker method)))
     (if invoker
         (funcall invoker (bound-method-function method)
                  (address-instance-object instance-address) args r-ret)
@@ -166,6 +170,19 @@ otherwise with the type's writer."
                          :one-liner t)
           `(,(value-type-writer value-type) (address-pointer ,r-ret) ,result))))
 
+  (defun invoker-value-types (return-type argument-types)
+    "The VALUE-TYPEs of an invoker's RETURN-TYPE (NIL for none) and
+ARGUMENT-TYPES, variant types, and as a third value true if the dispatcher can
+convert them all, so that the invoker can be generated."
+    (let ((return-value-type (and (not (eql return-type +variant-type-nil+))
+                                  (method-value-type return-type nil)))
+          (argument-value-types (mapcar (lambda (type) (method-value-type type nil))
+                                        argument-types)))
+      (values return-value-type
+              argument-value-types
+              (not (or (and (not return-value-type) (not (eql return-type +variant-type-nil+)))
+                       (member nil argument-value-types))))))
+
   (defun ptrcall-invoker-form (return-type argument-types)
     "A LAMBDA form for the invoker of a bound method with RETURN-TYPE and
 ARGUMENT-TYPES (variant types, see REGISTER-METHOD): a function of the method's
@@ -174,35 +191,148 @@ ptrcall_func (integers, see PTRCALL-BOUND-METHOD), which
 does what PTRCALL-BOUND-METHOD does, with the code for each type generated, so
 without a list of the arguments, APPLY or calling converters by name. NIL if
 the dispatcher can't convert one of the types."
-    (let ((return-value-type (and (not (eql return-type +variant-type-nil+))
-                                  (method-value-type return-type nil)))
-          (argument-value-types (mapcar (lambda (type) (method-value-type type nil))
-                                        argument-types))
-          (function (gensym "FUNCTION"))
-          (self (gensym "SELF"))
-          (args (gensym "ARGS"))
-          (r-ret (gensym "R-RET"))
-          (result (gensym "RESULT")))
-      (unless (or (and (not return-value-type) (not (eql return-type +variant-type-nil+)))
-                  (member nil argument-value-types))
-        `(lambda (,function ,self ,args ,r-ret)
-           (declare (ignorable ,args ,r-ret))
-           ,(let ((call `(funcall ,function ,self
-                                  ,@(loop for value-type in argument-value-types
-                                          for i from 0
-                                          collect (invoker-argument-form value-type args i)))))
-              (if return-value-type
-                  `(let ((,result ,call))
-                     ;; An Object result comes with a reference for Godot, if
-                     ;; it's RefCounted
-                     ,@(when (eql return-type +variant-type-object+)
-                         `((reference-for-caller ,result)))
-                     ,(invoker-result-form return-value-type r-ret result))
-                  call)))))))
+    (multiple-value-bind (return-value-type argument-value-types convertible)
+        (invoker-value-types return-type argument-types)
+      (let ((function (gensym "FUNCTION"))
+            (self (gensym "SELF"))
+            (args (gensym "ARGS"))
+            (r-ret (gensym "R-RET"))
+            (result (gensym "RESULT")))
+        (when convertible
+          `(lambda (,function ,self ,args ,r-ret)
+             (declare (ignorable ,args ,r-ret))
+             ,(let ((call `(funcall ,function ,self
+                                    ,@(loop for value-type in argument-value-types
+                                            for i from 0
+                                            collect (invoker-argument-form value-type args i)))))
+                (if return-value-type
+                    `(let ((,result ,call))
+                       ;; An Object result comes with a reference for Godot, if
+                       ;; it's RefCounted
+                       ,@(when (eql return-type +variant-type-object+)
+                           `((reference-for-caller ,result)))
+                       ,(invoker-result-form return-value-type r-ret result))
+                    call)))))))
 
-;;; Variant calls, through call_func. Their pointers are integers too, and
-;;; bools, ints and floats are read without pointer objects (READ-VARIANT-AT),
-;;; as in CALLABLE-CALL (callables.lisp).
+  (defun variant-raw-value-form (variant-type address)
+    "A form that reads the raw value of the Variant at ADDRESS (a variable whose
+value is an integer), of VARIANT-TYPE, a simple type (see VALUE-TYPE-FROM-RAW),
+in C code, and makes its Lisp value."
+    (multiple-value-bind (ffi-type cast from-raw)
+        (raw-result-conversion (find-value-type variant-type))
+      (declare (ignore cast))
+      (funcall from-raw `(raw-from-variant ,address ,variant-type ,ffi-type
+                                           ,(c-type-name ffi-type) :uint64-t))))
+
+  (defun variant-argument-form (value-type address variant-type)
+    "A form that reads an argument of VALUE-TYPE from the Variant at ADDRESS, whose
+variant type is VARIANT-TYPE (variables), which ARGUMENT-VARIANT-TYPE-P has
+accepted, and converts it as READ-ARGUMENT does: bools, ints, floats and
+Objects in C code, other types with READ-VARIANT-AT."
+    (let ((type (value-type-variant-type value-type)))
+      (cond ((= type +variant-type-object+)
+             `(if (= ,variant-type ,+variant-type-nil+)
+                  nil
+                  ,(variant-raw-value-form type address)))
+            ((= type +variant-type-int+)
+             `(if (= ,variant-type ,type)
+                  ,(variant-raw-value-form type address)
+                  (values (truncate ,(variant-raw-value-form +variant-type-float+ address)))))
+            ((= type +variant-type-float+)
+             `(if (= ,variant-type ,type)
+                  ,(variant-raw-value-form type address)
+                  (float ,(variant-raw-value-form +variant-type-int+ address) 1d0)))
+            ((value-type-from-raw value-type)
+             (variant-raw-value-form type address))
+            (t
+             `(read-variant-at ,address ,type)))))
+
+  (defun variant-result-form (value-type r-return result)
+    "A form that writes RESULT, a Lisp value of VALUE-TYPE, into the Variant at
+R-RETURN, an address: a simple type (see VALUE-TYPE-TO-RAW) in C code,
+otherwise with WRITE-VARIANT-AS."
+    (let ((to-raw (value-type-to-raw value-type))
+          (ffi-type (value-type-ffi-type value-type))
+          (type (value-type-variant-type value-type)))
+      (if to-raw
+          `(variant-from-raw ,r-return ,type ,ffi-type ,(c-type-name ffi-type)
+                             ,(funcall to-raw result) :uint64-t)
+          `(write-variant-as (address-pointer ,r-return) (find-value-type ,type) ,result))))
+
+  (defun variant-invoker-form (return-type argument-types)
+    "A LAMBDA form for the Variant invoker of a bound method with RETURN-TYPE and
+ARGUMENT-TYPES (variant types, see REGISTER-METHOD): a function of the method's
+function, the instance's Lisp object, and ARGS, ARGUMENT-COUNT, R-RETURN and
+R-ERROR of call_func (integers, see CALL-BOUND-METHOD), which does what
+CALL-BOUND-METHOD does, with the code for each type generated: it checks each
+argument's type once, and reads bools, ints, floats and Objects and writes
+such results in C code, without a list of the arguments or calling converters
+by name. NIL if the dispatcher can't convert one of the types."
+    (multiple-value-bind (return-value-type argument-value-types convertible)
+        (invoker-value-types return-type argument-types)
+      (let* ((count (length argument-types))
+             (function (gensym "FUNCTION"))
+             (self (gensym "SELF"))
+             (args (gensym "ARGS"))
+             (argument-count (gensym "ARGUMENT-COUNT"))
+             (r-return (gensym "R-RETURN"))
+             (r-error (gensym "R-ERROR"))
+             (result (gensym "RESULT"))
+             (addresses (loop repeat count collect (gensym "ADDRESS")))
+             (types (loop repeat count collect (gensym "TYPE"))))
+        (when convertible
+          `(lambda (,function ,self ,args ,argument-count ,r-return ,r-error)
+             (declare (ignorable ,args ,r-return))
+             (if (/= ,argument-count ,count)
+                 (set-call-error ,r-error
+                                 (if (< ,argument-count ,count)
+                                     +call-error-too-few-arguments+
+                                     +call-error-too-many-arguments+)
+                                 0 ,count)
+                 (let* (,@(loop for address in addresses
+                                for type in types
+                                for i from 0
+                                collect `(,address (argument-address ,args ,i))
+                                collect `(,type (variant-type-at ,address))))
+                   (cond ,@(loop for value-type in argument-value-types
+                                 for type in types
+                                 for i from 0
+                                 for expected = (value-type-variant-type value-type)
+                                 collect `((not (argument-variant-type-p ,expected ,type))
+                                           (set-call-error ,r-error +call-error-invalid-argument+
+                                                           ,i ,expected)))
+                         (t
+                          ,(let ((call `(funcall ,function ,self
+                                                 ,@(loop for value-type in argument-value-types
+                                                         for address in addresses
+                                                         for type in types
+                                                         collect (variant-argument-form
+                                                                  value-type address type)))))
+                             (if return-value-type
+                                 `(let ((,result ,call))
+                                    ,(variant-result-form return-value-type r-return result))
+                                 call))))))))))))
+
+;;; Variant calls, through call_func. Their pointers are integers too. A method
+;;; whose types are known when the code is compiled has a Variant invoker
+;;; (VARIANT-INVOKER-FORM), which checks each argument's type once and converts
+;;; bools, ints, floats and Objects in C code: measured with `make bench`,
+;;; lisp.call("tick", delta) from GDScript took 262-271 ns instead of 368-389
+;;; ns, and CALL-BOUND-METHOD called from Lisp 139-149 ns instead of 237-247
+;;; ns. Others are read here, with bools, ints and floats read without pointer
+;;; objects (READ-VARIANT-AT), as in CALLABLE-CALL (callables.lisp).
+
+;; Inline, for the code of the Variant invokers, where TYPE is a constant
+(declaim (inline argument-variant-type-p))
+(defun argument-variant-type-p (type variant-type)
+  "True if a Variant of VARIANT-TYPE can be an argument of the variant type TYPE:
+of that type, or null for an Object, or a float for an int and an int for a
+float, as Godot converts them for its own methods (see READ-ARGUMENT and
+VARIANT-ARGUMENT-FORM)."
+  (or (= variant-type type)
+      (and (= type +variant-type-object+) (= variant-type +variant-type-nil+))
+      (and (= type +variant-type-int+) (= variant-type +variant-type-float+))
+      (and (= type +variant-type-float+) (= variant-type +variant-type-int+))))
 
 (defun argument-type-error (args argument-types)
   "The index of the first of the Variants of ARGS (the address of call_func's
@@ -212,18 +342,13 @@ it can take them all."
   (loop for value-type in argument-types
         for type = (value-type-variant-type value-type)
         for i from 0
-        for variant-type = (variant-type-at (argument-address args i))
-        unless (or (= variant-type type)
-                   ;; null for an Object, and a float for an int and an int for
-                   ;; a float, as Godot converts them for its own methods
-                   (and (= type +variant-type-object+) (= variant-type +variant-type-nil+))
-                   (and (= type +variant-type-int+) (= variant-type +variant-type-float+))
-                   (and (= type +variant-type-float+) (= variant-type +variant-type-int+)))
+        unless (argument-variant-type-p type (variant-type-at (argument-address args i)))
           return (values i type)))
 
 (defun read-argument (address value-type)
   "The value of the Variant at ADDRESS (an integer), for an argument of
-VALUE-TYPE, which ARGUMENT-TYPE-ERROR has checked it can be."
+VALUE-TYPE, which ARGUMENT-TYPE-ERROR has checked it can be. The Variant
+invokers convert likewise (VARIANT-ARGUMENT-FORM)."
   (let ((type (value-type-variant-type value-type))
         (variant-type (variant-type-at address)))
     (cond ((= variant-type type) (read-variant-at address variant-type))
@@ -239,38 +364,45 @@ VALUE-TYPE, which ARGUMENT-TYPE-ERROR has checked it can be."
   "Call the method whose method_userdata has the address METHOD-ADDRESS on the
 instance whose GDExtensionClassInstancePtr has the address INSTANCE-ADDRESS,
 with arguments and return value as Variants, as in call_func. The pointers are
-integers (see above). Functions of up to three arguments are called without
-making a list to APPLY."
+integers (see above). Without a Variant invoker, functions of up to three
+arguments are called without making a list to APPLY."
   (let* ((method (address-handle-value *bound-methods* method-address))
-         (argument-types (bound-method-argument-types method))
-         (expected-count (length argument-types)))
-    (cond ((< argument-count expected-count)
-           (set-call-error r-error +call-error-too-few-arguments+ 0 expected-count))
-          ((> argument-count expected-count)
-           (set-call-error r-error +call-error-too-many-arguments+ 0 expected-count))
-          (t
-           (multiple-value-bind (index type) (argument-type-error args argument-types)
-             (if index
-                 (set-call-error r-error +call-error-invalid-argument+ index type)
-                 (let* ((function (bound-method-function method))
-                        (self (address-instance-object instance-address))
-                        (result
-                          (macrolet ((argument (index)
-                                       `(read-argument (argument-address args ,index)
-                                                       (nth ,index argument-types))))
-                            (case argument-count
-                              (0 (funcall function self))
-                              (1 (funcall function self (argument 0)))
-                              (2 (funcall function self (argument 0) (argument 1)))
-                              (3 (funcall function self (argument 0) (argument 1) (argument 2)))
-                              (t (apply function self
-                                        (loop for value-type in argument-types
-                                              for i from 0
-                                              collect (read-argument (argument-address args i)
-                                                                     value-type)))))))
-                        (return-type (bound-method-return-type method)))
-                   (when return-type
-                     (write-variant-as-at r-return return-type result)))))))))
+         (invoker (bound-method-variant-invoker method)))
+    (if invoker
+        (funcall invoker (bound-method-function method)
+                 (address-instance-object instance-address)
+                 args argument-count r-return r-error)
+        (let* ((argument-types (bound-method-argument-types method))
+               (expected-count (length argument-types)))
+          (cond ((< argument-count expected-count)
+                 (set-call-error r-error +call-error-too-few-arguments+ 0 expected-count))
+                ((> argument-count expected-count)
+                 (set-call-error r-error +call-error-too-many-arguments+ 0 expected-count))
+                (t
+                 (multiple-value-bind (index type) (argument-type-error args argument-types)
+                   (if index
+                       (set-call-error r-error +call-error-invalid-argument+ index type)
+                       (let* ((function (bound-method-function method))
+                              (self (address-instance-object instance-address))
+                              (result
+                                (macrolet ((argument (index)
+                                             `(read-argument (argument-address args ,index)
+                                                             (nth ,index argument-types))))
+                                  (case argument-count
+                                    (0 (funcall function self))
+                                    (1 (funcall function self (argument 0)))
+                                    (2 (funcall function self (argument 0) (argument 1)))
+                                    (3 (funcall function self
+                                                (argument 0) (argument 1) (argument 2)))
+                                    (t (apply function self
+                                              (loop for value-type in argument-types
+                                                    for i from 0
+                                                    collect (read-argument
+                                                             (argument-address args i)
+                                                             value-type)))))))
+                              (return-type (bound-method-return-type method)))
+                         (when return-type
+                           (write-variant-as-at r-return return-type result)))))))))))
 
 ;; void (*GDExtensionClassMethodPtrCall)(void *method_userdata,
 ;;                                       GDExtensionClassInstancePtr p_instance,

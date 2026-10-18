@@ -30,6 +30,7 @@ tables and dispatchers behind them")
            ;; Tables
            #:register-method
            #:ptrcall-invoker-form
+           #:variant-invoker-form
            #:add-extension-class
            #:add-virtual
            #:set-class-notifications

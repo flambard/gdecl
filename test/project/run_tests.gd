@@ -178,6 +178,19 @@ func test_errors() -> void:
 	check(node.callv("add", [1, 2, 3]) == null, "too many arguments")
 	print("[test] expect error")
 	check(node.callv("add", ["one", 2]) == null, "an argument of the wrong type")
+	# The same without invokers, through the generic dispatcher
+	print("[test] expect error")
+	check(node.callv("add_generically", [1]) == null, "too few arguments, generically")
+	print("[test] expect error")
+	check(node.callv("add_generically", [1, 2, 3]) == null, "too many arguments, generically")
+	print("[test] expect error")
+	check(node.callv("add_generically", ["one", 2]) == null,
+			"an argument of the wrong type, generically")
+	check(node.call("add_generically", 2.9, 3) == 5,
+			"a float for an int argument of a Variant call is truncated, generically")
+	print("[test] expect error")
+	check(node.callv("describe", [true, 2, 3.5, "node"]) == null,
+			"a wrong type for an Object argument")
 	# Variant calls convert as Godot does for its own methods
 	check(node.call("add", 2.9, 3) == 5, "a float for an int argument of a Variant call is truncated")
 	check(node.call("describe", true, 2, 3.5, null) == "T 2 3.5d0 T",
@@ -188,6 +201,9 @@ func test_errors() -> void:
 			"a bool result of a Variant call")
 	var speed = node.call("get_speed")
 	check(typeof(speed) == TYPE_FLOAT and speed == node.speed, "a float result of a Variant call")
+	check(node.call("scale_vector", Vector2(1, 2), 2) == Vector2(2, 4),
+			"a Vector2 argument and result of a Variant call, and an int for a float")
+	check(node.call("get_self") == node, "an Object result of a Variant call")
 	node.free()
 
 

@@ -1,11 +1,12 @@
 ;;; The code generated for every engine method in extension_api.json, every
 ;;; utility function, a vararg method with :EXTRA-ARGUMENTS, and the invokers
-;;; of bound methods (GD-EXTENSION-CALLBACK::PTRCALL-INVOKER-FORM) with each
-;;; type as an argument and as the result, written to a file, for checking
-;;; that a change to the code generators doesn't change the code they
-;;; generate: `make expansions-baseline` before the change, `make
-;;; expansions-check` after it (see the Makefile in the directory above). Run
-;;; in that directory, as ecl --norc --load test/expansions.lisp -- --out FILE.
+;;; of bound methods (GD-EXTENSION-CALLBACK::PTRCALL-INVOKER-FORM and
+;;; VARIANT-INVOKER-FORM) with each type as an argument and as the result,
+;;; written to a file, for checking that a change to the code generators
+;;; doesn't change the code they generate: `make expansions-baseline` before
+;;; the change, `make expansions-check` after it (see the Makefile in the
+;;; directory above). Run in that directory, as ecl --norc --load
+;;; test/expansions.lisp -- --out FILE.
 ;;;
 ;;; *GENSYM-COUNTER* is reset before each one, and uninterned symbols are
 ;;; renamed in the order they first appear, so making the same gensyms in
@@ -85,14 +86,21 @@ the symbols of packages other than COMMON-LISP and KEYWORD as QUALIFIED-SYMBOLs.
                                  when (find-value-type type nil) collect type)
                            '(:variant))))
         (dolist (type types)
-          (incf count 2)
+          (incf count 4)
           (write-expansion out (format nil "invoker argument ~a" type)
                            (lambda ()
                              (gd-extension-callback::ptrcall-invoker-form
                               +variant-type-nil+ (list type +variant-type-int+))))
           (write-expansion out (format nil "invoker result ~a" type)
                            (lambda ()
-                             (gd-extension-callback::ptrcall-invoker-form type '())))))
+                             (gd-extension-callback::ptrcall-invoker-form type '())))
+          (write-expansion out (format nil "Variant invoker argument ~a" type)
+                           (lambda ()
+                             (gd-extension-callback::variant-invoker-form
+                              +variant-type-nil+ (list type +variant-type-int+))))
+          (write-expansion out (format nil "Variant invoker result ~a" type)
+                           (lambda ()
+                             (gd-extension-callback::variant-invoker-form type '())))))
       (format t "~&~d expansions written to ~a~%" count file))))
 
 (write-expansions (second (member "--out" ext:*command-args* :test #'string=)))

@@ -161,6 +161,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:read-variant
            #:read-variant-at
            #:variant-type-at
+           #:raw-from-variant
+           #:variant-from-raw
            #:read-variant-result
            ;; The autorelease pool
            #:*release-reference-function*

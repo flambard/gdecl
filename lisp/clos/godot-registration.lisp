@@ -229,7 +229,7 @@ pool, so take a reference of your own to keep the object (SETF-REFERENCE)."
         (gdext:bind-method (godot-name class) name function-name
                            :return-type (method-return-type function)
                            :arguments (method-arguments function)
-                           :invoker (method-invoker function))
+                           :invokers (method-invokers function))
         (push name (class-registered-methods class))))))
 
 (defun check-direct-functions (class)

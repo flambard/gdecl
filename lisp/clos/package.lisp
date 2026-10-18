@@ -18,7 +18,7 @@ below.")
                 #:godot-object-pointer
                 #:+godot-object-pointer-slot+
                 #:+godot-object-pointer-location+
-                #:invoker-form
+                #:invokers-form
                 #:report-error
                 #:add-class-definition
                 #:inherits-class-p

@@ -60,6 +60,13 @@ func _init() -> void:
 		func(): for i in COUNT: lisp.call("tick", 0.016))
 	report("lisp.call(\"get_ticks\") (Lisp method, Variant call, int result)",
 		func(): for i in COUNT: lisp.call("get_ticks"))
+	# A call through an untyped variable is a Variant call too
+	var untyped_lisp = lisp
+	var untyped_ticker = ticker
+	report("untyped_lisp.tick(delta) (Lisp method, untyped variable)",
+		func(): for i in COUNT: untyped_lisp.tick(0.016))
+	report("untyped_ticker.tick(delta) (GDScript method, untyped variable)",
+		func(): for i in COUNT: untyped_ticker.tick(0.016))
 
 	# The engine calls of LispBenchmarks.run
 	report("get_child_count()", func(): for i in COUNT: node.get_child_count())
@@ -77,6 +84,16 @@ func _init() -> void:
 	lisp.handled.connect(handler)
 	report("handled.emit(1), GDScript handler", func(): for i in COUNT: lisp.handled.emit(1))
 	lisp.handled.disconnect(handler)
+	# Connected to a method, as connections made in the editor are, which Godot
+	# calls with a Variant call
+	lisp.handled.connect(lisp.tick)
+	report("handled.emit(1), connected to a Lisp method",
+		func(): for i in COUNT: lisp.handled.emit(1))
+	lisp.handled.disconnect(lisp.tick)
+	lisp.handled.connect(ticker.tick)
+	report("handled.emit(1), connected to a GDScript method",
+		func(): for i in COUNT: lisp.handled.emit(1))
+	lisp.handled.disconnect(ticker.tick)
 	lisp.connect_lisp_handler()
 	report("handled.emit(1), Lisp handler", func(): for i in COUNT: lisp.handled.emit(1))
 

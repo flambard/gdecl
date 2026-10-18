@@ -13,16 +13,16 @@
 ;;;
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun invoker-arguments (return-type-form argument-type-forms)
-    "The arguments :INVOKER and the invoker's form (see INVOKER-FORM) for
+  (defun invokers-arguments (return-type-form argument-type-forms)
+    "The arguments :INVOKERS and the invokers' form (see INVOKERS-FORM) for
 BIND-METHOD, for a method whose types are given as forms, as in VARIANT-TYPE, if
 they're all constants. Otherwise NIL, and the method's calls go through the
 generic dispatcher."
     (when (every #'constantp (cons return-type-form argument-type-forms))
-      (let ((form (invoker-form (eval return-type-form)
-                                (mapcar #'eval argument-type-forms))))
+      (let ((form (invokers-form (eval return-type-form)
+                                 (mapcar #'eval argument-type-forms))))
         (when form
-          `(:invoker ,form)))))
+          `(:invokers ,form)))))
 
   (defun function-form (designator)
     "A form for the function DESIGNATOR in DEFINE-CLASS: a symbol, called by name
@@ -88,7 +88,7 @@ the values are RefCounted."
       `((bind-method ,class-name ,getter-name
                      (lambda (object) (,accessor object))
                      :return-type ,type
-                     ,@(invoker-arguments type '()))
+                     ,@(invokers-arguments type '()))
         (bind-method ,class-name ,setter-name
                      ,(cond (setter
                              (function-form setter))
@@ -100,7 +100,7 @@ the values are RefCounted."
                             (t
                              `(lambda (object value) (setf (,accessor object) value))))
                      :arguments (list (list "value" ,type))
-                     ,@(invoker-arguments :nil (list type)))
+                     ,@(invokers-arguments :nil (list type)))
         (bind-property ,class-name ,property-name ,type ,getter-name ,setter-name
                        ,@(when class `(:class ,class))))))
 
@@ -178,7 +178,7 @@ list, if it has an :EMITTER."
            `((bind-method ,class-name ,method-name ,(function-form function)
                           :arguments ,(arguments-form arguments)
                           :return-type ,return-type
-                          ,@(invoker-arguments return-type (mapcar #'second arguments))))))
+                          ,@(invokers-arguments return-type (mapcar #'second arguments))))))
         (:virtual
          (destructuring-bind (virtual-name function) arguments
            `((bind-virtual ,class-name ,virtual-name ,(function-form function)))))

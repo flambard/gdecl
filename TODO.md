@@ -6,7 +6,7 @@ What's left to do in gdecl, from reviews and from comparing what gdecl does with
 
 Measure with `make bench` before and after, against a build of `HEAD` in alternating runs (see Benchmarks in `CLAUDE.md`, which also has the typical times, and Performance in ECL for where the time of a call goes).
 
-- [ ] **O. Variant calls and Callables into Lisp have no invokers.** `call-bound-method` (a call through `call()` or an untyped GDScript variable, 0.4–0.42 µs with a float argument against 0.2 µs with ptrcall) converts bools, ints and floats in C, but checks each argument's type twice, reads other types with their readers called by name, and builds an argument list for more than three arguments. Invokers like `ptrcall-invoker-form`'s would save some of that, but Variant calls are rarely per frame. Likewise `callable-call`, for Callables of known types, e.g. for `connect-engine-signal` with a signal's declared types, though an int argument costs only about 42 ns there.
+- [ ] **O. Callables into Lisp have no invokers.** `callable-call` reads each argument with `read-variant-at` by its Variant's type, as a Lisp Callable's function, usually a lambda, has no declared types. For Callables of known types, e.g. for `connect-engine-signal` with a signal's declared types, an invoker like the Variant invokers of bound methods (`variant-invoker-form`, see O's first part in Done) would read them in C, but an int argument costs only about 42 ns there, so it would save little: do it if a signal handler shows up in measurements.
 
 ## The high-level layer (see "The high-level layer" in `CLAUDE.md`)
 
@@ -38,10 +38,12 @@ Measure with `make bench` before and after, against a build of `HEAD` in alterna
 ## Suggested order
 
 1. V and W as applications need them; V's export hints are the likeliest. The calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`): what's left is mostly Godot's own part and ECL's boxed floats.
-2. O, if measurements show it matters.
+2. O, if measurements of signal handlers show it matters.
 3. J with the REPL work, and R when an application uses threads.
 4. AM when an application's hot code needs faster slot access than a struct gives.
 5. X when there's a reason to extend the editor.
 6. S, low priority for now: shipping a game isn't a concern yet. Do it before the first exported game, which doesn't run without it.
 
 ## Done
+
+- O's first part: Variant calls into bound methods have invokers. A method whose types are known when the code is compiled gets one generated for its signature (`variant-invoker-form`), beside its ptrcall invoker, both from `invokers-form` (renamed from `invoker-form`; `bind-method` takes them as `:invokers`). It checks each argument's type once and reads and writes bools, ints, floats and Objects in C, where `call-bound-method` checked each type twice and called `read-variant-at` and `write-variant-as-at`, two calls between files. Against `HEAD` in alternating runs: `lisp.call("tick", delta)` and the same through an untyped variable 260–279 ns instead of 367–396 ns, a signal connected to a Lisp method, as the game's editor connections are, 393–402 ns instead of 526–552 ns, `lisp.call("get_ticks")` 222–223 ns instead of 309–338 ns, and a `godot-clos` generic function so 460–471 ns instead of 580–598 ns. Not yet checked: whether Godot calls an extension property's getter and setter, e.g. for `get()`, `set()` or an AnimationPlayer track, with a Variant call, which would make this per frame.

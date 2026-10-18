@@ -26,6 +26,7 @@
                 #:*wrapper-function*
                 #:register-method
                 #:ptrcall-invoker-form
+                #:variant-invoker-form
                 #:add-extension-class
                 #:add-virtual
                 #:set-class-notifications
@@ -105,7 +106,7 @@
            #:bind-virtual
            #:lisp-object
            ;; Binding
-           #:invoker-form
+           #:invokers-form
            #:bind-method
            #:bind-property
            #:bind-signal))
