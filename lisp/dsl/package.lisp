@@ -1,6 +1,6 @@
 ;;;; The package GODOT-DSL: DEFINE-CLASS, a small DSL that defines a class in one
 ;;;; form, like a GDScript script, with a struct for its instances: faster and
-;;;; lower-level than GODOT-CLOS, the high-level layer (see TODO P). It uses
+;;;; lower-level than GODOT-CLOS, the high-level layer (see CLAUDE.md). It uses
 ;;;; gd-extension/ and godot/ only, with a few internals of GD-EXTENSION, listed
 ;;;; in its :IMPORT-FROM clause.
 ;;;; See Layers in CLAUDE.md.
