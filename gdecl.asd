@@ -41,8 +41,8 @@
                                (:file "extension-classes" :depends-on ("instance-bindings"))
                                (:file "bound-methods" :depends-on ("extension-classes"))
                                (:file "callables" :depends-on ("bound-methods"))))
-                 ;; The public, Lisp-style layer, and the code generators of
-                 ;; Godot's API
+                 ;; The public, Lisp-style layer, and the code generator of
+                 ;; engine methods
                  (:module "gd-extension"
                   :depends-on ("extension-api" "ffi" "types" "callback")
                   :components ((:file "package")
@@ -50,8 +50,7 @@
                                (:file "gd-extension" :depends-on ("package" "api-types"))
                                (:file "engine-methods" :depends-on ("gd-extension"))
                                (:file "engine-objects" :depends-on ("gd-extension"))
-                               (:file "engine-api" :depends-on ("engine-methods" "engine-objects"))
-                               (:file "containers" :depends-on ("gd-extension" "engine-api"))
+                               (:file "containers" :depends-on ("gd-extension" "engine-methods"))
                                (:file "references" :depends-on ("engine-methods"))
                                (:file "signals" :depends-on ("engine-methods" "containers"))
                                (:file "callables" :depends-on ("containers"))
@@ -65,12 +64,14 @@
                                ;; The order of the framework's startup and
                                ;; shutdown steps
                                (:file "lifecycle" :depends-on ("registration" "gd-extension"))))
-                 ;; Godot's API, generated from extension_api.json
+                 ;; Godot's API, generated from extension_api.json, and its code
+                 ;; generators
                  (:module "godot"
-                  :depends-on ("types" "gd-extension")
+                  :depends-on ("extension-api" "types" "gd-extension")
                   :components ((:file "package")
-                               (:file "godot-engine-classes" :depends-on ("package"))
-                               (:file "godot-utility" :depends-on ("package"))))
+                               (:file "engine-api" :depends-on ("package"))
+                               (:file "godot-engine-classes" :depends-on ("engine-api"))
+                               (:file "godot-utility" :depends-on ("engine-api"))))
                  ;; DEFINE-CLASS, a small DSL that defines a class in one form
                  (:module "dsl"
                   :depends-on ("gd-extension" "godot")

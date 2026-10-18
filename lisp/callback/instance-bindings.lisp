@@ -22,7 +22,7 @@
   "The function that makes the Lisp object of a Godot object (a pointer) that
 isn't an instance of an extension class, the first time Lisp gets it: a
 GODOT-OBJECT, or a struct that includes it. GD-EXTENSION sets it to make one of
-the type of the object's class (see GD-EXTENSION:DEFINE-ENGINE-CLASS).")
+the type of the object's class (see GODOT:DEFINE-ENGINE-CLASS).")
 
 ;; void *(*GDExtensionInstanceBindingCreateCallback)(void *p_token, void *p_instance)
 (define-callback create-binding :pointer-void

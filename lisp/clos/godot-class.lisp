@@ -13,7 +13,7 @@
 ;;;     (:signals (hit)))
 ;;;
 ;;; A class inherits from the struct of the engine class it extends (see
-;;; GD-EXTENSION:DEFINE-ENGINE-CLASS), or from another GODOT-CLASS, and may
+;;; GODOT:DEFINE-ENGINE-CLASS), or from another GODOT-CLASS, and may
 ;;; have mixins, standard classes, besides. So its instances are GODOT-OBJECTs,
 ;;; which the layers below take as they are: engine methods, the Object value
 ;;; type, instance bindings. That rests on two things ECL does: a standard

@@ -83,9 +83,9 @@ The first `make` runs Godot once to dump `gdextension_interface.h` and `extensio
 
 | Package | Nickname | What it is |
 |---|---|---|
-| `godot` | `gd` | Godot's API: engine methods, enums and constants, and the builtin types such as `vector2` |
+| `godot` | `gd` | Godot's API: engine methods, enums and constants, and the builtin types such as `vector2`, and `define-engine-class` to add engine classes to it |
 | `godot-utility` | `gd-util` | Godot's utility functions, the global functions of GDScript, such as `randf-range` |
-| `gd-extension` | `gdext` | gdecl itself: registering classes, signals, references, and the macros that generate Godot's API |
+| `gd-extension` | `gdext` | gdecl itself: registering classes, signals, references, and `define-engine-method` for calling engine methods |
 | `godot-dsl` | | `define-class`, a faster, lower-level way to define classes, see [Defining classes](#defining-classes) |
 | `gd-extension-ffi` | `gdext-ffi` | The GDExtension C interface, one-to-one, for what the others don't cover yet |
 | `godot-clos` | | Classes as CLOS classes, the high-level way to define classes, see [Classes as CLOS classes](#classes-as-clos-classes) |
@@ -220,7 +220,7 @@ Engine methods are functions in `godot`, named `<class>-<method>` in Lisp style,
 ```
 
 - **Which class.** A method belongs to the class that defines it, not the ones that inherit it: a Sprite2D's position is `node-2d-get-position`.
-- **Which classes are there.** gdecl defines Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene. Add the others you use with `(gdext:define-engine-class "AnimatedSprite2D")`; they're added to `godot` too. Each method costs about 70 ms of build time and 15 KB of library, so add only the classes you use.
+- **Which classes are there.** gdecl defines Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene. Add the others you use with `(define-engine-class "AnimatedSprite2D")`, from `godot`; they're added to `godot` too. Each method costs about 70 ms of build time and 15 KB of library, so add only the classes you use.
 - **Enums and constants** are Lisp constants in `godot`: `Node.PROCESS_MODE_ALWAYS` is `+node-process-mode-always+`, and the global ones like `OK` and `KEY_ESCAPE` are `+ok+` and `+key-escape+`.
 - **Arguments** are named as in Godot. Those with a default value are optional, when the default can be written in Lisp. Static methods and methods of singletons, such as Input, take no object.
 - **Vararg methods**, such as `emit_signal` and `call_group`, take any number of further arguments, converted to Variants by their Lisp types: `(object-emit-signal player "hit" damage)`.

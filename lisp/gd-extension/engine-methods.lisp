@@ -822,6 +822,17 @@ dumped from another version of Godot? Run make godot-api."
              class-name method-name hash))
     method-bind))
 
+(defun look-up-utility-function (function-name hash)
+  "The function pointer of the utility function FUNCTION-NAME with HASH, for an
+initialize cell. Signals an error if Godot has no such function."
+  (let ((function (with-string-name (string-name function-name)
+                    (variant-get-ptr-utility-function string-name hash))))
+    (when (ffi:null-pointer-p function)
+      (error "Godot has no utility function ~a with hash ~d. Was extension_api.json ~
+dumped from another version of Godot? Run make godot-api."
+             function-name hash))
+    function))
+
 (defmacro define-engine-method (name (class-name method-name) &key extra-arguments into)
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
 CLASS-NAME (or a class it inherits from). The method's hash, arguments and

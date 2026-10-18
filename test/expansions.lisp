@@ -1,5 +1,6 @@
 ;;; The code generated for every engine method in extension_api.json, every
-;;; utility function, a vararg method with :EXTRA-ARGUMENTS, and the invokers
+;;; utility function, every engine class, the global enums and the utility
+;;; functions as a whole, a vararg method with :EXTRA-ARGUMENTS, and the invokers
 ;;; of bound methods (GD-EXTENSION-CALLBACK::PTRCALL-INVOKER-FORM and
 ;;; VARIANT-INVOKER-FORM) with each type as an argument and as the result,
 ;;; written to a file, for checking that a change to the code generators
@@ -76,7 +77,18 @@ the symbols of packages other than COMMON-LISP and KEYWORD as QUALIFIED-SYMBOLs.
       (dolist (function (api-utility-functions))
         (incf count)
         (write-expansion out (format nil "utility ~a" (api-method-name function))
-                         (lambda () (utility-function-defun 'f function))))
+                         (lambda () (godot-generators::utility-function-defun 'f function))))
+      ;; The whole expansions of the generators of GODOT and GODOT-UTILITY: for
+      ;; the structs, constants and exports around the functions above
+      (dolist (class-name (sort (copy-list (api-class-names)) #'string<))
+        (incf count)
+        (write-expansion out (format nil "define-engine-class ~a" class-name)
+                         (lambda () (macroexpand-1 `(godot:define-engine-class ,class-name)))))
+      (incf count 2)
+      (write-expansion out "define-global-enums"
+                       (lambda () (macroexpand-1 '(godot-generators:define-global-enums))))
+      (write-expansion out "define-utility-functions"
+                       (lambda () (macroexpand-1 '(godot-generators:define-utility-functions))))
       (incf count)
       (write-expansion out "extra-arguments Object.emit_signal"
                        (lambda ()

@@ -12,9 +12,9 @@
 ;;; This file has the helpers and the values looked up once (SNAME, NPATH,
 ;;; SINGLETON). The rest of the package is in
 ;;; api-types.lisp (the types of extension_api.json), engine-methods.lisp
-;;; (calling engine methods), engine-objects.lisp (the structs of engine
-;;; objects), engine-api.lisp (DEFINE-ENGINE-CLASS, the global enums and the
-;;; utility functions), containers.lisp (packed arrays, Arrays and
+;;; (calling engine methods, and the code generated for each, which the
+;;; generators of GODOT build on), engine-objects.lisp (the structs of engine
+;;; objects), containers.lisp (packed arrays, Arrays and
 ;;; Dictionaries), references.lisp, signals.lisp (also Signals as values),
 ;;; callables.lisp (Callables as values), registration.lisp
 ;;; (registering classes, methods, properties, signals, virtual methods and
@@ -43,6 +43,36 @@ as +VARIANT-TYPE-FLOAT+), or a keyword named like one, such as :FLOAT, :VECTOR2,
                       :external))
              (symbol-value symbol)
              (error "No variant type ~s" designator)))))))
+
+;; The names of engine classes and methods in Lisp style, for the functions that
+;; DEFINE-ENGINE-CLASS (GODOT-GENERATORS, godot/) defines, and the readers and
+;; writers of packed arrays (containers.lisp)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun lisp-style-class-name (class-name)
+    "The name of the engine class CLASS-NAME in Lisp style, as in the names of the
+functions of DEFINE-ENGINE-CLASS: \"Node2D\" becomes \"NODE-2D\",
+\"AnimatedSprite2D\" \"ANIMATED-SPRITE-2D\" and \"HTTPRequest\" \"HTTP-REQUEST\"."
+    (with-output-to-string (out)
+      (loop for i from 0 below (length class-name)
+            for char = (char class-name i)
+            for previous = (and (> i 0) (char class-name (1- i)))
+            for next = (and (< (1+ i) (length class-name)) (char class-name (1+ i)))
+            do (when (and previous
+                          (or
+                           ;; nodeP
+                           (and (upper-case-p char) (lower-case-p previous))
+                           ;; HTTPRequest
+                           (and (upper-case-p char) (upper-case-p previous)
+                                next (lower-case-p next))
+                           ;; Node2D
+                           (and (digit-char-p char) (alpha-char-p previous))))
+                 (write-char #\- out))
+               (write-char (char-upcase char) out))))
+
+  (defun lisp-style-method-name (method-name)
+    "The name of the method METHOD-NAME in Lisp style: \"get_node\" becomes
+\"GET-NODE\"."
+    (string-upcase (substitute #\- #\_ method-name))))
 
 (defun get-method-bind (class-name method-name hash)
   "The GDExtensionMethodBindPtr of the method METHOD-NAME of the class

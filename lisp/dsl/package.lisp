@@ -9,7 +9,7 @@
   (:documentation "DEFINE-CLASS, a small DSL that defines a Godot extension
 class in one form, like a GDScript script: the struct of its instances' Lisp
 objects, which includes the struct of the engine class it extends (see
-GD-EXTENSION:DEFINE-ENGINE-CLASS), and its properties, :ONREADY slots,
+GODOT:DEFINE-ENGINE-CLASS), and its properties, :ONREADY slots,
 signals, methods and virtual methods, given as functions called with the
 instance.")
   (:use #:cl)

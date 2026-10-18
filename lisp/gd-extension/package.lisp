@@ -1,6 +1,7 @@
-;;;; The package GD-EXTENSION, the public, Lisp-style layer, and the code
-;;;; generators for GODOT and GODOT-UTILITY. It uses all the layers below, and
-;;;; reads extension_api.json through EXTENSION-API-JSON (extension-api/).
+;;;; The package GD-EXTENSION, the public, Lisp-style layer, with the code
+;;;; generator of engine methods (DEFINE-ENGINE-METHOD) that it uses itself and
+;;;; GODOT's generators build on. It uses all the layers below, and reads
+;;;; extension_api.json through EXTENSION-API-JSON (extension-api/).
 ;;;; See Layers in CLAUDE.md.
 
 (defpackage #:gd-extension
@@ -34,14 +35,25 @@
                 #:lisp-object
                 #:keep-callable
                 #:free-callable)
-  ;; Internal, but imported by the layers above that define classes,
-  ;; GODOT-DSL and GODOT-CLOS
+  ;; Internal, but imported by the layers above: those that define classes,
+  ;; GODOT-DSL and GODOT-CLOS, and GODOT's generators, GODOT-GENERATORS
   (:intern #:add-class-definition
            #:inherits-class-p
            #:engine-object-type
            #:virtual-signatures
            #:godot-property-name
-           #:*engine-object-types*)
+           #:*engine-object-types*
+           ;; For GODOT-GENERATORS
+           #:unsupported-api-type
+           #:lisp-style-class-name
+           #:lisp-style-method-name
+           #:engine-method-defun
+           #:engine-function-defun
+           #:engine-method-variant-type
+           #:engine-method-arguments
+           #:documented-argument-names
+           #:look-up-utility-function
+           #:register-engine-object-type)
   (:export #:add-initialize-hook
            #:add-deinitialize-hook
            ;; Errors
@@ -73,9 +85,6 @@
            ;; Calling engine methods
            #:define-engine-method
            #:define-signal-emitter
-           #:define-engine-class
-           #:define-utility-functions
-           #:define-global-enums
            ;; Signals
            #:connect-signal
            #:after-signal

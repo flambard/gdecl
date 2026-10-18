@@ -4,4 +4,4 @@
 
 (in-package :godot-utility)
 
-(gdext:define-utility-functions)
+(godot-generators:define-utility-functions)

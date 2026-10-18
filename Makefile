@@ -9,8 +9,8 @@ bench:
 clean:
 	$(MAKE) -C test clean
 
-# Checking that a change to the code generators (engine-methods.lisp,
-# engine-api.lisp) doesn't change the code they generate: make
+# Checking that a change to the code generators (gd-extension/engine-methods.lisp,
+# godot/engine-api.lisp) doesn't change the code they generate: make
 # expansions-baseline before the change, make expansions-check after it. See
 # test/expansions.lisp.
 EXPANSIONS = test/build/expansions
