@@ -310,12 +310,12 @@ A literal string given for a StringName or NodePath argument, as in `(input-is-a
 
 When the types are simple (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`), the call is made in one piece of C code without allocating anything, about 0.12 µs. In `define-class`, `:emitter` on the signal defines one: `(:signal "hit" ("damage" :int) :emitter emit-hit)`. An emitter returns the `Error` of `emit_signal`, like `object-emit-signal`.
 
-`connect-signal` connects a signal to a Lisp function. `after-signal` runs code once, the next time a signal is emitted, for what GDScript does with `await`:
+`gdext:connect-signal` connects a signal to a Lisp function. `after-signal`, in `godot`, runs code once, the next time a signal is emitted, for what GDScript does with `await`:
 
 ```lisp
 (gdext:connect-signal button "pressed" (lambda () (start-game main)))
 
-(gdext:after-signal ((node-get-node hud "MessageTimer") "timeout" :target hud)
+(after-signal ((node-get-node hud "MessageTimer") "timeout" :target hud)
   (canvas-item-show (node-get-node hud "StartButton")))
 ```
 

@@ -461,10 +461,10 @@ types of Godot objects.")
   (let ((node (new-test-node)))
     (check (= +ok+ (gdext:connect-signal node "pinged" (lambda (&rest arguments) arguments))))))
 
-(deftest after-signal
+(deftest after-signal-runs-once
   (let ((node (new-test-node))
         (runs 0))
-    (gdext:after-signal (node "pinged" :target node)
+    (after-signal (node "pinged" :target node)
       (incf runs))
     (object-emit-signal node "pinged" 1 "a" (vector2) nil nil)
     (check (= 1 runs))

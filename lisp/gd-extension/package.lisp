@@ -87,7 +87,6 @@
            #:define-signal-emitter
            ;; Signals
            #:connect-signal
-           #:after-signal
            ;; Callables and Signals as values
            #:callable
            #:callable-p

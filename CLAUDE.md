@@ -101,7 +101,7 @@ Consequences of the layering that aren't obvious:
 
 - The types layer can't refer to the callback layer, so `gd-extension-callback` adds the value types of Object (whose Lisp values are the objects' Lisp objects) and Callable.
 - Releasing a reference needs an engine method, so `gd-extension` sets `*release-reference-function*` for the autorelease pool in the types layer; likewise the `literal-macro` of StringName and NodePath.
-- `gd-extension` can't depend on `godot`, so it defines the few engine methods it needs itself, and its own few constants, such as `+connect-one-shot+`, with `api-constant`.
+- `gd-extension` can't depend on `godot`, so it defines the few engine methods it needs itself, and its own few constants with `api-constant`. What can be built on `gd-extension`'s public functions and `godot`'s generated API, such as `after-signal` on `connect-signal`, goes into `godot/` instead, where it uses the generated constants.
 - `define-engine-method`, the code generator of one engine method, is in `gd-extension` rather than in `godot/` with the others, since `gd-extension` itself calls engine methods (see Adding things); so is the code the generated functions call at run time, such as `look-up-method-bind` and `look-up-utility-function`, and the structs of engine objects (`engine-objects.lisp`), which the layers below use. `godot`'s generators only put the forms together.
 - `dsl` and `clos` give each class's registration to `add-class-definition` in `gd-extension` (`registration.lisp`), and `register-defined-classes`, a step of the framework's startup, registers the classes in the order they were defined.
 
