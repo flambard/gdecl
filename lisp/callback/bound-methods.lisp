@@ -141,17 +141,18 @@ empty one when GDScript calls."
 ptrcall_func's array of pointers to raw values. The raw values of simple types
 (see VALUE-TYPE-FROM-RAW) are read with C code, without a pointer object in
 between."
-    (let ((from-raw (value-type-from-raw value-type))
-          (ffi-type (value-type-ffi-type value-type)))
-      (if from-raw
+    (if (value-type-from-raw value-type)
+        ;; An Object as an integer, its address (see RAW-RESULT-CONVERSION)
+        (multiple-value-bind (ffi-type cast from-raw) (raw-result-conversion value-type)
           (funcall from-raw
                    `(ffi:c-inline (,args) (:uint64-t) ,ffi-type
-                                  ,(format nil "*(~a *)((void **)#0)[~d]"
-                                           (c-type-name ffi-type) index)
-                                  :one-liner t))
-          `(,(value-type-reader value-type)
-            (ffi:c-inline (,args) (:uint64-t) :pointer-void
-                          ,(format nil "((void **)#0)[~d]" index) :one-liner t)))))
+                                  ,(format nil "~a*(~a *)((void **)#0)[~d]"
+                                           cast (c-type-name (value-type-ffi-type value-type))
+                                           index)
+                                  :one-liner t)))
+        `(,(value-type-reader value-type)
+          (ffi:c-inline (,args) (:uint64-t) :pointer-void
+                        ,(format nil "((void **)#0)[~d]" index) :one-liner t))))
 
   (defun invoker-result-form (value-type r-ret result)
     "A form that stores RESULT, a Lisp value of VALUE-TYPE, at R-RET, the address

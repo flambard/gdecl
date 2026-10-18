@@ -58,6 +58,8 @@ three times, and print the best time and the bytes allocated per run."
   (:method "get_ticks" lisp-benchmarks-ticks :return-type :int)
   ;; An empty method, for timing what a call into Lisp costs in itself
   (:method "noop" lisp-benchmarks-noop)
+  ;; An Object argument, like a body in _on_body_entered(body)
+  (:method "take_object" lisp-benchmarks-take-object :arguments (("object" :object)))
   (:method "run" lisp-benchmarks-run :arguments (("count" :int)))
   ;; An empty _process, for timing a virtual method (run_benchmarks.gd)
   (:virtual "_process" lisp-benchmarks-process))
@@ -67,6 +69,9 @@ three times, and print the best time and the bytes allocated per run."
 
 (defun lisp-benchmarks-noop (benchmarks)
   (declare (ignore benchmarks)))
+
+(defun lisp-benchmarks-take-object (benchmarks object)
+  (declare (ignore benchmarks object)))
 
 (defun lisp-benchmarks-tick (benchmarks delta)
   (declare (ignore delta))
@@ -90,6 +95,9 @@ three times, and print the best time and the bytes allocated per run."
       (node-get-parent benchmarks))
     (benchmark "get_position()" count
       (node-2d-get-position benchmarks))
+    (let ((into (vector2)))
+      (benchmark "get_position() into a VECTOR2 (:into)" count
+        (get-position-into into benchmarks)))
     (benchmark "set_position(v)" count
       (node-2d-set-position benchmarks position))
     (benchmark "Input.is_action_pressed(\"ui_up\")" count

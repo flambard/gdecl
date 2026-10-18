@@ -40,6 +40,26 @@
     (sprite-2d-set-region-rect sprite rect)
     (check (equalp rect (sprite-2d-get-region-rect sprite)))))
 
+(deftest engine-method-results-into
+  ;; Stored into the struct given, which is returned
+  (let ((node (new-node "Node2D"))
+        (position (vector2)))
+    (node-2d-set-position node (vector2 3.0 4.0))
+    (check (eq position (get-position-into position node)))
+    (check (equalp (vector2 3.0 4.0) position)))
+  ;; Into nested structs
+  (let ((sprite (new-node "Sprite2D"))
+        (rect (rect2)))
+    (sprite-2d-set-region-rect sprite (rect2 (vector2 1.0 2.0) (vector2 3.0 4.0)))
+    (check (eq rect (get-region-rect-into rect sprite)))
+    (check (equalp (rect2 (vector2 1.0 2.0) (vector2 3.0 4.0)) rect)))
+  ;; With an argument after the object
+  (let ((node (new-node "Node3D"))
+        (point (vector3)))
+    (node-3d-set-position node (vector3 1.0 2.0 3.0))
+    (to-global-into point node (vector3 1.0 1.0 1.0))
+    (check (equalp (vector3 2.0 3.0 4.0) point))))
+
 (deftest engine-method-values-3d
   (let ((node (new-node "Node3D")))
     (node-3d-set-position node (vector3 1.0 2.0 3.0))

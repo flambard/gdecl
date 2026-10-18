@@ -87,6 +87,14 @@ func test_methods() -> void:
 	check(node.is_null(null), "null for an Object argument")
 	check(not node.is_null(node), "an Object argument")
 	check(node.get_self() == node, "a Lisp object as an Object result")
+	# Object arguments and results have the class Object, so that typed GDScript
+	# calls the method with a ptrcall, not a Variant call (see METHOD-PROPERTY-INFO)
+	var is_null_info = ClassDB.class_get_method_list("TestNode", true).filter(
+			func(method): return method.name == "is_null")[0]
+	check(is_null_info.args[0].class_name == &"Object", "an Object argument has the class Object")
+	var get_self_info = ClassDB.class_get_method_list("TestNode", true).filter(
+			func(method): return method.name == "get_self")[0]
+	check(get_self_info.return.class_name == &"Object", "an Object result has the class Object")
 	node.free()
 
 

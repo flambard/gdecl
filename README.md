@@ -256,6 +256,18 @@ Arrays and dictionaries are copies: changing the Lisp vector or hash table doesn
 
 That's also faster for a call made every frame: when the arguments are simple types (bool, int, float, an object, a StringName or NodePath, or a builtin type such as `Vector2`) and the result is none, a bool, an int or a float, the call is made in one piece of C code without allocating anything. `(emit-with-int player "hit" 5)` takes about 0.16 µs, against 0.27 µs for `(object-emit-signal player "hit" 5)`, whose further arguments are converted by their Lisp types. For a signal, `define-signal-emitter` is simpler, as it fixes the signal's name too (see Signals). Put such definitions in a file of their own, loaded before the code that calls them: ECL doesn't apply the compiler macro that makes a literal name such as `"hit"` a StringName once to calls in the same file, and then every call makes a temporary one.
 
+For hot code, `:into` makes a method whose result is a builtin type made of floats, such as `Vector2`, store it into a struct you give, instead of making a new one every call:
+
+```lisp
+(gdext:define-engine-method get-position-into ("Node2D" "get_position") :into t)
+
+(let ((position (vector2)))
+  ;; every frame
+  (get-position-into position node))   ; returns POSITION
+```
+
+The struct comes first, like the result sequence of `map-into`. That saves the struct, 80 of the 112 bytes a `Vector2` result allocates, and about 70 ns; its components are still boxed floats. A nested struct, such as the `position` of a `rect2`, is changed in place, so don't share it. The method's arguments must all be simple types, so that the call is made in one piece of C code.
+
 ## Objects
 
 Every Godot object you get in Lisp has one Lisp object, a `gdext:godot-object`, so the same object is always the same (`eq`) Lisp object. An instance of one of your classes has the struct its class defines (`player` above), which includes `godot-object`, so wherever it comes back, e.g. from `get_node`, you can call your own functions on it. `nil` is null.

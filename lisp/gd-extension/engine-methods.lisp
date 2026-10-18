@@ -208,10 +208,11 @@ CALL-TARGET), and RETURNS."
             returns))
 
   (defun inline-builtin-result-form (target inputs declarations pointers arguments
-                                     return-type)
+                                     return-type into)
     "The rest of INLINE-PTRCALL-FORM for a result of a builtin type made of
 floats: returned as multiple values, one per component, made into the Lisp
-value."
+value, or stored into INTO, if it isn't NIL, the variable with the Lisp value
+to store them in, which is returned."
     (let* ((count (length (float-layout return-type)))
            (variables (loop repeat count collect (gensym "COMPONENT")))
            (code (inline-call-code target declarations pointers (length arguments)
@@ -225,16 +226,28 @@ value."
                          ,(mapcar #'second (reverse inputs))
                          (values ,@(loop repeat count collect :float))
                          ,code)
-         ,(builtin-construct-form (value-type-lisp-type (find-value-type return-type))
-                                  variables))))
+         ,(if into
+              `(progn
+                 (setf ,@(loop for accessors in (float-layout return-type)
+                               for variable in variables
+                               ;; The outermost accessor applies first
+                               append (list (reduce (lambda (form accessor)
+                                                      `(,accessor ,form))
+                                                    accessors
+                                                    :initial-value into)
+                                            variable)))
+                 ,into)
+              (builtin-construct-form (value-type-lisp-type (find-value-type return-type))
+                                      variables)))))
 
-  (defun inline-ptrcall-form (target arguments return-type)
+  (defun inline-ptrcall-form (target arguments return-type &optional into)
     "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
 CALL-TARGET) with ptrcall in one piece of C code (FFI:C-INLINE), with the raw
 values and the argument array in C variables, so nothing is allocated for them:
 for methods whose ARGUMENTS (ENGINE-ARGUMENTs) and RETURN-TYPE are all simple
 types (bool, int, float, Object, and StringName and NodePath arguments, which
-are pointers already). NIL for other methods."
+are pointers already). NIL for other methods. INTO is as in
+INLINE-BUILTIN-RESULT-FORM."
     (let ((inputs '())                  ; (form ffi-type), in order
           (declarations '())            ; C declarations of the raw values
           (pointers '()))               ; the elements of the argument array
@@ -281,28 +294,32 @@ are pointers already). NIL for other methods."
         (when (float-layout return-type)
           (return-from inline-ptrcall-form
             (inline-builtin-result-form target inputs declarations pointers arguments
-                                        return-type)))
+                                        return-type into)))
         (let* ((result-type (and (not (eql return-type +variant-type-nil+))
                                  (find-value-type return-type)))
-               (from-raw (and result-type (value-type-from-raw result-type)))
-               (ffi-type (and from-raw (value-type-ffi-type result-type)))
-               (c-type (and ffi-type (c-type-name ffi-type))))
+               (c-type (and result-type (value-type-from-raw result-type)
+                            (c-type-name (value-type-ffi-type result-type)))))
           ;; A result of a simple type, or none
-          (when (and result-type (not from-raw))
+          (when (and result-type (not c-type))
             (return-from inline-ptrcall-form nil))
-          (let* ((count (length arguments))
-                 ;; Zero, as Godot assigns the result, e.g. to a Ref
-                 (result (if c-type (format nil "~a r = 0; " c-type) ""))
-                 (result-pointer (if c-type "&r" "0"))
-                 (code (inline-call-code target declarations pointers count result
-                                         result-pointer (if c-type " @(return 0) = r;" "")))
-                 (form `(ffi:c-inline ,(mapcar #'first (reverse inputs))
-                                      ,(mapcar #'second (reverse inputs))
-                                      ,(or ffi-type :void)
-                                      ,code)))
-            (if from-raw
-                (funcall from-raw form)
-                form))))))
+          ;; An Object is returned as an integer, its address (see
+          ;; RAW-RESULT-CONVERSION)
+          (multiple-value-bind (ffi-type cast from-raw)
+              (if result-type (raw-result-conversion result-type) (values :void "" nil))
+            (let* ((count (length arguments))
+                   ;; Zero, as Godot assigns the result, e.g. to a Ref
+                   (result (if c-type (format nil "~a r = 0; " c-type) ""))
+                   (result-pointer (if c-type "&r" "0"))
+                   (code (inline-call-code target declarations pointers count result
+                                           result-pointer
+                                           (if c-type (format nil " @(return 0) = ~ar;" cast) "")))
+                   (form `(ffi:c-inline ,(mapcar #'first (reverse inputs))
+                                        ,(mapcar #'second (reverse inputs))
+                                        ,ffi-type
+                                        ,code)))
+              (if from-raw
+                  (funcall from-raw form)
+                  form)))))))
 
   (defun inline-variant-call-form (target arguments return-type name)
     "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
@@ -412,13 +429,17 @@ functions. NAME, the function's name, is for the error when the call fails."
                    (error "Calling ~a failed with call error ~d" ',name ,call-error))
                  ,(when c-type (funcall from-raw result)))))))))
 
-  (defun ptrcall-method-form (target arguments return-type)
+  (defun ptrcall-method-form (target arguments return-type &optional into)
     "The code of a DEFINE-ENGINE-METHOD function that calls TARGET (a
 CALL-TARGET) with ptrcall, with ARGUMENTS, a list of ENGINE-ARGUMENTs. Methods
 with only simple types are called in one piece of C code (see
-INLINE-PTRCALL-FORM)."
-    (or (inline-ptrcall-form target arguments return-type)
-        (general-ptrcall-method-form target arguments return-type)))
+INLINE-PTRCALL-FORM). INTO, if not NIL, is the variable with the Lisp value to
+store a builtin result in, which only that code does."
+    (or (inline-ptrcall-form target arguments return-type into)
+        (if into
+            (error ":INTO needs a method whose arguments are all of simple types, so ~
+                    that it's called in one piece of C code")
+            (general-ptrcall-method-form target arguments return-type))))
 
   (defun general-ptrcall-method-form (target arguments return-type)
     "The code of PTRCALL-METHOD-FORM for methods with types that INLINE-PTRCALL-FORM
@@ -666,7 +687,7 @@ a call: 1 after an object argument, otherwise 0."
   (defun engine-function-defun (name documentation arguments return-type
                                 &key function look-up-form not-found-error
                                      object object-form takes-object vararg rest
-                                     ref-counted-result fixed-arguments)
+                                     ref-counted-result fixed-arguments into)
     "The DEFUN of NAME, the function of an engine method or a utility function,
 and its compiler macro (see LITERAL-NAMES-COMPILER-MACRO), shared by
 DEFINE-ENGINE-METHOD and DEFINE-UTILITY-FUNCTIONS. FUNCTION is the variable for
@@ -677,11 +698,14 @@ utility function; TAKES-OBJECT, true if the function takes the object as its
 first argument. A VARARG function takes REST, a variable or NIL, and is called
 with Variants. A REF-COUNTED-RESULT goes into the autorelease pool.
 FIXED-ARGUMENTS, an alist of (ENGINE-ARGUMENT . form), are arguments the
-function doesn't take, bound to the forms instead."
+function doesn't take, bound to the forms instead. INTO, if not NIL, is the
+variable of a first argument, the Lisp value to store the builtin result in."
     (let ((taken-arguments (remove-if (lambda (argument) (assoc argument fixed-arguments))
                                       arguments)))
       `(progn
-         (defun ,name ,(engine-function-lambda-list (and takes-object object) taken-arguments rest)
+         (defun ,name (,@(when into (list into))
+                       ,@(engine-function-lambda-list (and takes-object object)
+                                                      taken-arguments rest))
            ,documentation
            (let (,@(when object `((,object ,object-form)))
                  (,function (initialize-cell-value ,look-up-form))
@@ -698,19 +722,21 @@ function doesn't take, bound to the forms instead."
                                                                    name))
                                     (variant-call-method-form target arguments return-type
                                                               :rest rest :name name))
-                                (ptrcall-method-form target arguments return-type)))))
+                                (ptrcall-method-form target arguments return-type into)))))
                 (if ref-counted-result
                     `(autorelease-reference ,call)
                     call))))
-         ,@(literal-names-compiler-macro name taken-arguments (if takes-object 1 0)))))
+         ,@(literal-names-compiler-macro name taken-arguments
+                                         (+ (if into 1 0) (if takes-object 1 0))))))
 
   (defun engine-method-defun (name class-name method-name extra-arguments
-                              &key fixed-arguments documentation)
+                              &key fixed-arguments documentation into)
     "The DEFUN of NAME for DEFINE-ENGINE-METHOD, with the method's hash and
 signature from extension_api.json. FIXED-ARGUMENTS, an alist of (argument-name
 . form), with the names as in extension_api.json, are arguments of the method
 that the function doesn't take, bound to the forms instead (see
-DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring."
+DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring. INTO
+is as in DEFINE-ENGINE-METHOD."
     (multiple-value-bind (method defining-class) (api-method class-name method-name)
       (when (api-method-virtual-p method)
         (error "~a.~a is a virtual method, which can't be called through a method bind"
@@ -741,6 +767,13 @@ DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring."
                                   (loop for (arg-name type) in extra-arguments
                                         collect (make-engine-argument
                                                  arg-name (variant-type (eval type)) nil)))))
+        (when (and into vararg)
+          (error ":INTO needs a method called with ptrcall, but ~a.~a is a vararg method"
+                 class-name method-name))
+        (when (and into (not (float-layout return-type)))
+          (error ":INTO needs a method whose result is a builtin type made of floats, ~
+                  such as Vector2, but ~a.~a returns ~a"
+                 class-name method-name (or (api-method-return-type method) "nothing")))
         (let* (;; Further arguments of a vararg method, unless they're declared
                ;; with EXTRA-ARGUMENTS
                (rest (and vararg (not extra-arguments) (intern "ARGUMENTS")))
@@ -751,11 +784,13 @@ DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring."
            name
            (or documentation
                (format nil "Call ~:[~;the static method ~]~a.~a(~{~a~^, ~})~@[ with ~a~]~
-                            ~@[ on the singleton ~a~]."
+                            ~@[ on the singleton ~a~]~:[~;, and store the result in INTO, ~
+                            which is returned~]."
                        static defining-class method-name
                        (documented-argument-names method rest)
                        (and vararg "Variants")
-                       singleton))
+                       singleton
+                       into))
            arguments return-type
            :function method-bind
            :look-up-form `(look-up-method-bind ,defining-class ,method-name ,hash)
@@ -768,6 +803,7 @@ DEFINE-SIGNAL-EMITTER). DOCUMENTATION, if given, replaces the docstring."
            :vararg vararg
            :rest rest
            :ref-counted-result ref-counted-result
+           :into (and into (intern "INTO"))
            :fixed-arguments (loop for (argument-name . form) in fixed-arguments
                                   for symbol = (engine-method-argument-symbol argument-name)
                                   collect (cons (or (find symbol arguments :key #'argument-name)
@@ -786,7 +822,7 @@ dumped from another version of Godot? Run make godot-api."
              class-name method-name hash))
     method-bind))
 
-(defmacro define-engine-method (name (class-name method-name) &key extra-arguments)
+(defmacro define-engine-method (name (class-name method-name) &key extra-arguments into)
   "Define NAME as a function that calls the method METHOD-NAME of the Godot class
 CLASS-NAME (or a class it inherits from). The method's hash, arguments and
 return type are looked up in extension_api.json when the macro is expanded.
@@ -819,8 +855,16 @@ The function of a vararg method takes any number of further arguments,
 converted to Variants by their Lisp types (see WRITE-VARIANT), e.g.
 (OBJECT-EMIT-SIGNAL PLAYER \"hit\" DAMAGE). Or EXTRA-ARGUMENTS declares them
 with their types, as a list of (name type), e.g. ((position :vector2)) for
-emit_signal(signal, position); TYPE is as in VARIANT-TYPE."
-  (handler-case (engine-method-defun name class-name method-name extra-arguments)
+emit_signal(signal, position); TYPE is as in VARIANT-TYPE.
+
+With INTO true, for a method whose result is a builtin type made of floats, such
+as Vector2, and whose arguments are all of simple types, the function takes
+the Lisp value to store the result in as its first argument, a struct such as a
+VECTOR2, and returns it: (NAME into object argument...), like MAP-INTO. For hot
+code, as it doesn't make a new struct for the result (80 bytes for a VECTOR2);
+the components are still boxed floats. A nested struct, such as the ORIGIN of
+a TRANSFORM2D, is changed in place, so it shouldn't be shared."
+  (handler-case (engine-method-defun name class-name method-name extra-arguments :into into)
     (error (e)
       (error "In (DEFINE-ENGINE-METHOD ~s (~s ~s)): ~a" name class-name method-name e))))
 

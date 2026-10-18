@@ -106,6 +106,18 @@ that have none."
         ((and (= return-type +variant-type-nil+) (= (length argument-types) 1))
          (svref *setter-invokers* (first argument-types)))))
 
+(defun method-property-info (name type)
+  "The property info, as in WITH-PROPERTY-INFOS, of an argument NAME, or the
+result (NAME \"\"), of a method, of the variant TYPE. An Object has the class
+name Object: GDScript calls a method with a validated call, which is a ptrcall
+for an extension method, only if the types of all arguments match, and an
+Object argument without a class name matches no object, so the call was a
+Variant call (measured: an empty method with an Object argument 0.47 µs, against
+0.15 µs without arguments)."
+  (if (= type +variant-type-object+)
+      (list name type :class-name "Object")
+      (list name type)))
+
 (defun bind-method (class-name method-name function
                     &key (return-type +variant-type-nil+) arguments invoker)
   "Register FUNCTION as the method METHOD-NAME of the class CLASS-NAME.
@@ -123,8 +135,10 @@ and others go through the generic dispatcher."
          (has-return-value (/= return-type +variant-type-nil+))
          (invoker (or invoker (signature-invoker return-type (mapcar #'second arguments)))))
     (with-string-name (method-name-string method-name)
-      (with-property-infos (return-info (and has-return-value `(("" ,return-type))))
-        (with-property-infos (args-info arguments)
+      (with-property-infos (return-info (and has-return-value
+                                             (list (method-property-info "" return-type))))
+        (with-property-infos (args-info (loop for (name type) in arguments
+                                              collect (method-property-info name type)))
           ;; At least one element, so the array is never empty
           (with-foreign-memory ((args-metadata :size (* (max argument-count 1)
                                                         (load-time-value

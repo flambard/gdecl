@@ -191,6 +191,8 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:value-type-writer
            #:value-type-to-raw
            #:value-type-from-raw
+           #:value-type-from-address
+           #:raw-result-conversion
            #:value-type-by-pointer
            #:value-type-literal-macro
            #:value-type-default-parser

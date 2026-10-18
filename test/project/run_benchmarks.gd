@@ -54,6 +54,8 @@ func _init() -> void:
 	report("ticker.tick(delta) (GDScript method)", func(): for i in COUNT: ticker.tick(0.016))
 	report("lisp.tick(delta) (Lisp method, ptrcall)", func(): for i in COUNT: lisp.tick(0.016))
 	report("lisp.noop() (empty Lisp method, ptrcall)", func(): for i in COUNT: lisp.noop())
+	report("lisp.take_object(ticker) (an Object argument, ptrcall)",
+		func(): for i in COUNT: lisp.take_object(ticker))
 	report("lisp.call(\"tick\", delta) (Lisp method, Variant call)",
 		func(): for i in COUNT: lisp.call("tick", 0.016))
 	report("lisp.call(\"get_ticks\") (Lisp method, Variant call, int result)",

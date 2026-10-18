@@ -23,6 +23,12 @@
 (gdext:define-engine-method emit-int ("Object" "emit_signal")
   :extra-arguments ((value :int)))
 
+;; Builtin results stored into a struct the caller gives: a Vector2, a Rect2,
+;; which has nested structs, and a Vector3 from a method with an argument
+(gdext:define-engine-method get-position-into ("Node2D" "get_position") :into t)
+(gdext:define-engine-method get-region-rect-into ("Sprite2D" "get_region_rect") :into t)
+(gdext:define-engine-method to-global-into ("Node3D" "to_global") :into t)
+
 ;; A signal emitter of a simple type, called in one piece of C code
 (gdext:define-signal-emitter emit-pinged-number "pinged" ((number :int)))
 

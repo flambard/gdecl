@@ -105,6 +105,11 @@ can't be checked)."
   ;; NIL for other types. See DEFINE-SIMPLE-VALUE-TYPE.
   (to-raw nil)
   (from-raw nil)
+  ;; For a simple type whose raw value is a pointer, optionally: a function of
+  ;; a form like FROM-RAW, but for the raw value as an integer address, which C
+  ;; code returns without a pointer object being made for it (22 ns and 32
+  ;; bytes), e.g. for an Object result. See RAW-RESULT-CONVERSION.
+  (from-address nil)
   ;; True for StringName and NodePath: an engine method's argument is passed
   ;; as a pointer to one, such as an SNAME, or to a temporary one made from a
   ;; Lisp string (see GD-EXTENSION::TEMPORARY-NAMES-FORM)
@@ -774,13 +779,14 @@ with the type's VARIANT-READER, or through a temporary raw value."
 
 (defmacro define-simple-value-type (variant-type ffi-type
                                     &key reader writer variant-reader variant-writer
-                                         to-raw from-raw default-parser)
+                                         to-raw from-raw from-address default-parser)
   "Define the value type of VARIANT-TYPE, a simple type whose raw value is of
 FFI-TYPE, a C number or pointer: the functions READER and WRITER of the raw
 value at a pointer, VARIANT-READER and VARIANT-WRITER of a Variant, converted
 in one piece of C code, and the value type, whose TO-RAW and FROM-RAW (LAMBDA
 forms, see VALUE-TYPE) make the conversions between the Lisp and the raw value
-here and in the code generators."
+here and in the code generators, and FROM-ADDRESS, optionally, for a pointer
+type."
   (let ((c-type (c-type-name ffi-type))
         (to-raw-function (coerce (eval to-raw) 'function))
         (from-raw-function (coerce (eval from-raw) 'function)))
@@ -800,7 +806,19 @@ here and in the code generators."
                                         :variant-reader ',variant-reader
                                         :variant-writer ',variant-writer
                                         :to-raw ,to-raw :from-raw ,from-raw
+                                        :from-address ,from-address
                                         :default-parser ,default-parser)))))
+
+(defun raw-result-conversion (value-type)
+  "How C code generated for VALUE-TYPE, a simple type (see VALUE-TYPE-FROM-RAW),
+returns a raw value of it to Lisp: the FFI type that C code returns, the C cast
+to put before the raw value, and the function of a form that makes the Lisp
+value from that of the form. With the type's FROM-ADDRESS, if it has one, a
+pointer is returned as an integer, so no pointer object is made for it."
+  (let ((from-address (value-type-from-address value-type)))
+    (if from-address
+        (values :uint64-t "(uint64_t)" from-address)
+        (values (value-type-ffi-type value-type) "" (value-type-from-raw value-type)))))
 
 ;; GDExtensionBool is uint8_t, and Godot's int and float are 64 bits (also
 ;; when a method's metadata says they're smaller)

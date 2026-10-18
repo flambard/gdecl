@@ -71,23 +71,37 @@ static unsigned char gdecl_reference_binding(void *token, void *binding, unsigne
                                  :one-liner t))
              callbacks))))))
 
+(defmacro instance-binding-address (object ffi-type)
+  "The address of the binding of OBJECT, a Godot object pointer of FFI-TYPE
+(:POINTER-VOID, or :UINT64-T for its address), from object_get_instance_binding,
+called with C code that returns it as an integer, so no pointer object is made
+for it; 0 if making the binding failed, which has been reported."
+  `(ffi:c-inline (*object-get-instance-binding* ,object *class-library* (binding-callbacks))
+                 (:pointer-void ,ffi-type :pointer-void :pointer-void) :unsigned-long
+                 "(unsigned long)((void *(*)(void *, void *, const void *))#0)((void *)#1, #2, #3)"
+                 :one-liner t))
+
 (defun lisp-object (godot-object)
   "The Lisp object of GODOT-OBJECT, a Godot object pointer (or its Lisp object):
 for an instance of an extension class, the one its class's constructor made
 (see GD-EXTENSION:REGISTER-CLASS), otherwise a GODOT-OBJECT made the first time.
 The same Godot object always has the same Lisp object."
-  ;; object_get_instance_binding, called with C code that returns the binding
-  ;; as an integer, so no pointer object is made for it
-  (let ((binding (ffi:c-inline (*object-get-instance-binding* (object-pointer godot-object)
-                                *class-library* (binding-callbacks))
-                               (:pointer-void :pointer-void :pointer-void :pointer-void)
-                               :unsigned-long
-                               "(unsigned long)((void *(*)(void *, void *, const void *))#0)(#1, #2, #3)"
-                               :one-liner t)))
+  (let ((binding (instance-binding-address (object-pointer godot-object) :pointer-void)))
     (if (zerop binding)
-        ;; Making the binding failed, which has been reported
         godot-object
         (address-handle-value *bindings* binding))))
+
+(defun address-lisp-object (address)
+  "The Lisp object of the Godot object pointer whose address is ADDRESS, an
+integer, as C code returns it without a pointer object being made for it (see
+LISP-OBJECT), or NIL if it's 0: the FROM-ADDRESS of the Object value type, for
+Object results of engine methods and arguments of bound methods."
+  (if (zerop address)
+      nil
+      (let ((binding (instance-binding-address address :uint64-t)))
+        (if (zerop binding)
+            (address-pointer address)
+            (address-handle-value *bindings* binding)))))
 
 (defun free-bindings ()
   "Free the bindings of the objects that still exist, so that Godot doesn't call
@@ -116,6 +130,7 @@ it's NULL."
   :variant-reader read-lisp-object-variant :variant-writer write-lisp-object-variant
   :to-raw (lambda (form) `(object-pointer ,form))
   :from-raw (lambda (form) `(pointer-lisp-object ,form))
+  :from-address (lambda (form) `(address-lisp-object ,form))
   ;; Only null can be an Object's default value
   :default-parser (lambda (default value-type)
                     (declare (ignore value-type))
