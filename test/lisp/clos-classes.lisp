@@ -175,3 +175,25 @@
    (made :initform (gdext:make-object "TestResource") :initarg :made :export :object
          :class "TestResource" :reader clos-reference-made))
   (:metaclass godot-class))
+
+;;;
+;;; ClosSingleton: an engine singleton, registered as ClosSingletonByName, made
+;;; through INITIALIZE-INSTANCE
+;;;
+
+(defclass clos-singleton (object)
+  ((count :initform 0 :accessor clos-singleton-count)
+   (initialized :initform nil :accessor clos-singleton-initialized-p))
+  (:metaclass godot-class)
+  (:singleton "ClosSingletonByName"))
+
+(defmethod initialize-instance :after ((singleton clos-singleton) &key)
+  (setf (clos-singleton-initialized-p singleton) t))
+
+(define-godot-generic clos-singleton-next (self)
+  (:godot-name "next")
+  (:return-type :int))
+
+(defmethod clos-singleton-next ((singleton clos-singleton))
+  "Count the calls, and return the count."
+  (incf (clos-singleton-count singleton)))

@@ -140,7 +140,7 @@ Class options:
 
 Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, `:string`, `:vector2`, `:rect2`, `:vector3`, `:basis` and `:object` can be arguments and results of methods.
 
-**The entry point.** Your code is loaded when Godot loads the extension, but it can't call Godot yet at that point. To run something once gdecl is set up and your classes are registered, add an initialize hook. `add-deinitialize-hook` adds one for when Godot unloads the extension.
+**The entry point.** Your code is loaded when Godot loads the extension, but it can't call Godot yet at that point. To run something once gdecl is set up and your classes are registered, add an initialize hook. `add-deinitialize-hook` adds one for when Godot unloads the extension. With `godot-clos`, a singleton class can do the same, and keep the application's global state too (see Classes as CLOS classes).
 
 ```lisp
 (gdext:add-initialize-hook 'start)
@@ -165,6 +165,17 @@ Types are keywords named like Godot's variant types: `:bool`, `:int`, `:float`, 
 ```
 
 - The class's name in Godot is the class name in Godot style (`player` is `Player`), or `(:godot-name "Name")`. `(:tool t)` is as in `define-class`.
+- `(:singleton t)` makes one instance and registers it as an engine singleton named like the class, as in `define-class`, so GDScript uses it by name like `Input`; `(:singleton "Name")` gives it another name, and `(gdext:singleton "Name")` is the instance in Lisp. It's made when the class is registered, so an `initialize-instance :after` method is the place for what an application does once at startup, as the classes defined before it are registered by then. The class can't be RefCounted, and isn't inherited by subclasses. An engine singleton isn't in the scene tree, so it gets no `ready` or `process`; for that, make an autoload: a scene whose root node is of a Lisp class, added under Autoload in the project settings.
+
+  ```lisp
+  (defclass game (object)
+    ((score :initform 0 :accessor score))
+    (:metaclass godot-class)
+    (:singleton t))                                  ; Game, by name in GDScript
+
+  (defmethod initialize-instance :after ((game game) &key)
+    (godot-print "Game loaded"))
+  ```
 - The slot options `:export`, `:class` and `:onready` are those of `define-class`; the rest of a slot is plain CLOS (`:initform`, `:initarg`, `:accessor`).
 - The class inherits from the struct of an engine class (`define-engine-class`) or from another `godot-class`, and may have mixins, standard classes, which come first in the superclasses. Its instances are Godot objects that engine methods take as they are, and `(make-instance 'player)` makes one in Godot. An object of a RefCounted class, such as a Resource, comes with a reference, as with `make-object` (see References).
 - A signal emitted often gets a fast emitter with `define-signal-emitter`, next to the class: `(gdext:define-signal-emitter emit-hit "hit" ((damage :int)))` (see Signals).

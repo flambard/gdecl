@@ -48,6 +48,9 @@
 names as strings, as BIND-SIGNAL takes them.")
    (tool :initform nil :reader class-tool-p
          :documentation "True if the class runs in the editor, see REGISTER-CLASS.")
+   (singleton :initform nil :reader class-singleton
+              :documentation "From the :SINGLETON option: T for an engine singleton named like
+the class in Godot, a string for one named so, or NIL.")
    (direct-functions :initform '() :reader class-direct-functions
                      :documentation "The functions Godot calls directly for virtual methods of the
 class, from the :DIRECT-FUNCTIONS option: an alist of (virtual-function-name .
@@ -66,6 +69,7 @@ found when the class is finalized.")
    (registered-methods :initform '() :accessor class-registered-methods)
    (bound-virtuals :initform '() :accessor class-bound-virtuals)
    (registered-notifications :initform '() :accessor class-registered-notifications)
+   (registered-singleton :initform nil :accessor class-registered-singleton)
    ;; The exported slots of RefCounted classes that keep references, whose
    ;; references are given back when Godot frees an instance, and those of the
    ;; classes it inherits from too, with the *REFERENCE-SLOT-CHANGES* they were
@@ -80,6 +84,9 @@ see godot-class.lisp. Class options:
     GDScript, with names as symbols in Lisp style or strings, and types as in
     VARIANT-TYPE
   (:tool t), see REGISTER-CLASS
+  (:singleton t) or (:singleton name), an instance made when the class is
+    registered and registered as the engine singleton with the class's name in
+    Godot or NAME, as in DEFINE-CLASS, see REGISTER-SINGLETON. Not inherited
   (:direct-functions (virtual-function function)...), for dropping down: Godot
     calls FUNCTION, a plain function, by name, for the VIRTUAL-FUNCTION (such
     as PHYSICS-PROCESS) of the class's instances, instead of the generic
@@ -159,9 +166,18 @@ an alist of (virtual-function-name . function-name)."
                             slots first" class-name))
                   (cons virtual-function function))))
 
+(defun parse-singleton (singleton class-name)
+  "SINGLETON, from the :SINGLETON option of the class CLASS-NAME: T, a string, or
+NIL if the option isn't given."
+  (unless (or (member singleton '(nil t)) (stringp singleton))
+    (error "The :SINGLETON of ~s is T or the singleton's name, a string: ~s"
+           class-name singleton))
+  singleton)
+
 (defmethod shared-initialize :after ((class godot-class) slot-names
                                      &key (godot-name nil godot-name-p) (signals nil signals-p)
-                                       (tool nil tool-p) (direct-functions nil direct-functions-p)
+                                       (tool nil tool-p) (singleton nil singleton-p)
+                                       (direct-functions nil direct-functions-p)
                                        (direct-slots nil direct-slots-p)
                                      &allow-other-keys)
   (declare (ignore slot-names direct-slots))
@@ -175,6 +191,8 @@ an alist of (virtual-function-name . function-name)."
     (setf (slot-value class 'signals) (mapcar #'parse-signal signals)))
   (when (or tool-p direct-slots-p)
     (setf (slot-value class 'tool) (first tool)))
+  (when (or singleton-p direct-slots-p)
+    (setf (slot-value class 'singleton) (parse-singleton (first singleton) (class-name class))))
   (when (or direct-functions-p direct-slots-p)
     (setf (slot-value class 'direct-functions)
           (parse-direct-functions direct-functions (class-name class)))))

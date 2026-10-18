@@ -268,6 +268,13 @@ func test_singleton() -> void:
 			"TestSingleton by name and from Engine is the same object")
 
 
+func test_clos_singleton() -> void:
+	check(Engine.has_singleton("ClosSingletonByName"), "ClosSingletonByName is a singleton")
+	var first: int = ClosSingletonByName.next()
+	check(Engine.get_singleton("ClosSingletonByName").next() == first + 1,
+			"ClosSingletonByName by name and from Engine is the same object")
+
+
 func test_references() -> void:
 	var node := TestNode.new()
 	var tests := LispTests.new()

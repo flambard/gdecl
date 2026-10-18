@@ -9,7 +9,8 @@
 ;;; Registering a class registers it with REGISTER-CLASS, and then what it has
 ;;; that Godot needs to know about (UPDATE-GODOT-CLASS): its exported slots as
 ;;; properties, its signals, its methods for GODOT-METHODs, its virtual
-;;; methods, and the notifications it gets. Each is registered on the first
+;;; methods, the notifications it gets, and last, its instance if it's a
+;;; singleton (the :SINGLETON option). Each is registered on the first
 ;;; class that has it, as Godot's subclasses inherit them, except virtual
 ;;; methods, which Godot looks up in the class of the instance only, so each
 ;;; class binds those it implements, inherited ones too, and notifications,
@@ -18,7 +19,8 @@
 ;;; The class is updated again when it's redefined, and all registered classes
 ;;; when a method is added to or removed from a GODOT-FUNCTION, so that what's
 ;;; new at a REPL reaches Godot. Only new things can be added: Godot can't
-;;; unregister methods, properties or signals, or change the class's parent.
+;;; unregister methods, properties or signals, or change the class's parent;
+;;; and a singleton stays until Godot unloads the extension.
 ;;; And Godot asks for a virtual method once per class (TODO J), so one that a
 ;;; class implements only later isn't called. Notifications are filtered in
 ;;; Lisp, so those can also be removed.
@@ -280,6 +282,17 @@ generic function, or its direct function (see CLASS-DIRECT-FUNCTION)."
       (gdext:set-class-notifications (godot-name class) notifications)
       (setf (class-registered-notifications class) notifications))))
 
+(defun register-singleton-instance (class)
+  "Make the instance of CLASS and register it as an engine singleton, if CLASS
+is a singleton (the :SINGLETON option) that isn't registered yet. Its
+INITIALIZE-INSTANCE methods run then, when Godot initializes the extension, so
+with the classes defined before CLASS registered, and Godot can be called."
+  (let ((singleton (class-singleton class)))
+    (when (and singleton (not (class-registered-singleton class)))
+      (let ((name (if (stringp singleton) singleton (godot-name class))))
+        (gdext:register-singleton (godot-name class) name)
+        (setf (class-registered-singleton class) name)))))
+
 (defun update-godot-class (class)
   "Register with Godot what CLASS, a registered GODOT-CLASS, has that isn't
 registered yet."
@@ -288,7 +301,9 @@ registered yet."
   (register-signals class)
   (register-methods class)
   (bind-virtuals class)
-  (update-notifications class))
+  (update-notifications class)
+  ;; Last, as making the instance may use the rest
+  (register-singleton-instance class))
 
 (defmethod initialize-instance :after ((class godot-class) &key)
   (add-class-definition (godot-name class) (lambda () (register-godot-class class))))

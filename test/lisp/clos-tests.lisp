@@ -168,3 +168,15 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
       (node-add-child *root* replaced-node)
       (check (eq replacement (clos-reference-made replaced-node)))
       (check (= 2 (ref-counted-get-reference-count replacement))))))
+
+(deftest clos-singleton
+  ;; Made when the class was registered, through INITIALIZE-INSTANCE, and
+  ;; registered with the name from :SINGLETON
+  (let ((singleton (gdext:singleton "ClosSingletonByName")))
+    (check (typep singleton 'clos-singleton))
+    (check (eq singleton (engine-get-singleton "ClosSingletonByName")))
+    (check (clos-singleton-initialized-p singleton))
+    (check (not (engine-has-singleton "ClosSingleton")))
+    (let ((count (clos-singleton-count singleton)))
+      (object-call singleton "next")
+      (check (eql (1+ count) (clos-singleton-count singleton))))))
