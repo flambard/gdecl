@@ -30,9 +30,10 @@ hook, and the others still run."
 (defun add-initialize-hook (function)
   "Call FUNCTION, a function designator taking no arguments, at the end of
 INITIALIZE, once the framework is set up (see *FRAMEWORK-INITIALIZE*): the
-classes defined with DEFINE-CLASS are registered. Hooks run in the order they
-were added; adding a hook again doesn't run it twice. This is how an application
-registers its entry point: by calling ADD-INITIALIZE-HOOK when it's loaded."
+classes defined with DEFINE-CLASS and GODOT-CLOS are registered. Hooks run in
+the order they were added; adding a hook again doesn't run it twice. This is how
+an application registers its entry point: by calling ADD-INITIALIZE-HOOK when
+it's loaded."
   (setf *initialize-hooks*
         (append (remove function *initialize-hooks*) (list function))))
 
