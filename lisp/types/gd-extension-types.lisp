@@ -708,12 +708,18 @@ VARIANT-FFI-TYPE is :UINT64-T."
   "The variant type of the Variant at ADDRESS, an integer."
   (variant-type-of address :uint64-t))
 
+(defvar *null-value* nil
+  "What a null Variant read as a Lisp value is: NIL, by default, which is also
+false, so null and false can't be told apart; or bind it to :NULL, which
+WRITE-VARIANT writes as null, for values that must come back unchanged, such as
+data from JSON or save files. Objects read as NIL for null either way.")
+
 (defmacro read-simple-variant ((variant variant-ffi-type) variant-type &body otherwise)
   "The value of the Variant at VARIANT, of VARIANT-TYPE (a variable), if it's
 null, a bool, an int or a float, read in one piece of C code; otherwise,
 evaluate OTHERWISE. VARIANT is a pointer, or an address if VARIANT-FFI-TYPE is
 :UINT64-T."
-  `(cond ((= ,variant-type +variant-type-nil+) nil)
+  `(cond ((= ,variant-type +variant-type-nil+) *null-value*)
          ((= ,variant-type +variant-type-bool+)
           (/= 0 (raw-from-variant ,variant +variant-type-bool+ :uint8-t "uint8_t"
                                   ,variant-ffi-type)))

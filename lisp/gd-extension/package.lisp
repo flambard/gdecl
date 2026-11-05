@@ -76,6 +76,7 @@
            #:+godot-object-pointer-location+
            #:object-pointer
            #:valid-object-p
+           #:*null-value*
            ;; Making and freeing objects
            #:make-object
            #:free-object

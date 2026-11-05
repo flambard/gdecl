@@ -549,6 +549,22 @@ types of Godot objects.")
         (loop while (> (ref-counted-get-reference-count resource) 1)
               do (gdext:release-reference resource))))))
 
+(deftest null-and-false
+  ;; A null Variant reads as *NULL-VALUE*: NIL by default, like false, or :NULL,
+  ;; which WRITE-VARIANT writes as null, so values come back unchanged, nested
+  ;; and as Dictionary keys too
+  (let ((table (make-hash-table :test #'equal)))
+    (setf (gethash :null table) 1
+          (gethash nil table) 2)
+    (check (equalp #(nil nil) (type-convert (vector :null nil) +type-array+)))
+    (let ((gdext:*null-value* :null))
+      (check (equalp #(:null nil #(:null))
+                     (type-convert (vector :null nil (vector :null)) +type-array+)))
+      (let ((read (type-convert table +type-dictionary+)))
+        (check (= 2 (hash-table-count read)))
+        (check (eql 1 (gethash :null read)))
+        (check (eql 2 (gethash nil read)))))))
+
 (deftest argument-conversion-errors
   ;; If an argument can't be converted, the raw values of those converted
   ;; before it are destroyed: here a Variant with a reference to a RefCounted

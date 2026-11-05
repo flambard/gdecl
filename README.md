@@ -306,7 +306,7 @@ Values are converted between Godot and Lisp like this:
 
 | Godot | Lisp |
 |---|---|
-| null | `nil` (as a Variant, write `:null`, since `nil` is false) |
+| null | `nil`, or `:null` with `gdext:*null-value*` bound to it (as a Variant, write `:null`, since `nil` is false) |
 | bool, int (also enums), float | `t`/`nil`, integers, floats |
 | String | strings |
 | StringName, NodePath | strings (see StringNames and NodePaths) |
@@ -319,6 +319,8 @@ Values are converted between Godot and Lisp like this:
 | Other packed arrays, and Arrays (also typed) | simple vectors |
 | Dictionary | an `equal` hash table |
 | Variant | converted by its type, as above |
+
+So by default a null Variant and false both read as `nil`, which suits game code that tests whether it got something. For values that must come back to Godot unchanged, such as data from JSON or a save file, bind `gdext:*null-value*` to `:null`: `(let ((gdext:*null-value* :null)) (object-call json "get_data"))` reads `[null, false]` as `#(:null nil)`, and a Dictionary keeps its `null` and `false` keys apart.
 
 The builtin structs are Vector2, Vector2i, Vector3, Vector3i, Vector4, Vector4i, Rect2, Rect2i, Color, Plane, Quaternion, AABB, Basis, Transform2D, Transform3D and Projection, each named like its type in Lisp style.
 

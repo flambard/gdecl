@@ -160,6 +160,7 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            #:variant-value-p
            #:lisp-variant-type
            #:read-variant
+           #:*null-value*
            #:read-variant-at
            #:variant-type-at
            #:raw-from-variant
