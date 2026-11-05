@@ -72,6 +72,17 @@ compiled."
   ;; The default value, a string in GDScript syntax, or NIL if it has none
   default-value)
 
+(defstruct (api-property (:copier nil))
+  "A property of an engine class."
+  ;; The name, a string, such as "position"
+  name
+  ;; The names of the methods that set and get it, or NIL
+  setter
+  getter
+  ;; True if the getter and setter take an index, as for properties that share
+  ;; them, such as Control's anchors
+  indexed-p)
+
 (defstruct (api-method (:copier nil))
   "A method of an engine or builtin class, or a utility function."
   ;; The name, a string, such as "get_node"
@@ -102,6 +113,8 @@ compiled."
   ref-counted-p
   ;; The API-METHODs the class itself defines, not those it inherits
   methods
+  ;; The API-PROPERTYs the class itself defines
+  properties
   ;; The API-ENUMs
   enums
   ;; (name . value) for each of its constants
@@ -146,6 +159,12 @@ builtin classes and utility functions in return_type."
                   :parent-name (json-get class "inherits")
                   :ref-counted-p (json-get class "is_refcounted")
                   :methods (mapcar #'read-api-method (json-get class "methods"))
+                  :properties (loop for property in (json-get class "properties")
+                                    collect (make-api-property
+                                             :name (json-get property "name")
+                                             :setter (json-get property "setter")
+                                             :getter (json-get property "getter")
+                                             :indexed-p (and (json-get property "index") t)))
                   :enums (mapcar #'read-api-enum (json-get class "enums"))
                   :constants (read-named-values (json-get class "constants"))))
 

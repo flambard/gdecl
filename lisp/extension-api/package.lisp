@@ -30,6 +30,12 @@ library loaded into Godot never reads it.")
            #:api-class-name
            #:api-class-parent-name
            #:api-class-methods
+           #:api-class-properties
+           #:api-property
+           #:api-property-name
+           #:api-property-setter
+           #:api-property-getter
+           #:api-property-indexed-p
            #:api-class-enums
            #:api-class-constants
            #:api-class-names

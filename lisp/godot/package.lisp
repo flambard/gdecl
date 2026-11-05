@@ -34,14 +34,22 @@ engine classes, named <class>-<method>, e.g. NODE-GET-NODE. DEFINE-ENGINE-CLASS
 defines the functions and exports them from here, both for the classes gdecl
 defines (godot-engine-classes.lisp) and those applications define. And
 AFTER-SIGNAL, for what GDScript does with await (signals.lisp), and $, for
-$Path (nodes.lisp).")
+$Path (nodes.lisp). And short names of engine methods and properties, such as
+HIDE and POSITION, see Short names in engine-api.lisp; POSITION, GET and SET
+shadow Common Lisp's, and DEFINE-GODOT-PACKAGE makes a package that uses
+GODOT get them (short-names.lisp).")
   (:nicknames #:gd)
   (:use #:cl #:gd-extension-builtins)
+  (:shadow #:position #:get #:set)
   (:import-from #:godot-generators
                 #:define-engine-class)
   (:export #:define-engine-class
            #:after-signal
-           #:$)
+           #:$
+           #:define-godot-package
+           #:position
+           #:get
+           #:set)
   ;; Everything GD-EXTENSION-BUILTINS exports, computed when this is read
   #.`(:export ,@(let ((names '()))
                   (do-external-symbols (symbol '#:gd-extension-builtins names)

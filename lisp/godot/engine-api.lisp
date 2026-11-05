@@ -9,6 +9,8 @@
 ;;;; (ENGINE-METHOD-DEFUN, engine-methods.lisp), which needs it for its own
 ;;;; engine methods, and the structs of engine objects are registered there too
 ;;;; (engine-objects.lisp), since the layers below use them at run time.
+;;;;
+;;;; DEFINE-ENGINE-CLASS also defines short names, see Short names below.
 
 (in-package :godot-generators)
 
@@ -80,6 +82,208 @@ gd-extension/."
                   (setf (gethash ,class-name *engine-object-types*) ',type))
                 (register-engine-object-type ,class-name #',constructor))))))
 
+;;;
+;;; Short names: engine methods and property accessors without the class in
+;;; their names, (hide label) and (setf (position mob) v), defined in GODOT for
+;;; the classes DEFINE-ENGINE-CLASS defines. Each is a function, for FUNCALL and
+;;; the like, and a compiler macro that calls the class's own function, after
+;;; a TYPECASE on the struct of the object for the classes that define the
+;;; name, so that a compiled call costs a type test or a few more than that
+;;; function, and literal names given to it are still made once
+;;; (WRAP-LITERAL-NAMES). A property's getter and setter get no short name of
+;;; their own, its accessor is enough; nor do static methods and those of
+;;; singleton classes, as (input-is-action-pressed "jump") has no object to
+;;; dispatch on, nor names that GODOT's users already have: those of Common
+;;; Lisp, except the few GODOT shadows (package.lisp), of the utility
+;;; functions, and *RESERVED-SHORT-NAMES*.
+;;;
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar *short-names* (make-hash-table :test #'equal)
+    "The short names defined so far, also when the code is compiled: by function
+name, a symbol in GODOT or (SETF symbol), a list of (class-name type function
+min max depth), the most specific classes first, where TYPE is the struct of the
+class's objects, FUNCTION the class's own function, MIN and MAX the numbers of
+arguments it takes after the object, MAX NIL for any, and DEPTH how many classes
+the class is from Object.")
+
+  (defparameter *reserved-short-names* '("NOTIFICATION" "DRAW")
+    "Names that get no short name, as GODOT-CLOS exports them for virtual methods,
+and applications use it with GODOT.")
+
+  (defvar *utility-function-names* nil
+    "The names in Lisp style of the utility functions, which GODOT-UTILITY has.")
+
+  (defun short-name-allowed-p (string)
+    "True if the short name STRING (in Lisp style) can be defined in GODOT."
+    (let ((symbol (find-symbol string :godot)))
+      (unless *utility-function-names*
+        (setf *utility-function-names*
+              (mapcar (lambda (function) (lisp-style-method-name (api-method-name function)))
+                      (api-utility-functions))))
+      (not (or (member string *reserved-short-names* :test #'string=)
+               (member string *utility-function-names* :test #'string=)
+               (and symbol (eq (symbol-package symbol) (find-package :common-lisp)))
+               ;; Something else already defines it, such as a builtin type's
+               ;; function
+               (and symbol (fboundp symbol)
+                    (not (gethash symbol *short-names*))
+                    (not (gethash (list 'setf symbol) *short-names*)))))))
+
+  (defun defun-lambda-list (form name)
+    "The lambda list of the DEFUN of NAME in FORM, or NIL."
+    (cond ((atom form) nil)
+          ((and (eq (first form) 'defun) (eq (second form) name)) (third form))
+          (t (loop for tail on form thereis (defun-lambda-list (car tail) name)))))
+
+  (defun arguments-after-object (lambda-list)
+    "The least and most numbers of arguments that LAMBDA-LIST takes after the
+first, the object; the most is NIL for any."
+    (let ((min 0) (optional 0) (state :required))
+      (dolist (item (rest lambda-list) (values min (+ min optional)))
+        (case item
+          (&optional (setf state :optional))
+          (&rest (return (values min nil)))
+          (t (if (eq state :required) (incf min) (incf optional)))))))
+
+  (defun class-depth (class-name)
+    "How many classes CLASS-NAME is from Object, which is 1."
+    (loop for name = class-name then (api-class-parent-name (api-class name))
+          while name
+          count t))
+
+  (defun class-short-names (class defined)
+    "The short names of CLASS, an API-CLASS, as a list of (name . entry), see
+*SHORT-NAMES*. DEFINED has the functions defined for its methods, as a list of
+\(method-name function lambda-list)."
+    (unless (api-singleton (api-class-name class))
+      (let* ((class-name (api-class-name class))
+             (type (engine-object-type-name class-name))
+             (depth (class-depth class-name))
+             (accessors '())
+             (short-names '()))
+        ;; COUNT is the number of arguments after the object that a property's
+        ;; getter (0) or setter (1) must take, or NIL for a method
+        (flet ((add (name method-name count &optional setf-p)
+                 (let ((defined (assoc method-name defined :test #'equal))
+                       (string (lisp-style-method-name name)))
+                   (when (and defined (short-name-allowed-p string))
+                     (destructuring-bind (function lambda-list) (rest defined)
+                       (multiple-value-bind (min max) (arguments-after-object lambda-list)
+                         (when (or (null count)
+                                   (and (<= min count) (or (null max) (<= count max))))
+                           (let ((symbol (intern string :godot)))
+                             (push (list (if setf-p (list 'setf symbol) symbol)
+                                         class-name type function min max depth)
+                                   short-names)))))))))
+          (dolist (property (api-class-properties class))
+            (unless (api-property-indexed-p property)
+              (push (api-property-getter property) accessors)
+              (push (api-property-setter property) accessors)
+              (add (api-property-name property) (api-property-getter property) 0)
+              (add (api-property-name property) (api-property-setter property) 1 t)))
+          (dolist (method (api-class-methods class))
+            (unless (or (api-method-static-p method)
+                        (member (api-method-name method) accessors :test #'equal))
+              (add (api-method-name method) (api-method-name method) nil))))
+        (reverse short-names))))
+
+  (defun register-short-names (class-name short-names)
+    "Add the SHORT-NAMES of the class CLASS-NAME (see CLASS-SHORT-NAMES) to
+*SHORT-NAMES*, replacing those it had."
+    (loop for (name . entry) in short-names
+          do (setf (gethash name *short-names*)
+                   (sort (cons entry (remove class-name (gethash name *short-names*)
+                                             :key #'first :test #'equal))
+                         #'> :key #'sixth))))
+
+  (defun short-name-entries (name count)
+    "The entries of the short name NAME (see *SHORT-NAMES*) whose functions take
+COUNT arguments after the object."
+    (remove-if-not (lambda (entry)
+                     (destructuring-bind (min max) (subseq entry 3 5)
+                       (and (<= min count) (or (null max) (<= count max)))))
+                   (gethash name *short-names*)))
+
+  (defun short-name-call (name form arguments)
+    "The expansion of the compiler macro of the short name NAME for FORM, a call
+with ARGUMENTS: (object . more), or for a setf function (value object). The
+arguments are evaluated once, in their order; literal ones stay in the call, so
+that the class's function makes literal names once. FORM itself if no class's
+function takes that many arguments, so the function signals the error."
+    (let* ((setf-p (consp name))
+           (entries (short-name-entries name (if setf-p 1 (1- (length arguments))))))
+      (if (null entries)
+          form
+          (let* ((bindings (loop for argument in arguments
+                                 collect (cons argument (unless (constantp argument)
+                                                          (gensym "ARGUMENT")))))
+                 (values (loop for (argument . variable) in bindings
+                               collect (or variable argument)))
+                 (object (if setf-p (second values) (first values)))
+                 (more (if setf-p (list (first values)) (rest values))))
+            `(let ,(loop for (argument . variable) in bindings
+                         when variable collect (list variable argument))
+               (typecase ,object
+                 ,@(loop for (nil type function) in entries
+                         collect `(,type ,(if setf-p
+                                              `(progn (,function ,object ,@more) ,(first more))
+                                              `(,function ,object ,@more))))
+                 (t (godot::no-engine-method ',name ,object))))))))
+
+  (defun short-name-compiler-macro (form environment)
+    "The compiler macro of every short name: SHORT-NAME-CALL for FORM, a call of
+the short name, or a FUNCALL of it, as a SETF of an accessor expands to."
+    (declare (ignore environment))
+    (if (eq (first form) 'funcall)
+        (short-name-call (second (second form)) form (cddr form))
+        (short-name-call (first form) form (rest form))))
+
+  (defun short-name-function (name object)
+    "The function of the class of OBJECT for the short name NAME."
+    (loop for (nil type function) in (gethash name *short-names*)
+          when (si::structure-subtype-p object type)
+            return function
+          finally (godot::no-engine-method name object)))
+
+  (defun make-short-name-function (name)
+    "The function of the short name NAME, which finds the class's function when
+it's called."
+    (if (consp name)
+        (lambda (value object)
+          (funcall (short-name-function name object) object value)
+          value)
+        (lambda (object &rest arguments)
+          (apply (short-name-function name object) object arguments))))
+
+  (defun short-name-redefined-p (name)
+    "True if the short name NAME is defined, but not by DEFINE-SHORT-NAMES."
+    (and (fboundp name)
+         (not (eq (fdefinition name)
+                  (if (consp name)
+                      (get (second name) 'short-name-setf-function)
+                      (get name 'short-name-function)))))))
+
+(defmacro define-short-names (&rest names)
+  "Define the short names NAMES, see *SHORT-NAMES*: each a function, which finds
+the class's function when it's called, as it's only for FUNCALL and the like,
+and a compiler macro, which finds it when the call is compiled. Both are made
+by functions that make them, rather than compiled for each name: that took
+about 1.7 KB of the library a name (measured with the 17 classes of the game: a
+library of 12.4 MB instead of 9.7 MB)."
+  `(progn
+     ,@(loop for name in names
+             for setf-p = (consp name)
+             for symbol = (if setf-p (second name) name)
+             collect `(when (short-name-redefined-p ',name)
+                        (error "~s is defined, but GODOT defines it for the engine classes. ~
+                                Shadow it in the package that defines it, with (:shadow ~s)."
+                               ',name ',symbol))
+             collect `(setf (fdefinition ',name) (make-short-name-function ',name)
+                            (get ',symbol ',(if setf-p 'short-name-setf-function 'short-name-function))
+                            (fdefinition ',name)
+                            (compiler-macro-function ',name) #'short-name-compiler-macro))))
+
 (defmacro define-engine-class (class-name)
   "Define a function for each method of the engine class CLASS-NAME (a string)
 that DEFINE-ENGINE-METHOD can call, named after the class and the method in
@@ -102,7 +306,9 @@ application defines the others it uses, and they're added to GODOT too."
          ;; The functions' names, and their arguments' names, are in GODOT
          (*package* (find-package :godot))
          (names '())
-         (forms '()))
+         (forms '())
+         ;; (method-name function lambda-list), for the short names
+         (defined '()))
     (dolist (method (api-class-methods class))
       (let ((method-name (api-method-name method)))
         (unless (api-method-virtual-p method)
@@ -112,12 +318,22 @@ application defines the others it uses, and they're added to GODOT too."
                          (unsupported-api-type () nil))))
             (when form
               (push name names)
-              (push form forms))))))
-    (multiple-value-bind (constant-names constant-forms) (class-constant-defconstants class)
-      (multiple-value-bind (type-names type-forms) (engine-object-type-form class-name class)
-        (exporting-progn :godot (append type-names constant-names (reverse names))
-                         (append type-forms constant-forms (reverse forms))
-                         `',class-name)))))
+              (push form forms)
+              (push (list method-name name (defun-lambda-list form name)) defined))))))
+    (let* ((short-names (class-short-names class defined))
+           (short-functions (remove-duplicates (mapcar #'first short-names) :test #'equal)))
+      (multiple-value-bind (constant-names constant-forms) (class-constant-defconstants class)
+        (multiple-value-bind (type-names type-forms) (engine-object-type-form class-name class)
+          (exporting-progn :godot (append type-names constant-names (reverse names)
+                                          (remove-duplicates
+                                           (mapcar (lambda (name) (if (consp name) (second name) name))
+                                                   short-functions)))
+                           (append type-forms constant-forms (reverse forms)
+                                   (when short-names
+                                     `((eval-when (:compile-toplevel :load-toplevel :execute)
+                                         (register-short-names ,class-name ',short-names))
+                                       (define-short-names ,@short-functions))))
+                           `',class-name))))))
 
 (defmacro define-global-enums ()
   "Define a constant for each value of Godot's global enums (such as Error, Key

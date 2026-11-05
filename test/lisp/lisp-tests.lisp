@@ -165,6 +165,45 @@ types of Godot objects.")
                    (handler-case (progn (node-get-child-count node) "no error")
                      (error (e) (princ-to-string e)))))))
 
+(deftest short-names
+  ;; Engine methods and property accessors without the class in their names,
+  ;; for the classes that define them
+  (let ((node-2d (new-node "Node2D"))
+        (node-3d (new-node "Node3D"))
+        (test-node (new-test-node))
+        (node (new-node "Node")))
+    ;; Accessors, also for a name that several classes define
+    (check (equalp (vector2 3.0 4.0) (setf (position node-2d) (vector2 3.0 4.0))))
+    (check (equalp (vector2 3.0 4.0) (position node-2d)))
+    (setf (position node-3d) (vector3 1.0 2.0 3.0))
+    (check (equalp (vector3 1.0 2.0 3.0) (position node-3d)))
+    ;; Methods, the same
+    (hide node-2d)
+    (hide node-3d)
+    (check (not (or (visible node-2d) (visible node-3d))))
+    (show node-2d)
+    (check (visible node-2d))
+    (check (same-object-p (node-get-node test-node "Child") (get-node test-node "Child")))
+    ;; GET and SET are Object's, shadowing Common Lisp's
+    (set test-node 'count 5)
+    (check (= 5 (get test-node 'count)))
+    ;; An object whose class has no such method, or not with these arguments
+    (check (search "has no engine method"
+                   (handler-case (progn (position node) "no error")
+                     (error (e) (princ-to-string e)))))
+    (check (handler-case (progn (hide node-2d 1 2 3) nil)
+             (error () t)))
+    ;; As functions
+    (check (equalp (vector2 3.0 4.0) (funcall #'position node-2d)))
+    (funcall #'(setf position) (vector2 5.0 6.0) node-2d)
+    (check (equalp (vector2 5.0 6.0) (position node-2d)))
+    ;; Redefining one is noticed, by the check at startup
+    (let ((hide #'hide))
+      (setf (fdefinition 'hide) (lambda (object) object))
+      (check (godot-generators::short-name-redefined-p 'hide))
+      (setf (fdefinition 'hide) hide)
+      (check (not (godot-generators::short-name-redefined-p 'hide))))))
+
 (deftest dollar-paths
   ;; ($ node "Path") is $Path in GDScript, relative to NODE
   (let ((node (new-test-node)))

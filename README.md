@@ -10,7 +10,7 @@ gdecl lets you program [Godot](https://godotengine.org) 4 games in Common Lisp. 
   (:signals (hit)))                                  ; signal hit
 
 (defmethod ready ((player player))                   ; func _ready():
-  (canvas-item-hide player))                         ;     hide()
+  (hide player))                                     ;     hide()
 
 (defmethod process ((player player) delta)           ; func _process(delta):
   (when (input-is-action-pressed "move_right")
@@ -53,10 +53,10 @@ my-app/
                (:file "my-app" :depends-on ("packages"))))
 ```
 
-**The package** uses Godot's API and `godot-clos`, gdecl's way of defining classes:
+**The package** uses Godot's API and `godot-clos`, gdecl's way of defining classes. Define it with `godot:define-godot-package`, a `defpackage` that also gives it the few names `godot` shadows in Common Lisp (`position`, `get` and `set`, see Calling Godot):
 
 ```lisp
-(defpackage #:my-app
+(godot:define-godot-package #:my-app
   (:use #:cl #:godot #:godot-utility #:godot-clos))
 ```
 
@@ -282,20 +282,26 @@ Slots have the options of `godot-clos` slots, and also `:setter function`, like 
 
 ## Calling Godot
 
-Engine methods are functions in `godot`, named `<class>-<method>`, with the object first:
+Engine methods are functions in `godot`, with the object first, and properties are accessors:
 
 ```lisp
-($ main "HUD")                               ; $HUD, short for (node-get-node main "HUD")
-(canvas-item-hide player)                    ; hide()
-(node-2d-set-position player (vector2 100.0 200.0))
-(timer-start timer)
+($ main "HUD")                               ; $HUD, short for (get-node main "HUD")
+(hide player)                                ; hide()
+(setf (position player) (vector2 100.0 200.0)) ; position = Vector2(100, 200)
+(position player)                            ; position
+(start timer)                                ; start()
 (input-is-action-pressed "ui_up")            ; Input is a singleton: no object
 ```
 
-- **The class in the name is the one that defines the method**, not one that inherits it: a Sprite2D's position is `node-2d-get-position`.
-- **Add the engine classes you use** with `(define-engine-class "AnimatedSprite2D")`. gdecl defines only Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene. Every method adds to build time and library size, so add only what you use, and add a class after the classes it inherits from.
+- **A name works for every class that has it**: `(position node)` is a Node2D's or a Node3D's position, whichever `node` is, and `(hide node)` works on both too. A compiled call tests the object's class, about 20 ns a test, and calls that class's method; an object whose class has no such method signals an error.
+- **A property's getter and setter have no short names of their own**: use its accessor, `(setf (visible node) nil)` rather than `set_visible`.
+- **Every method also has a function named `<class>-<method>`,** after the class that defines it: a Sprite2D's position is `node-2d-get-position`. It costs nothing more than the call into Godot, and doesn't test the object's class, so it's for hot code, and for the methods without a short name:
+  - Those of singletons, such as Input's, and static methods: `(input-is-action-pressed "jump")`.
+  - Those named like a symbol of Common Lisp (`length`, `loop`, `format`, …), except `position`, `get` and `set`, which `godot` shadows, so that a package using it writes `cl:position` for Common Lisp's; those named like a utility function (`randf`, `seed`, …) or `godot-clos`'s `notification` and `draw`; and those named like something else `godot` has, such as the builtin type `basis`: `(node-3d-set-basis pivot b)`, not `(setf (basis pivot) b)`.
+- **If your code defines a function with a short name,** say `start`, it would redefine Godot's, so gdecl reports an error at startup: shadow it in your package, `(:shadow #:start)` among the options of `define-godot-package`.
+- **Add the engine classes you use** with `(define-engine-class "AnimatedSprite2D")`. gdecl defines only Object, RefCounted, Resource, Node, CanvasItem, Node2D, Node3D, SceneTree, Input, Timer and PackedScene. Every method adds to build time and library size, so add only what you use; add a class after the classes it inherits from, and before the code that uses its short names, which covers the classes defined so far.
 - **Arguments** are named as in Godot. Those with a default value are optional, when the default can be written in Lisp. Static methods and methods of singletons, such as Input's, take no object.
-- **Vararg methods**, such as `emit_signal` and `call_group`, take any number of further arguments, converted by their Lisp types: `(object-emit-signal player "hit" damage)`.
+- **Vararg methods**, such as `emit_signal` and `call_group`, take any number of further arguments, converted by their Lisp types: `(emit-signal player 'hit damage)`.
 - **Enums and constants** are Lisp constants: `Node.PROCESS_MODE_ALWAYS` is `+node-process-mode-always+`, `OK` is `+ok+`, `KEY_ESCAPE` is `+key-escape+`.
 - **Utility functions**, GDScript's global functions, are in `godot-utility`: `(randf-range 150.0 250.0)`, `(push-error "no mob scene")`, `(is-instance-valid node)`. Those Lisp already has (`sin`, `abs`, `min`, …) are left out. `print` is `godot-print`, since it prints to Godot's output.
 
@@ -367,12 +373,12 @@ To make your own, `(gdext:sname "move_right")` is a StringName created once, lik
 
 ## Signals
 
-Declare a class's signals with `:signals`, and emit one with `object-emit-signal`, naming the signal as you declared it, quoted, or as a string in Godot style:
+Declare a class's signals with `:signals`, and emit one with `emit-signal`, naming the signal as you declared it, quoted, or as a string in Godot style:
 
 ```lisp
-(object-emit-signal player 'hit)
-(object-emit-signal player 'damaged 5)
-(object-emit-signal player "damaged" 5)      ; the same
+(emit-signal player 'hit)
+(emit-signal player 'damaged 5)
+(emit-signal player "damaged" 5)             ; the same
 ```
 
 For a signal emitted often, define an emitter. It knows the argument types when your code is compiled, so it's about twice as fast and allocates nothing:
@@ -392,7 +398,7 @@ Connect a signal to a Lisp function with `gdext:connect-signal`. `after-signal` 
 
 ;; await $MessageTimer.timeout
 (after-signal (($ hud "MessageTimer") "timeout" :target hud)
-  (canvas-item-show ($ hud "StartButton")))
+  (show ($ hud "StartButton")))
 ```
 
 A connection belongs to a target object, by default the one emitting the signal, and goes away when that object is freed.
