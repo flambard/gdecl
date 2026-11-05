@@ -205,12 +205,33 @@ sequence VALUE." class-name)
 ;;; each element converted as a Variant
 ;;;
 
+(defvar *ref-counted-type* nil
+  "The struct of RefCounted objects, which GODOT defines after this file is
+loaded, so it's looked up the first time it's needed.")
+
+(defun read-element (variant)
+  "The value of the Variant at VARIANT, an element of a container being read. A
+RefCounted object comes with a reference, as from READ-VARIANT-RESULT, as the
+container may be its only owner and is destroyed once it's read. Other objects
+don't, so that reading an Array of nodes costs little more (measured: 100
+children 27 us against 24 us without references; a Variant copy for every
+object made it 65 us)."
+  (let ((value (read-variant variant)))
+    ;; What TYPEP compiles into for a constant struct type: a TYPEP of a type
+    ;; known only at runtime took 240 ns, this about 12 ns (measured)
+    (when (si::structure-subtype-p
+           value (or *ref-counted-type*
+                     (setf *ref-counted-type* (gethash "RefCounted" *engine-object-types*))))
+      (autorelease-variant variant value))
+    value))
+
 (defun read-array (pointer)
-  "The Array at POINTER as a simple vector."
+  "The Array at POINTER as a simple vector. RefCounted elements come with a
+reference (READ-ELEMENT)."
   (let* ((size (builtin-size "Array" pointer))
          (vector (make-array size)))
     (dotimes (i size)
-      (setf (svref vector i) (read-variant (array-operator-index pointer i))))
+      (setf (svref vector i) (read-element (array-operator-index pointer i))))
     vector))
 
 (defun write-array (pointer value)
@@ -234,7 +255,8 @@ sequence VALUE." class-name)
                                  :default-parser 'parse-empty-array-default))
 
 (defun read-dictionary (pointer)
-  "The Dictionary at POINTER as an EQUAL hash table."
+  "The Dictionary at POINTER as an EQUAL hash table. RefCounted keys and values
+come with a reference (READ-ELEMENT)."
   (let ((table (make-hash-table :test #'equal)))
     (with-foreign-memory ((keys 'godot-array))
       ;; Godot assigns the result, so it must be empty
@@ -244,8 +266,8 @@ sequence VALUE." class-name)
       (unwind-protect
            (dotimes (i (builtin-size "Array" keys))
              (let ((key (array-operator-index keys i)))
-               (setf (gethash (read-variant key) table)
-                     (read-variant (dictionary-operator-index pointer key)))))
+               (setf (gethash (read-element key) table)
+                     (read-element (dictionary-operator-index pointer key)))))
         (array-destructor keys)))
     table))
 

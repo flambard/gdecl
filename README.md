@@ -413,7 +413,7 @@ A Signal value is an `engine-signal`: an object and a signal name (`engine-signa
 
 ## References
 
-An engine method that returns a RefCounted object, such as a Resource, returns it with a reference, like a `Ref<T>` in C++.
+An engine method that returns a RefCounted object, such as a Resource, returns it with a reference, like a `Ref<T>` in C++. So do the RefCounted objects in an Array or Dictionary that a call returns, nested ones too.
 
 - **In code that Godot calls** (your methods, signal handlers, startup code), you don't need to do anything. The reference is given back when the call returns.
 - **To keep the object longer**, for example in a slot, take a reference of your own with `setf-reference`, which works like assigning a `Ref<T>`: `(gdext:setf-reference (main-mob-scene main) scene)`.

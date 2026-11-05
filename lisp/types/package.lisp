@@ -170,6 +170,7 @@ Variants. The Lisp versions of the builtin types are in GD-EXTENSION-BUILTINS.")
            ;; The autorelease pool
            #:*release-reference-function*
            #:autorelease-reference
+           #:autorelease-variant
            #:autorelease-callable
            #:release-engine-callable
            #:release-autoreleased

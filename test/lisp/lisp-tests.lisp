@@ -513,6 +513,21 @@ types of Godot objects.")
   (let ((node (new-node "Node")))
     (check (same-object-p node (object-call *root* "get_child" (node-get-index node))))))
 
+(deftest refcounted-objects-in-container-results
+  ;; A RefCounted object in an Array or Dictionary result, nested too, comes
+  ;; with a reference in the autorelease pool, as the container may be its only
+  ;; owner and is destroyed once it's read. Each has only that reference, so the
+  ;; pool frees it, which the leak check at exit sees.
+  (let* ((result (object-call (new-node "LispTests") "new_resources_in_containers"))
+         (table (aref result 2))
+         (resources (list (aref result 0)
+                          (aref (aref result 1) 0)
+                          (loop for key being the hash-keys of table return key)
+                          (loop for value being the hash-values of table return value))))
+    (check (= 4 (count-if #'gdext:valid-object-p resources)))
+    (check (every (lambda (resource) (= 1 (ref-counted-get-reference-count resource)))
+                  resources))))
+
 (deftest argument-conversion-errors
   ;; If an argument can't be converted, the raw values of those converted
   ;; before it are destroyed: here a Variant with a reference to a RefCounted

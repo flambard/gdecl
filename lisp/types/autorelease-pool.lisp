@@ -108,24 +108,30 @@ there's no need to ask Godot whether OBJECT is RefCounted."
       (call-variant-from-type-constructor
        (aref *variant-from-type-constructors* +variant-type-object+) variant raw))))
 
+(defun autorelease-variant (variant object)
+  "Keep the reference that the Object Variant at VARIANT has to OBJECT, its value,
+if it's a RefCounted: a copy of the Variant goes into the autorelease pool, or
+without one, the caller gives the reference back with
+GD-EXTENSION:RELEASE-REFERENCE. Copying the Variant needs no asking Godot whether
+OBJECT is RefCounted: a Variant with any other object has no reference to give
+back."
+  (if (autorelease-pool-p)
+      (let ((copy (mem-alloc +variant-size+)))
+        (variant-new-copy copy variant)
+        (push (list :variant copy (ffi:pointer-address (object-pointer object)))
+              *autorelease-pool*))
+      ;; Never destroyed
+      (with-foreign-memory ((copy 'variant))
+        (variant-new-copy copy variant))))
+
 (defun read-variant-result (variant)
   "The value of the Variant at VARIANT, the result of a call, as a Lisp value, as
 in READ-VARIANT. If it's an Object, the caller gets the reference the Variant
-has to it, if it's a RefCounted: like the RefCounted result of an engine method
-(a Ref<T>), it goes into the autorelease pool, or without one, the caller gives
-it back with GD-EXTENSION:RELEASE-REFERENCE. The caller destroys the Variant as
+has to it, if it's a RefCounted (AUTORELEASE-VARIANT), like the RefCounted
+result of an engine method (a Ref<T>). The caller destroys the Variant as
 usual."
   (let ((value (read-variant variant)))
-    ;; A copy of the Variant keeps the reference, without asking Godot whether
-    ;; the object is RefCounted: a Variant with any other object has no
-    ;; reference to give back
-    (when (and value (= (variant-get-type variant) +variant-type-object+))
-      (if (autorelease-pool-p)
-          (let ((copy (mem-alloc +variant-size+)))
-            (variant-new-copy copy variant)
-            (push (list :variant copy (ffi:pointer-address (object-pointer value)))
-                  *autorelease-pool*))
-          ;; Never destroyed
-          (with-foreign-memory ((copy 'variant))
-            (variant-new-copy copy variant))))
+    ;; Only an Object Variant reads as a GODOT-OBJECT
+    (when (godot-object-p value)
+      (autorelease-variant variant value))
     value))
