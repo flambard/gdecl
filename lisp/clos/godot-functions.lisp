@@ -167,6 +167,7 @@ OPTIONS are those of DEFGENERIC, and:
   (let ((godot-name (or (second (assoc :godot-name options)) (godot-style-name name)))
         (return-type (or (second (assoc :return-type options)) :nil)))
     `(progn
+       (check-godot-method-signature ',name ,return-type (list ,@(mapcar #'second arguments)))
        (defgeneric ,name (,self ,@(mapcar #'first arguments))
          (:generic-function-class godot-method)
          ,@(remove-if (lambda (option) (member (first option) '(:godot-name :return-type)))

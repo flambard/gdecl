@@ -86,7 +86,22 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
                                  (b :initform 2 :export :int :accessor clos-redefined-b))
                                 (:metaclass godot-class)))))
       (check (= 5 (clos-redefined-a node)))
-      (check (= 5 (object-get node "a"))))))
+      (check (= 5 (object-get node "a")))
+      ;; Nor can it change the signature of a method it has, also when the
+      ;; Lisp lambda list stays the same
+      (check (search "can't change the return type or the arguments"
+                     (refusal '(define-godot-generic late-value (self (x :int))
+                                (:return-type :int)))))
+      (check (search "can't change the return type or the arguments"
+                     (refusal '(define-godot-generic late-value (self)
+                                (:return-type :string)))))
+      (check (= 70 (object-call node "late_value")))
+      ;; The same signature again is fine (compiled, as its invokers are C code)
+      (funcall (compile nil '(lambda ()
+                              (define-godot-generic late-value (self)
+                                (:return-type :int)
+                                (:documentation "The same signature")))))
+      (check (= 70 (object-call node "late_value"))))))
 
 (deftest clos-notifications
   (let ((node (new-clos-node 'clos-node))

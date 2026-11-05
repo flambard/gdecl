@@ -343,6 +343,22 @@ registered yet."
 ;; changed, and an instance updated lazily couldn't take or give back the
 ;; reference of a slot that starts or stops keeping one. New slots, and slots
 ;; that weren't and aren't exported, can change.
+(defun check-godot-method-signature (name return-type argument-types)
+  "Signal an error, before DEFINE-GODOT-GENERIC redefines NAME, if it's a
+GODOT-METHOD that a class has in Godot and RETURN-TYPE or ARGUMENT-TYPES differ
+from its own, as Godot keeps the signature it registered."
+  (let ((function (and (fboundp name) (fdefinition name))))
+    (when (and (typep function 'godot-method)
+               (some (lambda (class)
+                       (member (godot-name function) (class-registered-methods class)
+                               :test #'string=))
+                     *godot-classes*)
+               (not (and (equal return-type (method-return-type function))
+                         (equal argument-types (mapcar #'second (method-arguments function))))))
+      (error "Godot can't change the return type or the arguments of the method ~a until ~
+              it's restarted, so ~s is left as it was"
+             (godot-name function) name))))
+
 (defun check-exported-slots (class direct-slots)
   "Signal an error, before CLASS changes, if DIRECT-SLOTS, the slot specifications
 of its new definition, remove one of its exported slots or change the :EXPORT or
