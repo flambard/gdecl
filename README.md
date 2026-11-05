@@ -210,7 +210,7 @@ Instead of a singleton, you can add a function to run at startup with `(gdext:ad
 
 ### Redefining classes in a running game
 
-Redefining a class, or adding a method, at a REPL updates the existing instances and registers what's new with Godot. Godot can't remove anything from a class or change its parent, though, and it won't call a virtual method that a class gets only after Godot first asked for it.
+Redefining a class, or adding a method, at a REPL updates the existing instances and registers what's new with Godot. Godot can't remove anything from a class or change its parent, though: a redefinition with another parent signals an error and leaves the class as it was. A virtual method that a class gets later is called only for the instances made afterwards, as Godot asks each instance once. A class first defined at a REPL can't be instantiated yet (TODO BB), and a `define-godot-generic` evaluated at a REPL must be compiled (TODO BC).
 
 ### Making hot code fast
 

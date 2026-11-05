@@ -165,6 +165,14 @@ types of Godot objects.")
                    (handler-case (progn (node-get-child-count node) "no error")
                      (error (e) (princ-to-string e)))))))
 
+(deftest engine-methods-on-nil
+  ;; An engine method called on NIL, such as what GET-NODE returns for a path
+  ;; that has no node, signals an error instead of crashing Godot with a NULL
+  ;; pointer
+  (check (search "on NIL"
+                 (handler-case (progn (node-get-child-count nil) "no error")
+                   (error (e) (princ-to-string e))))))
+
 (deftest make-and-free-objects
   ;; An engine class
   (let ((node (gdext:make-object "Node2D")))

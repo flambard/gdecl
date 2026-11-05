@@ -61,6 +61,21 @@ error if OBJECT is a GODOT-OBJECT whose Godot object has been freed."
         ((null object) (load-time-value (ffi:make-null-pointer :void)))
         (t object)))
 
+(defun null-self-error ()
+  (error "A method of a Godot object was called on NIL, not an object"))
+
+(declaim (inline self-pointer))
+(defun self-pointer (object)
+  "The Godot object pointer of OBJECT, the object an engine method is called on:
+as OBJECT-POINTER, but NIL signals an error, as Godot would crash calling a
+method on a NULL pointer. Checking costs nothing for a GODOT-OBJECT, which comes
+first."
+  (cond ((godot-object-p object)
+         (or (godot-object-pointer object)
+             (freed-object-error object)))
+        ((null object) (null-self-error))
+        (t object)))
+
 (defun valid-object-p (object)
   "True if OBJECT is a GODOT-OBJECT whose Godot object hasn't been freed, like
 is_instance_valid in GDScript, or a Godot object pointer that isn't NULL (which

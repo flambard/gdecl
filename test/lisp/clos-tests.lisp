@@ -57,7 +57,20 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
     (eval '(defmethod late-value ((node clos-redefined-node))
             (* 10 (clos-redefined-b node))))
     (check (object-has-method node "late_value"))
-    (check (= 70 (object-call node "late_value")))))
+    (check (= 70 (object-call node "late_value")))
+    ;; Godot can't change the parent, so that's refused before the Lisp class
+    ;; changes: otherwise the instance, still a Node in Godot, would be given to
+    ;; Node2D's engine methods
+    (check (search "inherits from"
+                   (handler-case
+                       (progn (eval '(defclass clos-redefined-node (node-2d)
+                                      ((a :initform 1 :export :int :accessor clos-redefined-a)
+                                       (b :initform 2 :export :int :accessor clos-redefined-b))
+                                      (:metaclass godot-class)))
+                              "no error")
+                     (error (e) (princ-to-string e)))))
+    (check (not (typep node 'node-2d)))
+    (check (= 7 (clos-redefined-b node)))))
 
 (deftest clos-notifications
   (let ((node (new-clos-node 'clos-node))

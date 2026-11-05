@@ -798,7 +798,7 @@ is as in DEFINE-ENGINE-METHOD."
            :object object
            :object-form (cond (static '(ffi:make-null-pointer :void))
                               (singleton `(object-pointer (singleton ,singleton)))
-                              (t `(object-pointer ,object)))
+                              (t `(self-pointer ,object)))
            :takes-object takes-object
            :vararg vararg
            :rest rest

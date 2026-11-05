@@ -21,9 +21,10 @@
 ;;; new at a REPL reaches Godot. Only new things can be added: Godot can't
 ;;; unregister methods, properties or signals, or change the class's parent;
 ;;; and a singleton stays until Godot unloads the extension.
-;;; And Godot asks for a virtual method once per class (TODO J), so one that a
-;;; class implements only later isn't called. Notifications are filtered in
-;;; Lisp, so those can also be removed.
+;;; Godot asks each instance once whether its class has a virtual method, so
+;;; one that a class gets later is called only for instances made afterwards
+;;; (TODO J). Changing the parent is refused before the class changes.
+;;; Notifications are filtered in Lisp, so those can also be removed.
 ;;;
 
 (defvar *godot-classes* '()
@@ -39,14 +40,24 @@ DEFINE-ENGINE-CLASS), or NIL."
             when (eq type struct-name)
               return class-name)))
 
+(defun godot-ancestor-p (class)
+  "True if CLASS is a class in Godot: a GODOT-CLASS or the struct of an engine
+class."
+  (or (typep class 'godot-class)
+      (and (typep class 'structure-class)
+           (subtypep class (find-class 'godot-object)))))
+
 (defun godot-ancestors (class)
   "The classes in Godot that CLASS inherits from, from its precedence list: the
 GODOT-CLASSes, then the structs of engine classes, the nearest first."
-  (remove-if-not (lambda (superclass)
-                   (or (typep superclass 'godot-class)
-                       (and (typep superclass 'structure-class)
-                            (subtypep superclass (find-class 'godot-object)))))
-                 (rest (clos:class-precedence-list class))))
+  (remove-if-not #'godot-ancestor-p (rest (clos:class-precedence-list class))))
+
+(defun godot-ancestor-name (ancestor)
+  "The name in Godot of ANCESTOR, a class for which GODOT-ANCESTOR-P is true."
+  (if (typep ancestor 'godot-class)
+      (godot-name ancestor)
+      (or (engine-class-name (class-name ancestor))
+          (error "No engine class has the struct ~s" (class-name ancestor)))))
 
 (defun godot-parent-name (class)
   "The name of the class in Godot that CLASS inherits from. Signals an error if
@@ -58,11 +69,7 @@ Godot's single inheritance can't have."
           unless (subtypep subclass superclass)
             do (error "~s inherits from both ~s and ~s, which aren't one line of inheritance ~
                        in Godot" (class-name class) (class-name subclass) (class-name superclass)))
-    (let ((parent (first ancestors)))
-      (if (typep parent 'godot-class)
-          (godot-name parent)
-          (or (engine-class-name (class-name parent))
-              (error "No engine class has the struct ~s" (class-name parent)))))))
+    (godot-ancestor-name (first ancestors))))
 
 (defun registered-on-ancestor-p (class reader name)
   "True if a GODOT-CLASS that CLASS inherits from has registered NAME, in the
@@ -308,15 +315,28 @@ registered yet."
 (defmethod initialize-instance :after ((class godot-class) &key)
   (add-class-definition (godot-name class) (lambda () (register-godot-class class))))
 
+;; Before the class changes, as its instances' Godot objects stay of the old
+;; parent class: an instance whose Lisp class inherited another engine class's
+;; struct would be given to that class's engine methods, which read the wrong
+;; memory. Godot's single inheritance makes the class in Godot among the direct
+;; superclasses the parent; one that inherits from several in Godot is caught
+;; when it's finalized (GODOT-PARENT-NAME).
+(defmethod reinitialize-instance :before ((class godot-class)
+                                          &key (direct-superclasses nil direct-superclasses-p))
+  (when (and (class-registered-p class) direct-superclasses-p)
+    (let ((parent (find-if #'godot-ancestor-p direct-superclasses)))
+      (when (and parent
+                 (not (equal (godot-ancestor-name parent) (class-godot-parent-name class))))
+        (error "Godot can't change the class that ~a inherits from (~a) until it's ~
+                restarted, so ~s is left as it was"
+               (godot-name class) (class-godot-parent-name class) (class-name class))))))
+
 (defmethod reinitialize-instance :after ((class godot-class) &key)
   (when (class-registered-p class)
     (handler-case
         (progn
           (unless (clos:class-finalized-p class)
             (clos:finalize-inheritance class))
-          (unless (equal (godot-parent-name class) (class-godot-parent-name class))
-            (error "Godot can't change the class that ~a inherits from (~a), until it's restarted"
-                   (godot-name class) (class-godot-parent-name class)))
           (update-godot-class class))
       (error (e)
         (report-error (format nil "updating the class ~a" (godot-name class)) e)))))
