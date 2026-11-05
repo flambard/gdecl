@@ -170,13 +170,12 @@ gdecl defines `ready`, `process`, `physics-process`, `enter-tree`, `exit-tree`, 
 ```lisp
 (define-godot-generic start (self (pos :vector2)))   ; func start(pos: Vector2)
 
-(define-godot-generic on-body-entered (self (body :object))
-  (:godot-name "_on_body_entered"))                  ; the name the editor connected
+(define-godot-generic on-body-entered (self (body :object)))  ; _on_body_entered, as the editor connects it
 
 (defmethod start ((player player) pos) ...)
 ```
 
-The method's name in Godot is its name in Godot style (`start`), unless you give `:godot-name`. `(:return-type :int)` gives it a result. A class gets the method in Godot if it has a method for it.
+The method's name in Godot is its name in Godot style (`start`), with a leading underscore if it starts with `on-`, as the editor names the methods it connects signals to (`_on_body_entered`), unless you give `:godot-name`. `(:return-type :int)` gives it a result. A class gets the method in Godot if it has a method for it.
 
 Types are keywords named like Godot's types, such as `:bool`, `:int`, `:float`, `:string`, `:vector2`, `:rect2`, `:vector3`, `:basis` and `:object`.
 
@@ -286,7 +285,7 @@ Slots have the options of `godot-clos` slots, and also `:setter function`, like 
 Engine methods are functions in `godot`, named `<class>-<method>`, with the object first:
 
 ```lisp
-(node-get-node main "HUD")                   ; $HUD
+($ main "HUD")                               ; $HUD, short for (node-get-node main "HUD")
 (canvas-item-hide player)                    ; hide()
 (node-2d-set-position player (vector2 100.0 200.0))
 (timer-start timer)
@@ -391,8 +390,8 @@ Connect a signal to a Lisp function with `gdext:connect-signal`. `after-signal` 
 (gdext:connect-signal button "pressed" (lambda () (start-game main)))
 
 ;; await $MessageTimer.timeout
-(after-signal ((node-get-node hud "MessageTimer") "timeout" :target hud)
-  (canvas-item-show (node-get-node hud "StartButton")))
+(after-signal (($ hud "MessageTimer") "timeout" :target hud)
+  (canvas-item-show ($ hud "StartButton")))
 ```
 
 A connection belongs to a target object, by default the one emitting the signal, and goes away when that object is freed.

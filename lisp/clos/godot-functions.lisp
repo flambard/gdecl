@@ -152,6 +152,16 @@ call by name, see DEFINE-GODOT-GENERIC."))
     (pushnew name *godot-methods*)
     name))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun godot-method-name (name)
+    "The default name in Godot of the GODOT-METHOD NAME: in Godot style, and with
+a leading underscore if it starts with on-, as the editor names the methods it
+connects signals to (_on_body_entered)."
+    (let ((godot-name (godot-style-name name)))
+      (if (and (> (length godot-name) 3) (string= "on_" godot-name :end2 3))
+          (concatenate 'string "_" godot-name)
+          godot-name))))
+
 (defmacro define-godot-generic (name (self &rest arguments) &rest options)
   "Define the generic function NAME as a method that Godot and GDScript can call
 by name, like a func of a GDScript script, e.g.
@@ -162,9 +172,11 @@ instance's Lisp object and the arguments as Lisp values.
 
 OPTIONS are those of DEFGENERIC, and:
   (:godot-name name), the method's name in Godot, by default NAME in Godot
-    style (on-hit becomes \"on_hit\")
+    style (start-game becomes \"start_game\"), with a leading underscore if it
+    starts with on-, as the editor names the methods it connects signals to
+    (on-hit becomes \"_on_hit\")
   (:return-type type), the type of the return value, by default none (:NIL)"
-  (let ((godot-name (or (second (assoc :godot-name options)) (godot-style-name name)))
+  (let ((godot-name (or (second (assoc :godot-name options)) (godot-method-name name)))
         (return-type (or (second (assoc :return-type options)) :nil)))
     `(progn
        (check-godot-method-signature ',name ,return-type (list ,@(mapcar #'second arguments)))

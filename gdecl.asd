@@ -76,7 +76,8 @@
                                (:file "godot-engine-classes" :depends-on ("engine-api"))
                                (:file "godot-utility" :depends-on ("engine-api"))
                                ;; After the constants of Object
-                               (:file "signals" :depends-on ("godot-engine-classes"))))
+                               (:file "signals" :depends-on ("godot-engine-classes"))
+                               (:file "nodes" :depends-on ("godot-engine-classes"))))
                  ;; DEFINE-CLASS, a small DSL that defines a class in one form
                  (:module "dsl"
                   :depends-on ("gd-extension" "godot")

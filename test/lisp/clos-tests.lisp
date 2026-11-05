@@ -37,7 +37,10 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
     (check (= 50 (clos-add sub 2 3)))
     (check (= 50 (object-call sub "add" 2 3)))
     (check (string= "hello" (greet sub)))
-    (check (not (object-has-method node "greet")))))
+    (check (not (object-has-method node "greet")))
+    ;; A method named on-... is _on_... in Godot, as the editor connects it
+    (check (= 7 (object-call node "_on_clos_pinged")))
+    (check (not (object-has-method node "on_clos_pinged")))))
 
 (deftest clos-redefinition
   (let ((node (new-clos-node 'clos-redefined-node)))

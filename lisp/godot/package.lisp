@@ -33,13 +33,15 @@ Basis (from GD-EXTENSION-BUILTINS), and functions that call the methods of
 engine classes, named <class>-<method>, e.g. NODE-GET-NODE. DEFINE-ENGINE-CLASS
 defines the functions and exports them from here, both for the classes gdecl
 defines (godot-engine-classes.lisp) and those applications define. And
-AFTER-SIGNAL, for what GDScript does with await (signals.lisp).")
+AFTER-SIGNAL, for what GDScript does with await (signals.lisp), and $, for
+$Path (nodes.lisp).")
   (:nicknames #:gd)
   (:use #:cl #:gd-extension-builtins)
   (:import-from #:godot-generators
                 #:define-engine-class)
   (:export #:define-engine-class
-           #:after-signal)
+           #:after-signal
+           #:$)
   ;; Everything GD-EXTENSION-BUILTINS exports, computed when this is read
   #.`(:export ,@(let ((names '()))
                   (do-external-symbols (symbol '#:gd-extension-builtins names)

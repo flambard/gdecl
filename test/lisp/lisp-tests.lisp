@@ -165,6 +165,12 @@ types of Godot objects.")
                    (handler-case (progn (node-get-child-count node) "no error")
                      (error (e) (princ-to-string e)))))))
 
+(deftest dollar-paths
+  ;; ($ node "Path") is $Path in GDScript, relative to NODE
+  (let ((node (new-test-node)))
+    (check (same-object-p (node-get-node node "Child") ($ node "Child")))
+    (check (same-object-p node ($ *root* (node-get-name node))))))
+
 (deftest engine-methods-on-nil
   ;; An engine method called on NIL, such as what GET-NODE returns for a path
   ;; that has no node, signals an error instead of crashing Godot with a NULL

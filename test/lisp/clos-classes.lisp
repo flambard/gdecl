@@ -119,6 +119,14 @@
 (defmethod notification ((greeter clos-greeter) (what (eql +node-notification-unparented+)))
   (setf (clos-greeting greeter) "goodbye"))
 
+;; Named as the editor names the methods it connects signals to:
+;; _on_clos_pinged in Godot, without a :GODOT-NAME
+(define-godot-generic on-clos-pinged (self)
+  (:return-type :int))
+
+(defmethod on-clos-pinged ((node clos-node))
+  7)
+
 ;;;
 ;;; ClosRedefinedNode: redefined by a test at runtime, which also adds a method
 ;;; to LATE-VALUE then

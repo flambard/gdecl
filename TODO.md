@@ -20,9 +20,6 @@ What's left to do in gdecl, from reviews and from comparing what gdecl does with
   - Nice to have: bracket matching and colors in the input (`CodeEdit` with a `CodeHighlighter`), the current package as a prompt. BB limits what can be defined from it, as from `bin/gdecl-eval`.
 - [ ] **AO. Engine methods without the class in their names, and properties as accessors.** An application has to know which engine class defines a method: `(node-2d-set-position mob …)`, `(canvas-item-show message)`, where GDScript says `mob.position = …` and `message.show()`. That's the biggest gap left between Dodge the Creeps and the tutorial's GDScript. Properties could be `setf`-able accessors (`(setf (position mob) …)`), from the `properties` of each class in `extension_api.json`, which `extension-api-json` doesn't read yet. Names that several classes define (`position` in Node2D and Control) need dispatch, e.g. a `typecase` on the structs of the classes that are defined, which is cheap but has to be measured. Names that clash with `cl` (`position`, `get`, `set`, `remove`, `push`) need a rule, such as shadowing in `godot` or a prefix only for those. Keep the prefixed functions for dropping down.
 - [ ] **AP. Signals by their Lisp names.** A class declares `(:signals (start-game))`, but emits it with `(object-emit-signal hud "start_game")`, and `after-signal` takes `"timeout"`: names as strings in Godot style, so a typo is found only at run time. `define-signal-emitter` is the fast, checked way, but needs the types a second time (decided on 2026-10-17, see Signal emitters in `CLAUDE.md`), so the game doesn't use it. At least let emitting, connecting and `after-signal` take a symbol in Lisp style, converted to a StringName at compile time (`'start-game`); better, warn at compile or registration time about a name that the class doesn't declare. Revisit `define-godot-signal`, which declares a signal and its emitter in one form, if the double declaration stays the reason emitters go unused.
-- [ ] **AQ. Less boilerplate for scenes.** Two things that every scene's code repeats:
-  - Every method connected to a signal in the editor needs `(:godot-name "_on_…")`, as the editor names them with a leading underscore. `define-godot-generic` could default a name that starts with `on-` to `_on_…`, so `on-start-button-pressed` is `_on_start_button_pressed`.
-  - `(node-get-node hud "Message")` is GDScript's `$Message`, and it's on most lines of a scene's code. A short form, a `$` macro or a reader macro, with the path as a literal NodePath (`npath`).
 
 ## Robustness
 
@@ -57,24 +54,26 @@ The October 2026 review reproduced AT–AY (all done) in isolated runtime probes
 
 ## Open questions
 
-- [ ] **AN. Do properties get Variant calls?** Not yet checked: whether Godot calls an extension property's getter and setter with a Variant call, e.g. for `get()`, `set()` or an AnimationPlayer track, which would make that path per frame. Properties have invokers of each type (`signature-invokers`), so it's probably fast enough either way, but measure.
 - [ ] **AS. Does `define-class` still pay for itself?** Every feature has to be considered for both class layers (export hints, notifications, singletons), and keeping both makes the README and the tests larger. `define-class` was kept for speed, but `:direct-functions` now makes a `godot-clos` virtual method as fast, and hot data can live in a struct in one slot (AM). What's left in `define-class`'s favor: slot access through struct accessors, and no CLOS at all. Measure a whole game frame both ways; if the difference is small, deprecate `define-class` and keep `godot-clos` with its drop-downs.
 
 ## Suggested order
 
 Revised on 2026-11-05. What keeps redefinition safe came first (AV, AW, BC and J's refusals, done). The game has finished the 3D tutorial, so no tutorial chapter pulls features any more; its chapters 8 and 9 gave the evidence for AO, AP and AQ. Use BA to broaden test coverage as work proceeds.
 
-1. A quick win: AN, now an experiment with the eval server.
-2. AQ, then AP, then AO: how game code reads. Chapters 8 and 9 wrote `$UserInterface/Retry` as `(node-get-node main "UserInterface/Retry")` four times, `.hide()` as `canvas-item-hide`, and the signal `"squashed"` as a string. AQ and AP are small; AO is the biggest gain, but needs design decisions first (dispatch for names that several classes define, names that clash with `cl`). The calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`), so these come before more speed. A next application would give them real use cases.
-3. AS before V, before J's part about `define-class` and before BB: if `define-class` is deprecated, those shrink to one class layer. Then V and W as applications need them; V's export hints are the likeliest.
-4. Verify and address AZ before relying on API regeneration after a Godot upgrade, and do AR to protect against ECL internal changes.
-5. BB and BD, the rest of the REPL work.
-6. R before an application uses threads, including threaded resource loading (`ResourceLoader.load_threaded_request`); move it ahead of other work if those are needed now. Tables keyed by name, if J still needs them, come with it.
-7. AM when an application's hot code needs faster slot access than a struct gives; its measurements also help answer AS.
-8. X when there's a reason to extend the editor.
-9. S before the first exported game, which doesn't run without it.
+1. AP, then AO: how game code reads (AQ is done). Chapters 8 and 9 wrote `$UserInterface/Retry` as `(node-get-node main "UserInterface/Retry")` four times, `.hide()` as `canvas-item-hide`, and the signal `"squashed"` as a string. AP is small; AO is the biggest gain, but needs design decisions first (dispatch for names that several classes define, names that clash with `cl`). The calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`), so these come before more speed. A next application would give them real use cases.
+2. AS before V, before J's part about `define-class` and before BB: if `define-class` is deprecated, those shrink to one class layer. Then V and W as applications need them; V's export hints are the likeliest.
+3. Verify and address AZ before relying on API regeneration after a Godot upgrade, and do AR to protect against ECL internal changes.
+4. BB and BD, the rest of the REPL work.
+5. R before an application uses threads, including threaded resource loading (`ResourceLoader.load_threaded_request`); move it ahead of other work if those are needed now. Tables keyed by name, if J still needs them, come with it.
+6. AM when an application's hot code needs faster slot access than a struct gives; its measurements also help answer AS.
+7. X when there's a reason to extend the editor.
+8. S before the first exported game, which doesn't run without it.
 
 ## Done
+
+- AQ, on 2026-11-05: `define-godot-generic` names a method that starts with `on-` `_on_…` in Godot by default, as the editor names the methods it connects signals to (`godot-method-name`, `clos/godot-functions.lisp`), so the game's four handlers lost their `:godot-name`; and `($ node "Path")` (`godot/nodes.lisp`) is GDScript's `$Path`, a macro so that the literal path is still a NodePath made when the code is compiled. GDScript's `$` has an implicit self, so Lisp's names the node. Tests: `clos-generic-functions` and `dollar-paths`. Written into the README and `CLAUDE.md`.
+
+- AN, answered on 2026-11-05 with the eval server in the game, by wrapping the invokers of a property's getter and setter: Godot calls them with Variant calls (`call_func`) for `get()` and `set()`, from GDScript, typed or not, and from an AnimationPlayer property track, every frame; never with ptrcall. Reading a Lisp property through `get()` took 593 ns against 379 ns for an engine property, so the getter adds about 0.2 µs, through its Variant invoker. Nothing to change. Written into `CLAUDE.md` (Invokers).
 
 - AY, on 2026-11-05: `write-simple-variant` (`types/gd-extension-types.lisp`) signals an error for an integer outside Godot's signed 64-bit int, which fell through to the float branch before. Typed int arguments already signaled one, from ECL's conversion to `int64_t`. Test: `integer-limits`. Written into the README.
 
