@@ -249,6 +249,26 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
       (gdext:free-object node)
       (check (= 1 (ref-counted-get-reference-count given))))))
 
+(deftest clos-initialization
+  ;; An instance is initialized once, as MAKE-INSTANCE does it: with the
+  ;; initargs and the default initargs, which INITIALIZE-INSTANCE methods see
+  (flet ((new (&rest initargs)
+           (let ((node (apply #'make-instance 'clos-init-node initargs)))
+             (node-add-child *root* node)
+             node)))
+    (check (equal '(42 42) (clos-init-seen (new :value 42))))
+    (check (equal '(99 99) (clos-init-seen (new))))
+    ;; Also when Godot makes the object
+    (check (equal '(99 99) (clos-init-seen (new-node "ClosInitNode"))))
+    ;; If initializing fails, MAKE-INSTANCE signals that error, the Godot object
+    ;; is destroyed, and the slots kept no references
+    (gdext:with-reference (resource (class-db-instantiate "TestResource"))
+      (godot-print "[test] expect error")
+      (check (search "Initializing refused"
+                     (handler-case (progn (new :fail t :resource resource) "no error")
+                       (error (e) (princ-to-string e)))))
+      (check (= 1 (ref-counted-get-reference-count resource))))))
+
 (deftest clos-singleton
   ;; Made when the class was registered, through INITIALIZE-INSTANCE, and
   ;; registered with the name from :SINGLETON

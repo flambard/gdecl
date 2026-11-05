@@ -144,28 +144,20 @@ first error is signaled."
 
 (defmethod make-instance ((class godot-class) &rest initargs)
   "Make a Godot object of CLASS, which must be registered with Godot, and return
-its Lisp object, with its slots set from INITARGS, like CLASS.new() in
-GDScript. An object of a RefCounted class comes with a reference, as with
-GD-EXTENSION:MAKE-OBJECT: during a call from Godot it's in the autorelease
-pool, so take a reference of your own to keep the object (SETF-REFERENCE)."
+its Lisp object, initialized with INITARGS and CLASS's default initargs, like
+CLASS.new() in GDScript. An object of a RefCounted class comes with a
+reference, as with GD-EXTENSION:MAKE-OBJECT: during a call from Godot it's in
+the autorelease pool, so take a reference of your own to keep the object
+\(SETF-REFERENCE). If initializing it fails, the Godot object is destroyed and
+the error signaled."
   (unless (class-registered-p class)
     (error "~s isn't registered with Godot yet" (class-name class)))
-  (let ((object (gdext:make-object (godot-name class))))
-    (when initargs
-      ;; The exported slots that keep references keep them to the values of
-      ;; INITARGS too: take those, then give back the ones of the values they
-      ;; replace (from initforms), as SETF-REFERENCE does
-      (let* ((slot-names (all-reference-slots class))
-             (old-values (mapcar (lambda (slot-name) (slot-reference-value object slot-name))
-                                 slot-names)))
-        (apply #'shared-initialize object '() initargs)
-        (loop for slot-name in slot-names
-              for old in old-values
-              for new = (slot-reference-value object slot-name)
-              unless (eq old new)
-                do (when new (gdext:add-reference new))
-                   (when old (gdext:release-reference old)))))
-    object))
+  ;; Godot calls MAKE-LISP-OBJECT, which initializes the instance with INITARGS
+  (let ((construction (list class initargs nil)))
+    (handler-case (let ((*construction* construction))
+                    (gdext:make-object (godot-name class)))
+      (error (condition)
+        (error (or (third construction) condition))))))
 
 
 (defun register-godot-class (class)

@@ -127,7 +127,7 @@ A Godot class is a `defclass` with the metaclass `godot-class`. It inherits from
   (:signals (hit)))
 ```
 
-The class is registered with Godot when Godot loads your library, as `Player`: the class name in Godot style. Its instances are Godot objects, so engine methods take them as they are, and `(make-instance 'player)` makes one in Godot.
+The class is registered with Godot when Godot loads your library, as `Player`: the class name in Godot style. Its instances are Godot objects, so engine methods take them as they are, and `(make-instance 'player)` makes one in Godot, initialized as `make-instance` initializes any instance, with its initargs and the class's `:default-initargs`; an object Godot makes, e.g. in a scene, gets the default initargs too.
 
 Your classes can use everything CLOS has: inheritance, mixins (standard classes, listed before the engine class in the superclasses), `:before`, `:after` and `:around` methods, and `call-next-method`.
 

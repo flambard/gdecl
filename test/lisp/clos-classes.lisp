@@ -177,6 +177,24 @@
   (:metaclass godot-class))
 
 ;;;
+;;; ClosInitNode: initialized as MAKE-INSTANCE does, with default initargs, and
+;;; an INITIALIZE-INSTANCE method that sees the initargs and the slots' values,
+;;; and fails on request
+;;;
+
+(defclass clos-init-node (node)
+  ((value :initform 1 :initarg :value :export :int :reader clos-init-value)
+   (resource :initform nil :initarg :resource :export :object :class "TestResource")
+   (seen :initform nil :reader clos-init-seen))
+  (:metaclass godot-class)
+  (:default-initargs :value 99))
+
+(defmethod initialize-instance :after ((node clos-init-node) &key value fail)
+  (when fail
+    (error "Initializing refused"))
+  (setf (slot-value node 'seen) (list value (slot-value node 'value))))
+
+;;;
 ;;; ClosSingleton: an engine singleton, registered as ClosSingletonByName, made
 ;;; through INITIALIZE-INSTANCE
 ;;;

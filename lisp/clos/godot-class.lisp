@@ -324,40 +324,66 @@ apply to the instances of CLASS."
       (and (standard-p (compute-applicable-methods #'initialize-instance (list prototype)))
            (standard-p (compute-applicable-methods #'shared-initialize (list prototype t)))))))
 
+(defun defaulted-initargs (class initargs)
+  "INITARGS, followed by the default initargs of CLASS that they don't give, as
+MAKE-INSTANCE initializes an instance with."
+  (append initargs
+          (loop for (initarg nil function) in (clos:class-default-initargs class)
+                unless (get-properties initargs (list initarg))
+                  append (list initarg (funcall function)))))
+
 (defun make-constructor (class)
-  "A function of the Godot object pointer that makes the Lisp object of a new
-instance of CLASS."
-  (if (standard-initialization-p class)
-      (let ((size (clos::class-size class))
-            ;; (location . initfunction) of the slots with initforms, except
-            ;; the pointer's
-            (initializers (loop for slot in (clos:class-slots class)
-                                for location = (clos:slot-definition-location slot)
-                                for initfunction = (clos:slot-definition-initfunction slot)
-                                when (and initfunction (typep location 'fixnum)
-                                          (/= location +godot-object-pointer-location+))
-                                  collect (cons location initfunction))))
-        (lambda (pointer)
-          (let ((object (si:allocate-raw-instance nil class size)))
-            ;; So redefining the class updates it
-            (si::instance-sig-set object)
-            (setf (clos:standard-instance-access object +godot-object-pointer-location+)
-                  pointer)
-            (loop for (location . initfunction) in initializers
-                  do (setf (clos:standard-instance-access object location)
-                           (funcall initfunction)))
-            object)))
-      (lambda (pointer)
-        (let ((object (allocate-instance class)))
-          (setf (godot-object-pointer object) pointer)
-          (initialize-instance object)
-          object))))
+  "A function of the Godot object pointer and the initargs given to MAKE-INSTANCE
+\(NIL for an object Godot makes) that makes the Lisp object of a new instance of
+CLASS, initialized as MAKE-INSTANCE does."
+  (flet ((initialize (pointer initargs)
+           (let ((object (allocate-instance class)))
+             (setf (godot-object-pointer object) pointer)
+             (apply #'initialize-instance object (defaulted-initargs class initargs))
+             object)))
+    (if (and (standard-initialization-p class) (null (clos:class-default-initargs class)))
+        (let ((size (clos::class-size class))
+              ;; (location . initfunction) of the slots with initforms, except
+              ;; the pointer's
+              (initializers (loop for slot in (clos:class-slots class)
+                                  for location = (clos:slot-definition-location slot)
+                                  for initfunction = (clos:slot-definition-initfunction slot)
+                                  when (and initfunction (typep location 'fixnum)
+                                            (/= location +godot-object-pointer-location+))
+                                    collect (cons location initfunction))))
+          (lambda (pointer initargs)
+            (if initargs
+                (initialize pointer initargs)
+                (let ((object (si:allocate-raw-instance nil class size)))
+                  ;; So redefining the class updates it
+                  (si::instance-sig-set object)
+                  (setf (clos:standard-instance-access object +godot-object-pointer-location+)
+                        pointer)
+                  (loop for (location . initfunction) in initializers
+                        do (setf (clos:standard-instance-access object location)
+                                 (funcall initfunction)))
+                  object))))
+        #'initialize)))
+
+(defvar *construction* nil
+  "The MAKE-INSTANCE running, as a list (class initargs condition), for
+MAKE-LISP-OBJECT, which Godot calls back while it makes the Godot object: it
+initializes the instance with the initargs, and keeps the condition if that
+fails, for MAKE-INSTANCE to signal.")
 
 (defun make-lisp-object (class pointer)
   "The Lisp object of a new instance of CLASS, whose Godot object is POINTER, for
-REGISTER-CLASS."
-  (let ((constructor (slot-value class 'constructor)))
+REGISTER-CLASS: initialized with the initargs of the MAKE-INSTANCE that's making
+it, if any (*CONSTRUCTION*), as made for CLASS and not taken yet."
+  (let ((constructor (slot-value class 'constructor))
+        (construction (and *construction* (eq (first *construction*) class) *construction*)))
     (unless (and constructor (= (car constructor) *initialization-changes*))
       (setf constructor (cons *initialization-changes* (make-constructor class))
             (slot-value class 'constructor) constructor))
-    (funcall (cdr constructor) pointer)))
+    (if construction
+        ;; Taken, so that an object its initialization makes doesn't get them
+        (progn (setf *construction* nil)
+               (handler-bind ((error (lambda (condition)
+                                       (setf (third construction) condition))))
+                 (funcall (cdr constructor) pointer (second construction))))
+        (funcall (cdr constructor) pointer nil))))
