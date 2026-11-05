@@ -124,10 +124,15 @@ OBJECT that keep references, by default all of them, and return OBJECT."
 
 (defun release-slot-references (object)
   "Give back the references the exported slots of OBJECT keep, when Godot frees
-it."
-  (dolist (slot-name (all-reference-slots (class-of object)))
-    (when (slot-boundp object slot-name)
-      (gdext:release-reference (slot-value object slot-name)))))
+it. If giving one back fails, the others are still given back, and then the
+first error is signaled."
+  (let ((failure nil))
+    (dolist (slot-name (all-reference-slots (class-of object)))
+      (handler-case (when (slot-boundp object slot-name)
+                      (gdext:release-reference (slot-value object slot-name)))
+        (error (e) (unless failure (setf failure e)))))
+    (when failure
+      (error failure))))
 
 (defmethod update-instance-for-redefined-class :after
     ((object standard-object) added-slots discarded-slots property-list &rest initargs)
@@ -322,14 +327,37 @@ registered yet."
 ;; superclasses the parent; one that inherits from several in Godot is caught
 ;; when it's finalized (GODOT-PARENT-NAME).
 (defmethod reinitialize-instance :before ((class godot-class)
-                                          &key (direct-superclasses nil direct-superclasses-p))
+                                          &key (direct-superclasses nil direct-superclasses-p)
+                                               (direct-slots nil direct-slots-p))
   (when (and (class-registered-p class) direct-superclasses-p)
     (let ((parent (find-if #'godot-ancestor-p direct-superclasses)))
       (when (and parent
                  (not (equal (godot-ancestor-name parent) (class-godot-parent-name class))))
         (error "Godot can't change the class that ~a inherits from (~a) until it's ~
                 restarted, so ~s is left as it was"
-               (godot-name class) (class-godot-parent-name class) (class-name class))))))
+               (godot-name class) (class-godot-parent-name class) (class-name class)))))
+  (when (and (class-registered-p class) direct-slots-p)
+    (check-exported-slots class direct-slots)))
+
+;; Godot keeps the properties it has, so an exported slot can't be removed or
+;; changed, and an instance updated lazily couldn't take or give back the
+;; reference of a slot that starts or stops keeping one. New slots, and slots
+;; that weren't and aren't exported, can change.
+(defun check-exported-slots (class direct-slots)
+  "Signal an error, before CLASS changes, if DIRECT-SLOTS, the slot specifications
+of its new definition, remove one of its exported slots or change the :EXPORT or
+:CLASS of one of its slots."
+  (dolist (slot (clos:class-direct-slots class))
+    (when (typep slot 'godot-direct-slot-definition)
+      (let* ((name (clos:slot-definition-name slot))
+             (new (find name direct-slots :key (lambda (spec) (getf spec :name)))))
+        (unless (if new
+                    (and (eq (slot-definition-export slot) (getf new :export))
+                         (equal (slot-definition-property-class slot) (getf new :class)))
+                    (not (slot-definition-export slot)))
+          (error "Godot can't ~:[remove~;change~] the exported slot ~s of ~a until it's ~
+                  restarted, so ~s is left as it was"
+                 new name (godot-name class) (class-name class)))))))
 
 (defmethod reinitialize-instance :after ((class godot-class) &key)
   (when (class-registered-p class)

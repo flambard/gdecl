@@ -70,7 +70,23 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
                               "no error")
                      (error (e) (princ-to-string e)))))
     (check (not (typep node 'node-2d)))
-    (check (= 7 (clos-redefined-b node)))))
+    (check (= 7 (clos-redefined-b node)))
+    ;; Godot keeps its properties, so an exported slot can't be removed or
+    ;; changed: refused before the Lisp class changes
+    (flet ((refusal (definition)
+             (handler-case (progn (eval definition) "no error")
+               (error (e) (princ-to-string e)))))
+      (check (search "can't remove the exported slot"
+                     (refusal '(defclass clos-redefined-node (node)
+                                ((b :initform 2 :export :int :accessor clos-redefined-b))
+                                (:metaclass godot-class)))))
+      (check (search "can't change the exported slot"
+                     (refusal '(defclass clos-redefined-node (node)
+                                ((a :initform 1 :export :float :accessor clos-redefined-a)
+                                 (b :initform 2 :export :int :accessor clos-redefined-b))
+                                (:metaclass godot-class)))))
+      (check (= 5 (clos-redefined-a node)))
+      (check (= 5 (object-get node "a"))))))
 
 (deftest clos-notifications
   (let ((node (new-clos-node 'clos-node))
@@ -181,6 +197,42 @@ INITARGS, with the child its :onready slot needs, added to *ROOT*."
       (node-add-child *root* replaced-node)
       (check (eq replacement (clos-reference-made replaced-node)))
       (check (= 2 (ref-counted-get-reference-count replacement))))))
+
+(deftest clos-redefinition-of-reference-slots
+  ;; An exported slot that keeps references can't be removed or have its
+  ;; :CLASS changed, as instances would keep or lose a reference they don't
+  ;; give back or never took
+  (flet ((refusal (definition)
+           (handler-case (progn (eval definition) "no error")
+             (error (e) (princ-to-string e)))))
+    (check (search "can't remove the exported slot"
+                   (refusal '(defclass clos-reference-node (node)
+                              ((given :initform nil :initarg :given :export :object
+                                      :class "TestResource" :reader clos-reference-given))
+                              (:metaclass godot-class)))))
+    (check (search "can't change the exported slot"
+                   (refusal '(defclass clos-reference-node (node)
+                              ((given :initform nil :initarg :given :export :object
+                                      :class "Resource" :reader clos-reference-given)
+                               (made :initform (gdext:make-object "TestResource") :initarg :made
+                                     :export :object :class "TestResource"
+                                     :reader clos-reference-made))
+                              (:metaclass godot-class)))))))
+
+(deftest clos-release-after-a-failure
+  ;; When Godot frees an instance, its slots' references are all given back,
+  ;; even if giving one back fails first: here MADE, released first, holds a
+  ;; freed object
+  (gdext:with-reference (given (class-db-instantiate "TestResource"))
+    (let ((node (make-instance 'clos-reference-node :given given))
+          (freed (gdext:make-object "Node")))
+      (check (= 2 (ref-counted-get-reference-count given)))
+      (gdext:setf-reference (slot-value node 'made) nil)
+      (gdext:free-object freed)
+      (setf (slot-value node 'made) freed)
+      (godot-print "[test] expect error")
+      (gdext:free-object node)
+      (check (= 1 (ref-counted-get-reference-count given))))))
 
 (deftest clos-singleton
   ;; Made when the class was registered, through INITIALIZE-INSTANCE, and
