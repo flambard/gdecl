@@ -11,6 +11,10 @@ include ../gdecl.mk
 
 TEST_LOG = $(BUILD_DIR)/test.log
 
+# The port of the eval server the tests start (eval-server.lisp), other than
+# gdecl.mk's EVAL_PORT, so the tests can run while an application does
+TEST_EVAL_PORT ?= 4041
+
 # Godot loads the extensions listed in this file, which the editor writes when
 # it scans the project. The tests don't need the editor, so it's written here.
 project/.godot/extension_list.cfg:
@@ -24,7 +28,7 @@ project/.godot/extension_list.cfg:
 # framework's shutdown steps in the wrong order (lifecycle.lisp).
 test: all project/.godot/extension_list.cfg
 	@status=0; \
-	$(GODOT) --headless --verbose --path project -s res://run_tests.gd > $(TEST_LOG) 2>&1 || status=$$?; \
+	GDECL_EVAL_PORT=$(TEST_EVAL_PORT) $(GODOT) --headless --verbose --path project -s res://run_tests.gd > $(TEST_LOG) 2>&1 || status=$$?; \
 	awk '/^\[test\] expect error$$/ { expect = 1; next } \
 	     /^\[test\]/ { print; next } \
 	     /^ERROR: / && expect { sub(/^ERROR: /, ""); print "[test] expected error: " $$0; getline; expect = 0; next } \

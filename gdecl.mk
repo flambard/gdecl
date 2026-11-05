@@ -10,9 +10,13 @@
 #   GODOT      The Godot executable (default: godot)
 #   CC         The C compiler (default: clang if it's installed, otherwise cc)
 #   CFLAGS     Extra C compiler flags (default: -O0 -g, a debug build)
+#   PROJECT    The Godot project, for `make run` (default: project)
+#   EVAL_PORT  The port of the eval server that `make run` starts (default:
+#              4040; see bin/gdecl-eval)
+#   GODOT_ARGS More arguments to Godot for `make run`, e.g. --headless
 #
-# Targets: all (the default), the library, $(BUILD_DIR)/application.a,
-# godot-api and clean.
+# Targets: all (the default), the library, $(BUILD_DIR)/application.a, run
+# (builds and runs the application with the eval server), godot-api and clean.
 
 # The directory of this file, so gdecl can be anywhere
 GDECL := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
@@ -21,6 +25,9 @@ LISP_DIRS ?= lisp
 BUILD_DIR ?= build
 GODOT ?= godot
 CFLAGS ?= -O0 -g
+PROJECT ?= project
+EVAL_PORT ?= 4040
+GODOT_ARGS ?=
 
 # Make's built-in default for CC is cc; prefer clang unless CC was set on the
 # command line or in the environment.
@@ -85,6 +92,11 @@ $(GDECL)/src/gdextension_interface.h:
 $(GDECL)/extension_api.json:
 	cd $(GDECL) && $(GODOT) --headless --dump-extension-api-with-docs
 
+# Run the application with the eval server (lisp/gd-extension/eval-server.lisp)
+# listening on EVAL_PORT, for bin/gdecl-eval
+run: all
+	GDECL_EVAL_PORT=$(EVAL_PORT) $(GODOT) --path $(PROJECT) $(GODOT_ARGS)
+
 godot-api:
 	rm -f $(GDECL_API_FILES)
 	$(MAKE) $(GDECL_API_FILES)
@@ -92,4 +104,4 @@ godot-api:
 clean:
 	-rm -f $(APPLICATION_LIB) $(GDECL_OBJECTS) $(LIBRARY)
 
-.PHONY: all godot-api clean
+.PHONY: all run godot-api clean

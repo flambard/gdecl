@@ -386,3 +386,78 @@ func test_clos_inheritance() -> void:
 	check(node.get_process_calls() > 100, "CLOS: a :before method on an inherited virtual method")
 	node.queue_free()
 	await process_frame
+
+
+# Sends each of SOURCES to the eval server (eval-server.lisp), which `make test`
+# starts with GDECL_EVAL_PORT, over connections open at the same time, and
+# returns the replies, "" for one that didn't come within about five seconds.
+# The server answers in the frame callback, so this waits for frames.
+func eval_lisp_all(sources: Array) -> Array:
+	var port := int(OS.get_environment("GDECL_EVAL_PORT"))
+	var peers := []
+	var requests := []
+	var sent := []
+	var replies := []
+	for source in sources:
+		var peer := StreamPeerTCP.new()
+		peer.connect_to_host("127.0.0.1", port)
+		var request: PackedByteArray = source.to_utf8_buffer()
+		request.append(0)
+		peers.append(peer)
+		requests.append(request)
+		sent.append(false)
+		replies.append(PackedByteArray())
+	for _frame in 300:
+		await process_frame
+		var done := true
+		for i in peers.size():
+			var peer: StreamPeerTCP = peers[i]
+			peer.poll()
+			var status := peer.get_status()
+			if status == StreamPeerTCP.STATUS_CONNECTED and not sent[i]:
+				peer.put_data(requests[i])
+				sent[i] = true
+			var available := 0
+			if status == StreamPeerTCP.STATUS_CONNECTED:
+				available = peer.get_available_bytes()
+			if available > 0:
+				replies[i].append_array(peer.get_data(available)[1])
+			if available > 0 or not sent[i] or status == StreamPeerTCP.STATUS_CONNECTED:
+				done = false
+		if done:
+			break
+	return replies.map(func(reply): return reply.get_string_from_utf8())
+
+
+func eval_lisp(source: String) -> String:
+	return (await eval_lisp_all([source]))[0]
+
+
+func test_eval_server() -> void:
+	if OS.get_environment("GDECL_EVAL_PORT") == "":
+		check(false, "eval server: run with GDECL_EVAL_PORT set, as `make test` does")
+		return
+	var reply := await eval_lisp("(+ 1 2)")
+	check(reply == "ok\n3\n", "eval server: a value (%s)" % reply.c_escape())
+	reply = await eval_lisp("(princ \"héllo\") (values 1 :two)")
+	check(reply == "ok\nhéllo\n1\n:TWO\n", "eval server: output and values (%s)" % reply.c_escape())
+	reply = await eval_lisp("(values)")
+	check(reply == "ok\n", "eval server: no values (%s)" % reply.c_escape())
+	reply = await eval_lisp("(print 1) (error \"boom ~a\" 42)")
+	check(reply == "error\n\n1 \nSIMPLE-ERROR: boom 42\n",
+			"eval server: an error (%s)" % reply.c_escape())
+	reply = await eval_lisp("(+ 1")
+	check(reply.begins_with("error\n"), "eval server: an incomplete form (%s)" % reply.c_escape())
+	reply = await eval_lisp("(read)")
+	check(reply.begins_with("error\n"), "eval server: no standard input (%s)" % reply.c_escape())
+	reply = await eval_lisp("(break)")
+	check(reply.begins_with("error\n"), "eval server: no debugger (%s)" % reply.c_escape())
+	reply = await eval_lisp("(in-package :gd-extension)")
+	reply = await eval_lisp("(package-name *package*)")
+	check(reply == "ok\n\"GD-EXTENSION\"\n", "eval server: the package lasts (%s)" % reply.c_escape())
+	reply = await eval_lisp("(in-package :cl-user) (* 6 7)")
+	reply = await eval_lisp("(list * (godot-utility:str 1 \"a\"))")
+	check(reply == "ok\n(42 \"1a\")\n",
+			"eval server: * and a call to Godot (%s)" % reply.c_escape())
+	var replies := await eval_lisp_all(["(+ 1 1)", "(+ 2 2)"])
+	check(replies == ["ok\n2\n", "ok\n4\n"], "eval server: two connections at once (%s)" % [replies])

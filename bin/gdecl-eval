@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Evaluates Lisp forms in a running gdecl application, through its eval server
+# (lisp/gd-extension/eval-server.lisp), which runs when the application was
+# started with GDECL_EVAL_PORT set, e.g. by `make run`. Prints what the forms
+# printed, then the values of the last one, or the error.
+#
+#   gdecl-eval '(+ 1 2)'
+#   gdecl-eval < forms.lisp
+#
+# The port is GDECL_EVAL_PORT, 4040 if it's not set, and the reply is waited
+# for GDECL_EVAL_TIMEOUT seconds, 30 if it's not set. Exits with 0 if the forms
+# were evaluated, 1 if they signaled an error, and 2 if there's no server or no
+# reply.
+
+set -u
+
+port=${GDECL_EVAL_PORT:-4040}
+timeout=${GDECL_EVAL_TIMEOUT:-30}
+
+if [ $# -gt 0 ]; then
+    forms="$*"
+else
+    forms=$(cat)
+fi
+
+if ! { exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null; then
+    echo "gdecl-eval: no eval server on port $port; start the application with GDECL_EVAL_PORT=$port" >&2
+    exit 2
+fi
+
+# The request ends with a NUL byte; the reply's first line is ok or error
+printf '%s\0' "$forms" >&3
+if ! IFS= read -r -t "$timeout" status <&3; then
+    echo "gdecl-eval: no reply within $timeout seconds" >&2
+    exit 2
+fi
+cat <&3
+
+[ "$status" = ok ]

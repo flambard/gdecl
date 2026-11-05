@@ -40,7 +40,8 @@
                                (:file "instance-bindings" :depends-on ("initialize" "handle-tables"))
                                (:file "extension-classes" :depends-on ("instance-bindings"))
                                (:file "bound-methods" :depends-on ("extension-classes"))
-                               (:file "callables" :depends-on ("bound-methods"))))
+                               (:file "callables" :depends-on ("bound-methods"))
+                               (:file "main-loop" :depends-on ("gd-extension-callback"))))
                  ;; The public, Lisp-style layer, and the code generator of
                  ;; engine methods
                  (:module "gd-extension"
@@ -61,9 +62,11 @@
                                                                   "signals"))
                                (:file "objects" :depends-on ("registration" "references"
                                                              "engine-objects"))
+                               (:file "eval-server" :depends-on ("package"))
                                ;; The order of the framework's startup and
                                ;; shutdown steps
-                               (:file "lifecycle" :depends-on ("registration" "gd-extension"))))
+                               (:file "lifecycle" :depends-on ("registration" "gd-extension"
+                                                               "eval-server"))))
                  ;; Godot's API, generated from extension_api.json, and its code
                  ;; generators
                  (:module "godot"

@@ -27,7 +27,7 @@ gdecl is a proof of concept. Its API is incomplete and will change. For a comple
 
 ## Requirements
 
-- Godot 4.4 or later
+- Godot 4.4 or later (4.5 or later for the eval server)
 - ECL, with `ecl-config` on your `PATH`
 - GNU Make and a C compiler (clang is used if it's installed)
 
@@ -70,7 +70,7 @@ LIBRARY = project/bin/libgdecl.so
 include gdecl/gdecl.mk
 ```
 
-You can also set `LISP_DIRS` (where your `.asd` and `.lisp` files are, default `lisp`), `BUILD_DIR` (default `build`), `GODOT` (the Godot executable, default `godot`), and the usual `CC` and `CFLAGS`.
+You can also set `LISP_DIRS` (where your `.asd` and `.lisp` files are, default `lisp`), `BUILD_DIR` (default `build`), `GODOT` (the Godot executable, default `godot`), and the usual `CC` and `CFLAGS`. For `make run`: `PROJECT` (the Godot project, default `project`), `EVAL_PORT` (default 4040) and `GODOT_ARGS` (more arguments to Godot).
 
 **The `.gdextension` file** in your Godot project tells Godot where the library is. The entry symbol is always `gdecl_library_init`:
 
@@ -89,10 +89,29 @@ linux.debug = "res://bin/libgdecl.so"
 ```sh
 make             # compile your Lisp code and gdecl into the library
 make godot-api   # generate Godot's API files again, e.g. after upgrading Godot
+make run         # build, and run the application with the eval server (see below)
 make clean
 ```
 
 Restart Godot to load a new build of the library.
+
+## Evaluating Lisp in a running application
+
+With the environment variable `GDECL_EVAL_PORT` set to a port, the application runs an eval server on that port on 127.0.0.1, and `gdecl/bin/gdecl-eval` evaluates forms in it, for trying things out, inspecting the game while it runs, and redefining functions and classes in it. `make run` starts the application with the server on port 4040 (`make run GODOT_ARGS=--headless` without a window):
+
+```sh
+$ gdecl/bin/gdecl-eval '(in-package :my-app)'
+#<"MY-APP" package>
+$ gdecl/bin/gdecl-eval '(node-get-name (scene-tree-get-root (object-call (gdext:singleton "Engine") "get_main_loop")))'
+"root"
+```
+
+It prints what the forms printed and the values of the last one, or the error, and exits with 1 after an error and 2 if there's no server (`GDECL_EVAL_PORT` sets the port for it too, and `GDECL_EVAL_TIMEOUT` how many seconds it waits, 30 by default). The package lasts from one request to the next, as at a REPL.
+
+- The forms are evaluated between frames, on the main thread, so they can call all of Godot's API, and a form that takes long holds up the game.
+- They run as at a REPL, without an autorelease pool: you own the references you get (see References).
+- Anything sent to the port is evaluated, so the server listens only on 127.0.0.1, and only when `GDECL_EVAL_PORT` is set. It needs Godot 4.5 or later, and loads ECL's `sockets` module from ECL's installation.
+- The protocol, for other clients, is described at the top of `lisp/gd-extension/eval-server.lisp`.
 
 ## Defining classes
 

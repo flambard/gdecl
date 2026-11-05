@@ -24,6 +24,8 @@ tables and dispatchers behind them")
            #:*framework-deinitialize*
            #:free-bindings
            #:make-initialize-cell
+           ;; Main loop
+           #:set-frame-function
            ;; Errors
            #:report-error
            #:*wrapper-function*

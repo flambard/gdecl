@@ -23,6 +23,7 @@
                 #:*framework-deinitialize*
                 #:free-bindings
                 #:make-initialize-cell
+                #:set-frame-function
                 #:report-error
                 #:*wrapper-function*
                 #:register-method

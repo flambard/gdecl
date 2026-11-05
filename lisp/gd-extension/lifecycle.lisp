@@ -13,10 +13,15 @@
 
 (setf *framework-initialize*
       '(;; Before the application's hooks, which make instances of the classes
-        register-defined-classes)       ; registration.lisp
+        register-defined-classes        ; registration.lisp
+        ;; Only if GDECL_EVAL_PORT is set. Its first request comes in a frame,
+        ;; after the application's hooks have run.
+        start-eval-server)              ; eval-server.lisp
 
       *framework-deinitialize*
-      '(;; While their classes are still registered, as freeing an instance
+      '(;; First, so it doesn't evaluate anything while the framework shuts down
+        stop-eval-server                ; eval-server.lisp
+        ;; While their classes are still registered, as freeing an instance
         ;; calls into its class
         unregister-singletons           ; registration.lisp
         ;; Subclasses first, and while the class names, StringNames that
