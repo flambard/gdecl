@@ -64,26 +64,17 @@ The October 2026 review reproduced AT–AY (AT, AU, AV and AW are done) in isola
 
 ## Suggested order
 
-Revised on 2026-11-05: the eval server makes redefining things in a running game part of everyday work, so what keeps redefinition safe came first (AV, AW, BC and J's refusals, done). Use BA to broaden test coverage as work proceeds.
+Revised on 2026-11-05. What keeps redefinition safe came first (AV, AW, BC and J's refusals, done). The game has finished the 3D tutorial, so no tutorial chapter pulls features any more; its chapters 8 and 9 gave the evidence for AO, AP and AQ. Use BA to broaden test coverage as work proceeds.
 
-1. AO, AP and AQ, how game code reads, as the game's next tutorial chapters need them (score, retry, animation), alongside the correctness work rather than after it: gdecl grows from what applications need, and the calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`).
-2. AX and AY, for lossless conversion or explicit rejection. AX needs an API compatibility decision first (`:null` for a null Variant), as applications' code changes with it.
-3. AS before V, before J's part about `define-class` and before BB: if `define-class` is deprecated, those shrink to one class layer. Then V and W as applications need them; V's export hints are the likeliest.
-4. Verify and address AZ before relying on API regeneration after a Godot upgrade, and do AR to protect against ECL internal changes.
-5. BB and BD, the rest of the REPL work.
-6. R before an application uses threads, including threaded resource loading (`ResourceLoader.load_threaded_request`); move it ahead of other work if those are needed now. Tables keyed by name, if J still needs them, come with it.
-7. AM when an application's hot code needs faster slot access than a struct gives; its measurements also help answer AS.
-8. X when there's a reason to extend the editor.
-9. S before the first exported game, which doesn't run without it.
+1. Quick wins: AN, now an experiment with the eval server, and AY, a small, self-contained correctness fix.
+2. AQ, then AP, then AO: how game code reads. Chapters 8 and 9 wrote `$UserInterface/Retry` as `(node-get-node main "UserInterface/Retry")` four times, `.hide()` as `canvas-item-hide`, and the signal `"squashed"` as a string. AQ and AP are small; AO is the biggest gain, but needs design decisions first (dispatch for names that several classes define, names that clash with `cl`). The calls between Lisp and Godot are at or near their floor (see Performance in ECL in `CLAUDE.md`), so these come before more speed. A next application would give them real use cases.
+3. AX, once its API compatibility decision is made (`:null` for a null Variant), as applications' code changes with it.
+4. AS before V, before J's part about `define-class` and before BB: if `define-class` is deprecated, those shrink to one class layer. Then V and W as applications need them; V's export hints are the likeliest.
+5. Verify and address AZ before relying on API regeneration after a Godot upgrade, and do AR to protect against ECL internal changes.
+6. BB and BD, the rest of the REPL work.
+7. R before an application uses threads, including threaded resource loading (`ResourceLoader.load_threaded_request`); move it ahead of other work if those are needed now. Tables keyed by name, if J still needs them, come with it.
+8. AM when an application's hot code needs faster slot access than a struct gives; its measurements also help answer AS.
+9. X when there's a reason to extend the editor.
+10. S before the first exported game, which doesn't run without it.
 
 ## Done
-
-- AV, on 2026-11-05: `godot-clos`'s `make-instance` binds `*construction*` with its initargs, and the constructor Godot calls back (`make-lisp-object`, `godot-class.lisp`) initializes the instance once with them and the class's default initargs, which an object Godot makes gets too. The fast constructor is used only without initargs to give, for classes with only the standard initialization methods. If initializing fails, Godot destroys the object, the slots have taken no references yet, and `make-instance` signals the error rather than `make-object`'s. Test: `clos-initialization`, with `ClosInitNode`. Written into the README and `CLAUDE.md`.
-
-- AW, on 2026-11-05: redefining a `godot-clos` class that Godot knows is refused, before the Lisp class changes, if it removes an exported slot or changes a slot's `:export` or `:class` (`check-exported-slots`, from `reinitialize-instance :before` in `godot-registration.lisp`), as Godot keeps its properties and a lazily updated instance couldn't take or give back the reference of a slot that starts or stops keeping one. New slots and slots that aren't exported can still change. `release-slot-references` gives back the other slots' references when one fails, then signals the first error. Tests: the end of `clos-redefinition`, `clos-redefinition-of-reference-slots` and `clos-release-after-a-failure`. Written into the README and `CLAUDE.md`.
-
-- BC, on 2026-11-05: the eval server compiles each form before running it (`evaluate`, `eval-server.lisp`), as ECL's bytecode interpreter can't run `ffi:c-inline`, which gdecl's macros expand into (the invokers of `define-godot-generic`, `define-engine-class`, `with-foreign-memory`); about 0.1 s a form, and it needs the C compiler, so atoms are evaluated as they are. ECL's compiler module is loaded when the server starts. Other REPLs, such as Swank, still need `compile` for such forms. Test: the end of `test_eval_server` in `run_tests.gd`. Written into `CLAUDE.md` and the README.
-
-- AU, on 2026-11-05: a value writer either constructs its value or, if it fails, leaves nothing to destroy. The writers that fill in a container after constructing it (Arrays, Dictionaries, packed arrays of non-numbers) destroy it and zero its memory when an element fails (`filling`, `gd-extension/containers.lisp`), which gives back the references of the elements written so far; the generated engine calls, which destroy their zeroed argument memory also after a failure, and `write-variant-as`, which doesn't, are both right with that. `write-callable` reads the target's object ID before adding the handle, which stayed in `*callables*` if the target was freed. Test: `failed-conversions-release-what-they-made`. Written into `CLAUDE.md` (Adding things).
-
-- AT, on 2026-11-05: a RefCounted object in an Array or Dictionary that's read, nested ones and keys too, gets a reference in the autorelease pool (`read-element`, `gd-extension/containers.lisp`), as for an Object Variant result, so a resource whose only owner was a returned container is no longer freed before the caller uses it. Other objects get none, to keep reading an Array of nodes cheap. Test: `refcounted-objects-in-container-results`. Written into `CLAUDE.md` (References).
