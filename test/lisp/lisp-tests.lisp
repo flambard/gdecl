@@ -528,6 +528,27 @@ types of Godot objects.")
     (check (every (lambda (resource) (= 1 (ref-counted-get-reference-count resource)))
                   resources))))
 
+(deftest failed-conversions-release-what-they-made
+  ;; A container whose elements fail to convert partway is destroyed, which
+  ;; gives back the references of the elements written so far: as a Variant
+  ;; (TYPE-CONVERT) and as the argument of a generated engine call (CALLV)
+  (gdext:with-reference (resource (class-db-instantiate "TestResource"))
+    (let ((table (make-hash-table :test #'equal)))
+      ;; The Dictionary has the key, with its reference, when the value fails
+      (setf (gethash resource table) 'unsupported)
+      (dolist (value (list (vector resource 'unsupported)
+                           (vector (vector resource) 'unsupported)
+                           (vector table)))
+        (check (eq :error (handler-case (progn (type-convert value +type-array+) :converted)
+                            (error () :error))))
+        (check (= 1 (ref-counted-get-reference-count resource)))
+        (check (eq :error (handler-case (progn (object-callv *root* "get_name" value) :called)
+                            (error () :error))))
+        (check (= 1 (ref-counted-get-reference-count resource)))
+        ;; So that a leak doesn't fail the checks of the cases after it
+        (loop while (> (ref-counted-get-reference-count resource) 1)
+              do (gdext:release-reference resource))))))
+
 (deftest argument-conversion-errors
   ;; If an argument can't be converted, the raw values of those converted
   ;; before it are destroyed: here a Variant with a reference to a RefCounted

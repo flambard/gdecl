@@ -53,16 +53,18 @@ it with CALLABLE-DESTRUCTOR. Godot keeps a CALLABLE until the last copy of its
 Callable is destroyed."
   (etypecase callable
     (callable
-     (with-foreign-memory ((info 'callable-custom-info2))
-       ;; All slots not set below are NULL/0
-       (clear-foreign-object info 'callable-custom-info2)
-       (set-foreign-slots (info callable-custom-info2)
-         callable-userdata (add-handle *callables* callable)
-         token *class-library*
-         object-id (object-get-instance-id (object-pointer (callable-target callable)))
-         call-func (callback-pointer 'callable-call)
-         free-func (callback-pointer 'callable-free))
-       (callable-custom-create2 pointer info)))
+     ;; Before the handle is added, which would stay if a freed target signaled
+     (let ((object-id (object-get-instance-id (object-pointer (callable-target callable)))))
+       (with-foreign-memory ((info 'callable-custom-info2))
+         ;; All slots not set below are NULL/0
+         (clear-foreign-object info 'callable-custom-info2)
+         (set-foreign-slots (info callable-custom-info2)
+           callable-userdata (add-handle *callables* callable)
+           token *class-library*
+           object-id object-id
+           call-func (callback-pointer 'callable-call)
+           free-func (callback-pointer 'callable-free))
+         (callable-custom-create2 pointer info))))
     (engine-callable
      (copy-godot-callable pointer (engine-callable-memory callable)))))
 

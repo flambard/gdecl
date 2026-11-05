@@ -135,6 +135,26 @@ VALUE, best a ~s, which is copied as it is." class-name vector-type)
   to-double-float)
 
 ;;;
+;;; Writing containers element by element. A value writer either constructs its
+;;; value or, if it fails, leaves nothing to destroy: the generated engine calls
+;;; destroy their arguments' memory, zeroed first, also after a failure, and
+;;; WRITE-VARIANT-AS doesn't destroy it. So a container whose elements fail to
+;;; convert partway is destroyed, which releases the elements written so far,
+;;; and its memory zeroed again.
+;;;
+
+(defmacro filling ((pointer ffi-type destructor) &body body)
+  "Evaluate BODY, which fills in the container of FFI-TYPE just constructed at
+POINTER. If BODY fails, destroy the container with DESTRUCTOR and zero its
+memory, as if it was never constructed."
+  (let ((filled (gensym "FILLED")))
+    `(let ((,filled nil))
+       (unwind-protect (progn ,@body (setf ,filled t))
+         (unless ,filled
+           (,destructor ,pointer)
+           (clear-foreign-object ,pointer ',ffi-type))))))
+
+;;;
 ;;; Packed arrays of other types: simple vectors, converted element by element
 ;;;
 
@@ -168,13 +188,14 @@ sequence VALUE." class-name)
          (let ((vector (coerce value 'simple-vector)))
            (construct-empty ,variant-type pointer)
            (when (plusp (length vector))
-             (builtin-resize ,class-name pointer (length vector))
-             (let ((base (,operator-index pointer 0)))
-               (dotimes (i (length vector))
-                 (let ((element (array-element base ',element-mirror i)))
-                   ,@(when destroy-before-write
-                       `((,destroy-before-write element)))
-                   (,(value-type-writer element-type) element (svref vector i))))))))
+             (filling (pointer packed-array ,destructor)
+               (builtin-resize ,class-name pointer (length vector))
+               (let ((base (,operator-index pointer 0)))
+                 (dotimes (i (length vector))
+                   (let ((element (array-element base ',element-mirror i)))
+                     ,@(when destroy-before-write
+                         `((,destroy-before-write element)))
+                     (,(value-type-writer element-type) element (svref vector i)))))))))
        ;; No LISP-TYPE: a simple vector is an Array as a Variant
        (add-value-type (make-value-type :variant-type ,variant-type
                                         :ffi-type 'packed-array
@@ -239,12 +260,13 @@ reference (READ-ELEMENT)."
   (let ((vector (coerce value 'simple-vector)))
     (construct-empty +variant-type-array+ pointer)
     (when (plusp (length vector))
-      (builtin-resize "Array" pointer (length vector))
-      (dotimes (i (length vector))
-        (let ((variant (array-operator-index pointer i)))
-          ;; Nil after the resize
-          (variant-destroy variant)
-          (write-variant variant (svref vector i)))))))
+      (filling (pointer godot-array array-destructor)
+        (builtin-resize "Array" pointer (length vector))
+        (dotimes (i (length vector))
+          (let ((variant (array-operator-index pointer i)))
+            ;; Nil after the resize, and still Nil if writing it fails
+            (variant-destroy variant)
+            (write-variant variant (svref vector i))))))))
 
 (add-value-type (make-value-type :variant-type +variant-type-array+
                                  :ffi-type 'godot-array
@@ -275,16 +297,18 @@ come with a reference (READ-ELEMENT)."
   "Construct a Dictionary at POINTER, uninitialized memory, from the hash table
 VALUE."
   (construct-empty +variant-type-dictionary+ pointer)
-  (with-foreign-memory ((key 'variant))
-    (maphash (lambda (lisp-key lisp-value)
-               (write-variant key lisp-key)
-               (unwind-protect
-                    (let ((variant (dictionary-operator-index pointer key)))
-                      ;; Nil, as the key was just added
-                      (variant-destroy variant)
-                      (write-variant variant lisp-value))
-                 (variant-destroy key)))
-             value)))
+  (filling (pointer godot-dictionary dictionary-destructor)
+    (with-foreign-memory ((key 'variant))
+      (maphash (lambda (lisp-key lisp-value)
+                 (write-variant key lisp-key)
+                 (unwind-protect
+                      (let ((variant (dictionary-operator-index pointer key)))
+                        ;; Nil, as the key was just added, and still Nil if
+                        ;; writing it fails
+                        (variant-destroy variant)
+                        (write-variant variant lisp-value))
+                   (variant-destroy key)))
+               value))))
 
 (add-value-type (make-value-type :variant-type +variant-type-dictionary+
                                  :ffi-type 'godot-dictionary
