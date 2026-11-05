@@ -24,7 +24,7 @@ below.")
                 #:inherits-class-p
                 #:virtual-signatures
                 #:variant-type
-                #:godot-property-name
+                #:godot-style-name
                 #:*engine-object-types*)
   (:export ;; Classes
            #:godot-class

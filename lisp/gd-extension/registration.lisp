@@ -331,12 +331,6 @@ reported, and the others are still registered."
              (error (e)
                (report-error (format nil "registering the class ~a" class-name) e)))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun godot-property-name (slot-name)
-    "The name of the property of the slot SLOT-NAME, a symbol, in Godot style:
-mob-scene becomes \"mob_scene\"."
-    (substitute #\_ #\- (string-downcase (symbol-name slot-name)))))
-
 ;;;
 ;;; Singletons
 ;;;

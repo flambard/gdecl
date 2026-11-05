@@ -588,18 +588,37 @@ string at runtime into a temporary one, destroyed after the call."
                               (destroy-temporary-name ,type ,temporary)))))))
     form)
 
+  (defun godot-style-name (designator)
+    "The name in Godot of DESIGNATOR, a string, which is returned as it is, or a
+symbol in Lisp style, such as the name of a slot, a signal or an argument:
+mob-scene becomes \"mob_scene\"."
+    (if (stringp designator)
+        designator
+        (substitute #\_ #\- (string-downcase (symbol-name designator)))))
+
+  (defun literal-name (form macro)
+    "The name that FORM, an argument, gives literally for the macro MACRO (SNAME or
+NPATH): a string, or, for a StringName, a quoted symbol in Lisp style, which is
+its name in Godot style ('start-game is \"start_game\"); otherwise NIL."
+    (cond ((stringp form) form)
+          ((and (eq macro 'sname)
+                (typep form '(cons (eql quote) (cons (and symbol (not null)) null))))
+           (godot-style-name (second form)))))
+
   (defun wrap-literal-names (name arguments positions)
     "The call of the engine method NAME with ARGUMENTS (forms), for its compiler
-macro: each literal string at one of POSITIONS, a list of (index . macro), is
-wrapped in the macro (SNAME or NPATH), so the StringName or NodePath is created
-once. NIL if there's nothing to wrap, so the call is left as it is."
-    (when (loop for (i) in positions
-                thereis (stringp (nth i arguments)))
+macro: each literal name at one of POSITIONS, a list of (index . macro), a
+string or, for a StringName, a quoted symbol (LITERAL-NAME), is wrapped in the
+macro (SNAME or NPATH), so the StringName or NodePath is created once. NIL if
+there's nothing to wrap, so the call is left as it is."
+    (when (loop for (i . macro) in positions
+                thereis (literal-name (nth i arguments) macro))
       `(,name ,@(loop for argument in arguments
                       for i from 0
                       for macro = (cdr (assoc i positions))
-                      collect (if (and macro (stringp argument))
-                                  `(,macro ,argument)
+                      for literal = (and macro (literal-name argument macro))
+                      collect (if literal
+                                  `(,macro ,literal)
                                   argument)))))
 
   (defun engine-method-argument-symbol (name)

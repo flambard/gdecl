@@ -361,17 +361,18 @@ Godot's builtin types are Lisp structs, made with a function named like the type
 
 ## StringNames and NodePaths
 
-You pass StringNames and NodePaths as strings: `(input-is-action-pressed "ui_up")`. A literal string like that is turned into a StringName once, when your code is compiled. A string that's only known at run time becomes a temporary StringName for each call, which is slower.
+You pass StringNames and NodePaths as strings: `(input-is-action-pressed "ui_up")`. A literal string like that is turned into a StringName once, when your code is compiled. A StringName can also be a quoted symbol in Lisp style, which is its name in Godot style: `(input-is-action-pressed 'move-right)` is `"move_right"`, like the names of slots and signals; only a literal one, as only that is converted when your code is compiled. A string that's only known at run time becomes a temporary StringName for each call, which is slower.
 
 To make your own, `(gdext:sname "move_right")` is a StringName created once, like `SNAME()` in Godot's C++ code, and `(gdext:npath "AnimatedSprite2D")` a NodePath created once.
 
 ## Signals
 
-Declare a class's signals with `:signals`, and emit one with `object-emit-signal`:
+Declare a class's signals with `:signals`, and emit one with `object-emit-signal`, naming the signal as you declared it, quoted, or as a string in Godot style:
 
 ```lisp
-(object-emit-signal player "hit")
-(object-emit-signal player "damaged" 5)
+(object-emit-signal player 'hit)
+(object-emit-signal player 'damaged 5)
+(object-emit-signal player "damaged" 5)      ; the same
 ```
 
 For a signal emitted often, define an emitter. It knows the argument types when your code is compiled, so it's about twice as fast and allocates nothing:

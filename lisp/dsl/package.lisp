@@ -29,7 +29,7 @@ instance.")
                 #:add-class-definition
                 #:inherits-class-p
                 #:engine-object-type
-                #:godot-property-name)
+                #:godot-style-name)
   (:import-from #:godot
                 #:node-get-node)
   (:export #:define-class))

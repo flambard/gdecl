@@ -42,7 +42,7 @@
            #:inherits-class-p
            #:engine-object-type
            #:virtual-signatures
-           #:godot-property-name
+           #:godot-style-name
            #:*engine-object-types*
            ;; For GODOT-GENERATORS
            #:unsupported-api-type

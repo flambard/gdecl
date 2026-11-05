@@ -475,6 +475,23 @@ types of Godot objects.")
   (let ((node (new-test-node)))
     (check (= +ok+ (gdext:connect-signal node "pinged" (lambda (&rest arguments) arguments))))))
 
+(deftest signals-by-lisp-names
+  ;; A literal StringName can be a quoted symbol in Lisp style, which is its
+  ;; name in Godot style: 'pinged is "pinged", and 'tree-entered "tree_entered"
+  (let ((node (new-test-node))
+        (heard '())
+        (entered nil))
+    (gdext:connect-signal node 'pinged (lambda (&rest arguments) (push (first arguments) heard)))
+    (object-emit-signal node 'pinged 1 "a" (vector2) nil nil)
+    (after-signal (node 'pinged :target node)
+      (push :after heard))
+    (object-emit-signal node 'pinged 2 "a" (vector2) nil nil)
+    (check (equal '(:after 2 1) heard))
+    (let ((child (gdext:make-object "Node")))
+      (gdext:connect-signal child 'tree-entered (lambda () (setf entered t)))
+      (node-add-child node child)
+      (check entered))))
+
 (deftest after-signal-runs-once
   (let ((node (new-test-node))
         (runs 0))

@@ -103,14 +103,7 @@ Slot options:
   (defun godot-class-name (name)
     "The default name in Godot of the class NAME, a symbol: test-node becomes
 \"TestNode\"."
-    (remove #\- (string-capitalize (symbol-name name))))
-
-  (defun godot-style-name (designator)
-    "The name in Godot of DESIGNATOR, a string, or a symbol in Lisp style:
-mob-scene becomes \"mob_scene\"."
-    (if (stringp designator)
-        designator
-        (godot-property-name designator))))
+    (remove #\- (string-capitalize (symbol-name name)))))
 
 (defun parse-signal (signal)
   "SIGNAL, from the :SIGNALS option, as a list of the name and the arguments,

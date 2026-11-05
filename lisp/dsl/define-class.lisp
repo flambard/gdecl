@@ -77,7 +77,7 @@ options), of the struct STRUCT-NAME, as a CLASS-SLOT."
 getter and setter methods, get_<name> and set_<name>. If the slot has a
 REF-COUNTED variable, the generated setter takes and gives back references when
 the values are RefCounted."
-    (let* ((property-name (godot-property-name (class-slot-name slot)))
+    (let* ((property-name (godot-style-name (class-slot-name slot)))
            (getter-name (format nil "get_~a" property-name))
            (setter-name (format nil "set_~a" property-name))
            (accessor (class-slot-accessor slot))
