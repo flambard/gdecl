@@ -24,6 +24,10 @@
 ;;; in, CL-USER at first, so an IN-PACKAGE lasts, and *, ** and *** are set as
 ;;; in a REPL.
 ;;;
+;;; Each form is compiled before it runs (EVALUATE), as ECL's interpreter can't
+;;; run what gdecl's macros expand into, so a request takes about 0.1 s a form
+;;; and needs the C compiler and ECL's compiler module.
+;;;
 ;;; The forms run as at a REPL, not as in a callback: there's no autorelease
 ;;; pool (see autorelease-pool.lisp), so they own the references they get, and
 ;;; there's no standard input to read from or debugger to enter: either signals
@@ -109,6 +113,8 @@ requests once every frame."
   (let ((port (eval-server-port)))
     (when (and port (not *eval-server-socket*))
       (require :sockets)
+      ;; For EVALUATE, now rather than in the first request's output
+      (require :cmp)
       (let ((socket (make-instance (find-symbol "INET-SOCKET" "SB-BSD-SOCKETS")
                                    :type :stream :protocol :tcp))
             (listening nil))
@@ -219,6 +225,19 @@ it's all sent."
 ;;; Evaluating
 ;;;
 
+(defun evaluate (form)
+  "Evaluate FORM compiled, as the application's code is, rather than with ECL's
+bytecode interpreter, which can't run FFI:C-INLINE, and gdecl's macros expand
+into it (the invokers of DEFINE-GODOT-GENERIC, DEFINE-ENGINE-CLASS,
+WITH-FOREIGN-MEMORY, ...). Compiling takes about 0.1 s, as ECL runs the C
+compiler, so an atom, which can't contain any, is evaluated as it is."
+  (if (consp form)
+      (let ((function (compile nil `(lambda () ,form))))
+        (unless function
+          (error "Compiling the form failed"))
+        (funcall function))
+      (eval form)))
+
 (defun evaluate-request (octets)
   "Read and evaluate the forms in OCTETS, UTF-8 text, as described at the top of
 this file, and return the reply, as UTF-8 octets."
@@ -247,7 +266,7 @@ this file, and return the reply, as UTF-8 octets."
                    (forms (ext:octets-to-string octets :external-format :utf-8))
                  (loop for form = (read forms nil forms)
                        until (eq form forms)
-                       do (setf results (multiple-value-list (eval form)))
+                       do (setf results (multiple-value-list (evaluate form)))
                           (setf *** ** ** * * (first results))))
                (fresh-line output)
                (dolist (result results)

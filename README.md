@@ -109,6 +109,7 @@ $ gdecl/bin/gdecl-eval '(node-get-name (scene-tree-get-root (object-call (gdext:
 It prints what the forms printed and the values of the last one, or the error, and exits with 1 after an error and 2 if there's no server (`GDECL_EVAL_PORT` sets the port for it too, and `GDECL_EVAL_TIMEOUT` how many seconds it waits, 30 by default). The package lasts from one request to the next, as at a REPL.
 
 - The forms are evaluated between frames, on the main thread, so they can call all of Godot's API, and a form that takes long holds up the game.
+- Each form is compiled before it runs, as the application's code is, which takes about 0.1 s and needs the C compiler: ECL's interpreter can't run the C code that gdecl's macros, such as `define-godot-generic`, expand into.
 - They run as at a REPL, without an autorelease pool: you own the references you get (see References).
 - Anything sent to the port is evaluated, so the server listens only on 127.0.0.1, and only when `GDECL_EVAL_PORT` is set. It needs Godot 4.5 or later, and loads ECL's `sockets` module from ECL's installation.
 - The protocol, for other clients, is described at the top of `lisp/gd-extension/eval-server.lisp`.
@@ -210,7 +211,7 @@ Instead of a singleton, you can add a function to run at startup with `(gdext:ad
 
 ### Redefining classes in a running game
 
-Redefining a class, or adding a method, at a REPL updates the existing instances and registers what's new with Godot. Godot can't remove anything from a class or change its parent, though: a redefinition with another parent signals an error and leaves the class as it was. A virtual method that a class gets later is called only for the instances made afterwards, as Godot asks each instance once. A class first defined at a REPL can't be instantiated yet (TODO BB), and a `define-godot-generic` evaluated at a REPL must be compiled (TODO BC).
+Redefining a class, or adding a method, at a REPL updates the existing instances and registers what's new with Godot. Godot can't remove anything from a class or change its parent, though: a redefinition with another parent signals an error and leaves the class as it was. A virtual method that a class gets later is called only for the instances made afterwards, as Godot asks each instance once. A class first defined at a REPL can't be instantiated yet (TODO BB), and at a REPL other than the eval server, which compiles what it's sent, a `define-godot-generic` must be compiled: `(funcall (compile nil '(lambda () (define-godot-generic ...))))`.
 
 ### Making hot code fast
 

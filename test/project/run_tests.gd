@@ -461,3 +461,13 @@ func test_eval_server() -> void:
 			"eval server: * and a call to Godot (%s)" % reply.c_escape())
 	var replies := await eval_lisp_all(["(+ 1 1)", "(+ 2 2)"])
 	check(replies == ["ok\n2\n", "ok\n4\n"], "eval server: two connections at once (%s)" % [replies])
+	# Defined through the eval server, whose forms are compiled, as the method's
+	# invokers expand into C code that ECL's interpreter can't run
+	reply = await eval_lisp("(in-package :gdecl-test)"
+			+ " (define-godot-generic eval-defined (self (x :int)) (:return-type :int))"
+			+ " (defmethod eval-defined ((node clos-redefined-node) x) (* 2 x))"
+			+ " (in-package :cl-user) :defined")
+	check(reply == "ok\n:DEFINED\n", "eval server: defining a Godot method (%s)" % reply.c_escape())
+	var node: Node = ClassDB.instantiate("ClosRedefinedNode")
+	check(node.call("eval_defined", 21) == 42, "eval server: Godot calls a method defined through it")
+	node.free()
