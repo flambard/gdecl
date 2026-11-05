@@ -565,6 +565,25 @@ types of Godot objects.")
         (check (eql 1 (gethash :null read)))
         (check (eql 2 (gethash nil read)))))))
 
+(deftest integer-limits
+  ;; Godot's int is a signed 64-bit integer: its limits convert as they are,
+  ;; and an integer outside them signals an error rather than becoming a float,
+  ;; as a Variant and as a typed argument
+  (flet ((error-p (function)
+           (handler-case (progn (funcall function) nil)
+             (error () t))))
+    (let ((min (- (expt 2 63)))
+          (max (1- (expt 2 63)))
+          (node (new-node "Node")))
+      (check (eql max (type-convert max +type-int+)))
+      (check (eql min (type-convert min +type-int+)))
+      (check (error-p (lambda () (type-convert (1+ max) +type-int+))))
+      (check (error-p (lambda () (type-convert (1- min) +type-int+))))
+      (check (error-p (lambda () (type-convert (vector (1+ max)) +type-array+))))
+      (check (error-p (lambda () (node-set-process-priority node (1+ max)))))
+      ;; A float on purpose
+      (check (eql (float (1+ max) 1d0) (type-convert (float (1+ max) 1d0) +type-float+))))))
+
 (deftest argument-conversion-errors
   ;; If an argument can't be converted, the raw values of those converted
   ;; before it are destroyed: here a Variant with a reference to a RefCounted

@@ -307,7 +307,7 @@ Values are converted between Godot and Lisp like this:
 | Godot | Lisp |
 |---|---|
 | null | `nil`, or `:null` with `gdext:*null-value*` bound to it (as a Variant, write `:null`, since `nil` is false) |
-| bool, int (also enums), float | `t`/`nil`, integers, floats |
+| bool, int (also enums), float | `t`/`nil`, integers (one outside 64 bits signals an error), floats |
 | String | strings |
 | StringName, NodePath | strings (see StringNames and NodePaths) |
 | Vector2, Vector3, Color, Transform2D, Basis, … | structs: `vector2`, `vector3`, `color`, `transform2d`, `basis`, … (see Builtin types) |

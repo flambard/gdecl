@@ -693,6 +693,8 @@ pointer, or an address if VARIANT-FFI-TYPE is :UINT64-T."
                                 (if ,value 1 0) ,variant-ffi-type))
      ((signed-byte 64) (variant-from-raw ,variant +variant-type-int+ :int64-t "int64_t"
                                          ,value ,variant-ffi-type))
+     ;; Rather than a float, which REAL would make of it
+     (integer (error "~d doesn't fit in Godot's int, a signed 64-bit integer" ,value))
      (real (variant-from-raw ,variant +variant-type-float+ :double "double"
                              (float ,value 1d0) ,variant-ffi-type))
      (t ,@otherwise)))
